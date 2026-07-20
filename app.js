@@ -325,17 +325,179 @@ function App() {
     );
   }
 
-  // 메인 화면 (추후 조회/등록 화면으로 교체 예정)
+  // 메인 화면 - 날짜별 조회
   if (step === "main") {
-    return (
-      <div style={styles.screen}>
-        <div style={styles.title}>환영합니다! 🎉</div>
-        <div style={styles.subText}>다음 단계에서 날짜별 조회 화면을 만들 예정이에요</div>
-      </div>
-    );
+    return <MainScreen currentUser={loginTarget || { ...selectedEmp }} />;
   }
 
   return null;
+}
+
+/* ------------------------------------------------------------------ */
+/* Firestore 준비 대기 헬퍼                                             */
+/* ------------------------------------------------------------------ */
+function waitForFirestore() {
+  return new Promise((resolve) => {
+    if (window.__firestoreReady) return resolve();
+    window.addEventListener("firestore-ready", () => resolve(), { once: true });
+  });
+}
+
+function todayStr() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
+
+function formatDateHeader(dateStr) {
+  const d = new Date(dateStr + "T00:00:00");
+  return `${dateStr} ${WEEKDAYS[d.getDay()]}요일`;
+}
+
+/* ------------------------------------------------------------------ */
+/* 메인 화면 컴포넌트 (날짜별 조회)                                       */
+/* ------------------------------------------------------------------ */
+const mainStyles = {
+  wrap: { minHeight: "100vh", background: "#f5f6f8", paddingBottom: "80px" },
+  header: {
+    padding: "20px 20px 12px",
+    background: "#fff",
+    borderBottom: "1px solid #eee",
+  },
+  dateInput: {
+    width: "100%",
+    padding: "12px",
+    fontSize: "16px",
+    borderRadius: "10px",
+    border: "1px solid #ddd",
+    marginTop: "8px",
+  },
+  countBadge: {
+    fontSize: "14px",
+    color: "#3478f6",
+    fontWeight: 700,
+    marginTop: "6px",
+  },
+  list: { padding: "12px 16px" },
+  card: {
+    background: "#fff",
+    borderRadius: "12px",
+    padding: "14px 16px",
+    marginBottom: "8px",
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    border: "1px solid #eee",
+  },
+  nameCol: { display: "flex", flexDirection: "column" },
+  name: { fontSize: "16px", fontWeight: 700, color: "#1a1a1a" },
+  typeRow: { fontSize: "13px", color: "#888", marginTop: "2px" },
+  dia: { fontSize: "15px", fontWeight: 700, color: "#3478f6" },
+  cancelledCard: { opacity: 0.45, textDecoration: "line-through" },
+  empty: {
+    textAlign: "center",
+    color: "#aaa",
+    padding: "60px 20px",
+    fontSize: "15px",
+  },
+  fab: {
+    position: "fixed",
+    bottom: "28px",
+    right: "20px",
+    width: "56px",
+    height: "56px",
+    borderRadius: "50%",
+    background: "#3478f6",
+    color: "#fff",
+    fontSize: "28px",
+    border: "none",
+    boxShadow: "0 4px 12px rgba(0,0,0,0.2)",
+    cursor: "pointer",
+  },
+};
+
+function MainScreen({ currentUser }) {
+  const [date, setDate] = useState(todayStr());
+  const [vacations, setVacations] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback((d) => {
+    setLoading(true);
+    waitForFirestore()
+      .then(() => window.VacationAPI.getByDate(d))
+      .then((list) => {
+        // 이름순 정렬, 취소된 건 뒤로
+        list.sort((a, b) => {
+          if ((a.status === "취소됨") !== (b.status === "취소됨")) {
+            return a.status === "취소됨" ? 1 : -1;
+          }
+          return (a.name || "").localeCompare(b.name || "");
+        });
+        setVacations(list);
+      })
+      .catch((err) => {
+        console.error(err);
+        alert("데이터를 불러오지 못했어요");
+      })
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    load(date);
+  }, [date, load]);
+
+  const activeCount = vacations.filter((v) => v.status !== "취소됨").length;
+
+  return (
+    <div style={mainStyles.wrap}>
+      <div style={mainStyles.header}>
+        <div style={{ fontWeight: 700, fontSize: "18px" }}>{currentUser?.name}님</div>
+        <input
+          type="date"
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
+          style={mainStyles.dateInput}
+        />
+        <div style={mainStyles.countBadge}>
+          {formatDateHeader(date)} · 휴가자 {activeCount}명
+        </div>
+      </div>
+
+      <div style={mainStyles.list}>
+        {loading && <div style={mainStyles.empty}>불러오는 중...</div>}
+        {!loading && vacations.length === 0 && (
+          <div style={mainStyles.empty}>이 날짜에 등록된 휴가가 없어요</div>
+        )}
+        {!loading &&
+          vacations.map((v) => (
+            <div
+              key={v.id}
+              style={{
+                ...mainStyles.card,
+                ...(v.status === "취소됨" ? mainStyles.cancelledCard : {}),
+              }}
+            >
+              <div style={mainStyles.nameCol}>
+                <div style={mainStyles.name}>{v.name}</div>
+                <div style={mainStyles.typeRow}>
+                  {v.branch} · {v.vacationType}
+                  {v.status === "취소됨" ? " (취소됨)" : ""}
+                </div>
+              </div>
+              <div style={mainStyles.dia}>{v.dia}</div>
+            </div>
+          ))}
+      </div>
+
+      <button style={mainStyles.fab} onClick={() => alert("다음 단계에서 등록 화면을 만들 예정이에요")}>
+        +
+      </button>
+    </div>
+  );
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(<App />);
