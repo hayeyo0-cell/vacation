@@ -1,1 +1,54 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>휴가장부</title>
+<link rel="manifest" href="manifest.json" />
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Malgun Gothic", sans-serif;
+    background: #f5f6f8;
+    color: #1a1a1a;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #root { min-height: 100vh; }
+</style>
+</head>
+<body>
+<div id="root"></div>
 
+<!-- React -->
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<!-- Babel (JSX를 브라우저에서 바로 변환) -->
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+<!-- Firebase (모듈형 SDK, CDN) -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
+  import { getFirestore } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyBrBlZXbA-Tt68cnXk2XKQYms7wI3owCVI",
+    authDomain: "vacation-31f9f.firebaseapp.com",
+    projectId: "vacation-31f9f",
+    storageBucket: "vacation-31f9f.firebasestorage.app",
+    messagingSenderId: "1015564758748",
+    appId: "1:1015564758748:web:11561d3fcf11f564308e19"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+
+  // 전역으로 노출 (app.js의 Babel 스크립트에서 사용)
+  window.__db = db;
+  window.__firestoreReady = true;
+  window.dispatchEvent(new Event("firestore-ready"));
+</script>
+
+<!-- 실제 앱 코드 (JSX) -->
+<script type="text/babel" src="app.js"></script>
+</body>
+</html>
