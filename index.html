@@ -28,7 +28,17 @@
 <!-- Firebase (모듈형 SDK, CDN) -->
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
-  import { getFirestore } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+  import {
+    getFirestore,
+    collection,
+    addDoc,
+    getDocs,
+    query,
+    where,
+    doc,
+    updateDoc,
+    serverTimestamp,
+  } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyBrBlZXbA-Tt68cnXk2XKQYms7wI3owCVI",
@@ -41,9 +51,42 @@
 
   const app = initializeApp(firebaseConfig);
   const db = getFirestore(app);
+  const COLLECTION = "vacations";
 
-  // 전역으로 노출 (app.js의 Babel 스크립트에서 사용)
-  window.__db = db;
+  // app.js(Babel 스크립트)에서 window.VacationAPI.xxx() 형태로 호출
+  window.VacationAPI = {
+    // 특정 날짜의 휴가 기록 전체 조회 (취소된 것 포함)
+    async getByDate(dateStr) {
+      const q = query(collection(db, COLLECTION), where("date", "==", dateStr));
+      const snap = await getDocs(q);
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    },
+    // 새 휴가 등록
+    async add(record) {
+      const ref = await addDoc(collection(db, COLLECTION), {
+        ...record,
+        status: "정상",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+      return ref.id;
+    },
+    // 기존 기록 수정 (본인 것만 - 화면단에서 제한)
+    async update(id, patch) {
+      await updateDoc(doc(db, COLLECTION, id), {
+        ...patch,
+        updatedAt: serverTimestamp(),
+      });
+    },
+    // 취소 처리 (삭제 아님, 상태만 변경)
+    async cancel(id) {
+      await updateDoc(doc(db, COLLECTION, id), {
+        status: "취소됨",
+        updatedAt: serverTimestamp(),
+      });
+    },
+  };
+
   window.__firestoreReady = true;
   window.dispatchEvent(new Event("firestore-ready"));
 </script>
