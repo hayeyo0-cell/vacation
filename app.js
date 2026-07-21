@@ -409,7 +409,11 @@ const cal = {
     cursor: "pointer",
     position: "relative",
   }),
-  dayNum: { fontSize: "14px", fontWeight: 600, color: "#333" },
+  dayNum: (type) => ({
+    fontSize: "14px",
+    fontWeight: 700,
+    color: type === "휴일" ? "#e02020" : type === "토요일" ? "#1a73e8" : "#333",
+  }),
   dayBadge: (color) => ({
     marginTop: "3px",
     width: "22px",
@@ -443,8 +447,8 @@ function isCapacityType(type) {
   return CAPACITY_TYPES.includes(type);
 }
 
-// 2026년 공휴일 (신정/설/삼일절·대체/어린이날/부처님오신날·대체/지방선거/현충일/광복절·대체/추석/개천절·대체/한글날/성탄절)
-const HOLIDAYS_2026 = new Set([
+// 2026년 공휴일 폴백 목록 (API 호출 실패/오프라인 시에만 사용)
+const FALLBACK_HOLIDAYS_2026 = new Set([
   "2026-01-01", "2026-02-16", "2026-02-17", "2026-02-18",
   "2026-03-01", "2026-03-02", "2026-05-05", "2026-05-24", "2026-05-25",
   "2026-06-03", "2026-06-06", "2026-08-15", "2026-08-17",
@@ -452,10 +456,36 @@ const HOLIDAYS_2026 = new Set([
   "2026-10-03", "2026-10-05", "2026-10-09", "2026-12-25",
 ]);
 
-function getDayType(dateStr) {
+// 수동으로 추가하는 공휴일 (임시공휴일, 선거일 등 API가 놓치는 날짜)
+// ⚠️ 필요할 때 이 배열에 "YYYY-MM-DD" 형식으로 날짜만 추가하면 돼요. API 성공 여부와 무관하게 항상 적용됩니다.
+const MANUAL_HOLIDAYS = [
+  // 예시: "2026-06-03", // 전국동시지방선거
+];
+
+// 연도별 공휴일을 Nager.Date API에서 자동 조회 (실패 시 폴백 사용, 2026년 외 연도는 빈 목록)
+// + MANUAL_HOLIDAYS는 항상 합쳐서 반환
+const holidayCache = {};
+function fetchHolidays(year) {
+  if (holidayCache[year]) return holidayCache[year];
+  const manualForYear = MANUAL_HOLIDAYS.filter((d) => d.startsWith(String(year)));
+  const promise = fetch(`https://date.nager.at/api/v3/PublicHolidays/${year}/KR`)
+    .then((res) => {
+      if (!res.ok) throw new Error("holiday fetch failed");
+      return res.json();
+    })
+    .then((list) => new Set([...list.map((h) => h.date), ...manualForYear]))
+    .catch(() => {
+      const base = year === 2026 ? FALLBACK_HOLIDAYS_2026 : new Set();
+      return new Set([...base, ...manualForYear]);
+    });
+  holidayCache[year] = promise;
+  return promise;
+}
+
+function getDayType(dateStr, holidaySet) {
   const d = new Date(dateStr + "T00:00:00");
   const day = d.getDay(); // 0=일 6=토
-  if (HOLIDAYS_2026.has(dateStr) || day === 0) return "휴일";
+  if ((holidaySet && holidaySet.has(dateStr)) || day === 0) return "휴일";
   if (day === 6) return "토요일";
   return "평일";
 }
@@ -463,8 +493,8 @@ function getDayType(dateStr) {
 const GUARANTEE = { 평일: 4, 토요일: 5, 휴일: 7 };
 
 // activeRecords: 취소 아닌 전체 기록 (비번 감지는 전체 기록 대상)
-function gyeongsanCapacity(dateStr, activeRecords) {
-  let base = GUARANTEE[getDayType(dateStr)];
+function gyeongsanCapacity(dateStr, activeRecords, holidaySet) {
+  let base = GUARANTEE[getDayType(dateStr, holidaySet)];
   const hasOffDuty = activeRecords.some((r) => (r.dia || "").includes("비번"));
   if (hasOffDuty) base += 1;
   return base;
@@ -601,11 +631,20 @@ function MainScreen({ currentUser }) {
   const [viewMonth, setViewMonth] = useState(now.getMonth()); // 0-indexed
   const [monthMap, setMonthMap] = useState({}); // { "YYYY-MM-DD": [records] }
   const [loading, setLoading] = useState(true);
+  const [holidaySet, setHolidaySet] = useState(new Set());
   const [selectedDate, setSelectedDate] = useState(null); // 모달용
   const [showRegisterForm, setShowRegisterForm] = useState(false);
   const [formType, setFormType] = useState(VACATION_TYPES[0]);
   const [formDia, setFormDia] = useState("");
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchHolidays(viewYear).then((set) => {
+      if (!cancelled) setHolidaySet(set);
+    });
+    return () => { cancelled = true; };
+  }, [viewYear]);
 
   const loadMonth = useCallback((y, m) => {
     setLoading(true);
@@ -675,7 +714,7 @@ function MainScreen({ currentUser }) {
   const gyeongsanInfo =
     currentUser.branch === "경산" && selectedDate
       ? (() => {
-          const capacity = gyeongsanCapacity(selectedDate, activeRecordsForCapacity);
+          const capacity = gyeongsanCapacity(selectedDate, activeRecordsForCapacity, holidaySet);
           const remain = capacity - capacityCount;
           return { capacity, remain, capacityCount };
         })()
@@ -734,7 +773,11 @@ function MainScreen({ currentUser }) {
           <button style={cal.navBtn} onClick={() => changeMonth(1)}>›</button>
         </div>
         <div style={cal.weekRow}>
-          {WEEKDAYS.map((w) => <div key={w}>{w}</div>)}
+          {WEEKDAYS.map((w, i) => (
+            <div key={w} style={{ color: i === 0 ? "#e02020" : i === 6 ? "#1a73e8" : "#999" }}>
+              {w}
+            </div>
+          ))}
         </div>
       </div>
 
@@ -742,13 +785,14 @@ function MainScreen({ currentUser }) {
         {cells.map((d, i) => {
           if (d === null) return <div key={i} style={cal.emptyCell} />;
           const key = `${viewYear}-${pad2(viewMonth + 1)}-${pad2(d)}`;
+          const dayType = getDayType(key, holidaySet);
           const branchRecords = (monthMap[key] || []).filter((v) => v.branch === currentUser.branch);
           const activeRecords = branchRecords.filter((v) => v.status !== "취소됨");
           const capacityCount = activeRecords.filter((v) => isCapacityType(v.vacationType)).length;
 
           let badge = null;
           if (currentUser.branch === "경산") {
-            const capacity = gyeongsanCapacity(key, activeRecords);
+            const capacity = gyeongsanCapacity(key, activeRecords, holidaySet);
             const remain = capacity - capacityCount;
             badge = <div style={cal.dayBadge(gyeongsanColor(remain))}>{capacityCount}</div>;
           } else if (activeRecords.length > 0) {
@@ -757,7 +801,7 @@ function MainScreen({ currentUser }) {
 
           return (
             <div key={i} style={cal.dayCell(key === todayKey)} onClick={() => openDate(d)}>
-              <div style={cal.dayNum}>{d}</div>
+              <div style={cal.dayNum(dayType)}>{d}</div>
               {badge}
             </div>
           );
