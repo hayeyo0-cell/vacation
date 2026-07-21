@@ -36,6 +36,8 @@
     collection,
     addDoc,
     getDocs,
+    getDoc,
+    setDoc,
     query,
     where,
     doc,
@@ -55,6 +57,7 @@
   const app = initializeApp(firebaseConfig);
   const db = getFirestore(app);
   const COLLECTION = "vacations";
+  const APPROVAL_COLLECTION = "approvals";
 
   // app.js(Babel 스크립트)에서 window.VacationAPI.xxx() 형태로 호출
   window.VacationAPI = {
@@ -95,6 +98,42 @@
     async cancel(id) {
       await updateDoc(doc(db, COLLECTION, id), {
         status: "취소됨",
+        updatedAt: serverTimestamp(),
+      });
+    },
+  };
+
+  // 사용자 승인 관련 API
+  window.ApprovalAPI = {
+    // 최초 등록 시 승인 요청 생성/갱신 (직원ID 기준, 이미 있으면 pending으로 갱신)
+    async request(record) {
+      await setDoc(
+        doc(db, APPROVAL_COLLECTION, record.id),
+        {
+          name: record.name,
+          branch: record.branch,
+          status: "pending",
+          requestedAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+    },
+    // 특정 직원의 승인 상태 조회
+    async getStatus(id) {
+      const snap = await getDoc(doc(db, APPROVAL_COLLECTION, id));
+      return snap.exists() ? snap.data() : null;
+    },
+    // 대기중 목록 조회 (관리자용)
+    async listPending() {
+      const q = query(collection(db, APPROVAL_COLLECTION), where("status", "==", "pending"));
+      const snap = await getDocs(q);
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    },
+    // 승인/거절 처리 (관리자용)
+    async setStatus(id, status) {
+      await updateDoc(doc(db, APPROVAL_COLLECTION, id), {
+        status,
         updatedAt: serverTimestamp(),
       });
     },
