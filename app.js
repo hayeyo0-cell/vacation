@@ -532,7 +532,7 @@ function App() {
     saveLocalAuth(updated);
     setLocalAuth(updated);
 
-    if (ADMIN_NAMES.includes(selectedEmp.name)) {
+    if (ADMIN_NAMES.includes(selectedEmp.name) || isMidManagerUser(selectedEmp)) {
       // 관리자는 승인 절차 없이 바로 진입 (본인이 승인권자니까)
       setStep("main");
       return;
@@ -561,7 +561,7 @@ function App() {
       return;
     }
 
-    if (ADMIN_NAMES.includes(loginTarget.name)) {
+    if (ADMIN_NAMES.includes(loginTarget.name) || isMidManagerUser(loginTarget)) {
       setStep("main");
       return;
     }
