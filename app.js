@@ -154,6 +154,24 @@ const styles = {
     marginBottom: "16px",
     textAlign: "center",
   },
+  select: {
+    width: "100%",
+    maxWidth: "360px",
+    padding: "14px",
+    margin: "6px 0",
+    borderRadius: "12px",
+    border: "1px solid #ddd",
+    background: "#fff",
+    fontSize: "16px",
+    color: "#1a1a1a",
+  },
+  fieldLabel: {
+    width: "100%",
+    maxWidth: "360px",
+    fontSize: "13px",
+    color: "#666",
+    margin: "12px 0 2px",
+  },
 };
 
 /* ------------------------------------------------------------------ */
@@ -264,12 +282,14 @@ function InstallBanner({ installPrompt, onInstall, showIosHint, dismissed, onDis
 /* 메인 앱                                                              */
 /* ------------------------------------------------------------------ */
 function App() {
-  // step: "loading" | "chooseBranch" | "chooseName" | "confirmCode" | "setPin" | "loginName" | "loginPin" | "main"
+  // step: "loading" | "chooseBranch" | "nameAndCode" | "setPin" | "loginName" | "loginPin" | "main"
   const [step, setStep] = useState("loading");
   const [employees, setEmployees] = useState([]);
   const [localAuth, setLocalAuth] = useState([]);
   const [branch, setBranch] = useState(null);
   const [selectedEmp, setSelectedEmp] = useState(null);
+  const [pendingNameId, setPendingNameId] = useState("");
+  const [pendingCode, setPendingCode] = useState("");
   const [loginTarget, setLoginTarget] = useState(null);
   const [pinError, setPinError] = useState("");
 
@@ -340,20 +360,31 @@ function App() {
   /* ---- 최초 설정 흐름 ---- */
   const handleChooseBranch = (b) => {
     setBranch(b);
-    setStep("chooseName");
+    setPendingNameId("");
+    setPendingCode("");
+    setStep("nameAndCode");
   };
 
-  const handleChooseName = (emp) => {
-    setSelectedEmp(emp);
-    setStep("confirmCode");
-  };
+  const branchCodes = [...new Set(branchEmployees.map((e) => e.code))].sort((a, b) =>
+    a.localeCompare(b, "ko")
+  );
 
-  const handleConfirmCode = (chosenCode) => {
-    if (chosenCode === selectedEmp.code) {
-      setStep("setPin");
-    } else {
-      alert("교번이 일치하지 않아요. 본인의 현재 교번을 다시 확인해주세요.");
+  const handleConfirmNameCode = () => {
+    const emp = branchEmployees.find((e) => e.id === pendingNameId);
+    if (!emp) {
+      alert("이름을 선택해주세요");
+      return;
     }
+    if (!pendingCode) {
+      alert("교번을 선택해주세요");
+      return;
+    }
+    if (pendingCode !== emp.code) {
+      alert("교번이 일치하지 않아요. 본인의 현재 교번을 다시 확인해주세요.");
+      return;
+    }
+    setSelectedEmp(emp);
+    setStep("setPin");
   };
 
   const handleSetPin = (pin) => {
@@ -396,42 +427,49 @@ function App() {
     );
   }
 
-  // 이름 선택
-  if (step === "chooseName") {
+  // 이름 + 교번 확인 (한 페이지, 드롭다운)
+  if (step === "nameAndCode") {
     return (
       <div style={styles.screen}>
-        <div style={styles.title}>{branch} · 이름을 선택해주세요</div>
+        {installBanner}
+        <div style={styles.title}>{branch} · 이름과 교번을 선택해주세요</div>
         {branchEmployees.length === 0 && (
           <div style={styles.subText}>표시할 이름이 없어요. 인사이동으로 새로 오신 경우 직원목록 시트 반영 후 다시 시도해주세요.</div>
         )}
-        {branchEmployees.map((emp) => (
-          <button key={emp.id} style={styles.button} onClick={() => handleChooseName(emp)}>
-            {emp.name}
-          </button>
-        ))}
+        {branchEmployees.length > 0 && (
+          <React.Fragment>
+            <div style={styles.fieldLabel}>이름</div>
+            <select
+              style={styles.select}
+              value={pendingNameId}
+              onChange={(e) => setPendingNameId(e.target.value)}
+            >
+              <option value="">이름 선택</option>
+              {[...branchEmployees]
+                .sort((a, b) => a.name.localeCompare(b.name, "ko"))
+                .map((emp) => (
+                  <option key={emp.id} value={emp.id}>{emp.name}</option>
+                ))}
+            </select>
+
+            <div style={styles.fieldLabel}>본인의 현재 교번</div>
+            <select
+              style={styles.select}
+              value={pendingCode}
+              onChange={(e) => setPendingCode(e.target.value)}
+            >
+              <option value="">교번 선택</option>
+              {branchCodes.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+
+            <button style={styles.primaryButton} onClick={handleConfirmNameCode}>확인</button>
+          </React.Fragment>
+        )}
         <button style={{ ...styles.button, border: "none", color: "#888" }} onClick={() => setStep("chooseBranch")}>
           ← 소속 다시 선택
         </button>
-      </div>
-    );
-  }
-
-  // 교번 확인 (본인확인)
-  if (step === "confirmCode") {
-    const otherCodes = employees
-      .filter((e) => e.branch === selectedEmp.branch && e.code !== selectedEmp.code)
-      .map((e) => e.code);
-    const shuffled = [...new Set(otherCodes)].sort(() => Math.random() - 0.5);
-    const decoys = shuffled.slice(0, 2);
-    const options = [selectedEmp.code, ...decoys].sort(() => Math.random() - 0.5);
-    return (
-      <div style={styles.screen}>
-        <div style={styles.title}>{selectedEmp.name}님, 본인의 현재 교번을 선택해주세요</div>
-        {options.map((c, i) => (
-          <button key={i} style={styles.button} onClick={() => handleConfirmCode(c)}>
-            {c}
-          </button>
-        ))}
       </div>
     );
   }
