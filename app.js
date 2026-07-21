@@ -15,6 +15,21 @@ const GAS_URL =
 const TEAM_MAP = { ks: "경산", my: "문양" }; // 안심(as)/월배(wb)는 이 앱 대상 아님
 const REVERSE_TEAM_MAP = { 경산: "ks", 문양: "my" };
 
+// 중간관리자 명단. 수시로 바뀌면 여기 이름/소속만 수정·추가하면 돼요.
+const MID_MANAGERS = [
+  { name: "박광훈", branch: "경산" },
+  { name: "고병준", branch: "경산" },
+  { name: "류인석", branch: "경산" },
+  { name: "김성대", branch: "경산" },
+  { name: "이영식", branch: "경산" },
+  { name: "이재환", branch: "경산" },
+  { name: "황종만", branch: "경산" },
+];
+
+function isMidManagerUser(user) {
+  return MID_MANAGERS.some((m) => m.name === user.name && m.branch === user.branch);
+}
+
 function jsonpRequest(url, params) {
   return new Promise((resolve, reject) => {
     const callbackName = "jsonp_cb_" + Math.random().toString(36).slice(2);
@@ -448,9 +463,14 @@ function App() {
   };
 
   const branchOrder = GYOBUN_ORDER[REVERSE_TEAM_MAP[branch]] || [];
-  const branchCodes = branchOrder.filter((c) =>
+  const templateCodes = branchOrder.filter((c) =>
     branchEmployees.some((e) => e.code === c)
   );
+  // 교번틀에 없는 코드(갑/을/병/현업일근 등 중간관리자 근무형태)도 뒤에 붙여서 보여줌
+  const otherCodes = [...new Set(branchEmployees.map((e) => e.code))].filter(
+    (c) => !templateCodes.includes(c)
+  );
+  const branchCodes = [...templateCodes, ...otherCodes];
 
   const handleConfirmNameCode = () => {
     const emp = branchEmployees.find((e) => e.id === pendingNameId);
@@ -1007,6 +1027,7 @@ function pad2(n) {
 
 function MainScreen({ currentUser, employees }) {
   const isAdmin = ADMIN_NAMES.includes(currentUser.name);
+  const isMidManager = isMidManagerUser(currentUser);
   const [showAdmin, setShowAdmin] = useState(false);
   const myCode = (employees || []).find((e) => e.id === currentUser.id)?.code || "";
   const myBaseCode = (employees || []).find((e) => e.id === currentUser.id)?.baseCode || "";
@@ -1030,6 +1051,13 @@ function MainScreen({ currentUser, employees }) {
   const [formType, setFormType] = useState(VACATION_TYPES[0]);
   const [formDia, setFormDia] = useState("");
   const [saving, setSaving] = useState(false);
+
+  // 중간관리자 - 대신 기록 폼 상태
+  const [showManagerForm, setShowManagerForm] = useState(false);
+  const [managerTargetId, setManagerTargetId] = useState("");
+  const [managerFormType, setManagerFormType] = useState(NON_CAPACITY_TYPES[0]);
+  const [managerFormDia, setManagerFormDia] = useState("");
+  const [managerSaving, setManagerSaving] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -1089,6 +1117,7 @@ function MainScreen({ currentUser, employees }) {
     const key = `${viewYear}-${pad2(viewMonth + 1)}-${pad2(d)}`;
     setSelectedDate(key);
     setShowRegisterForm(false);
+    setShowManagerForm(false);
     setFormType(VACATION_TYPES[0]);
     setFormDia(codeForDate(key)); // 선택한 날짜의 실제 교번 (기준일 대비 계산, 수정 가능)
   };
@@ -1096,6 +1125,7 @@ function MainScreen({ currentUser, employees }) {
   const closeModal = () => {
     setSelectedDate(null);
     setShowRegisterForm(false);
+    setShowManagerForm(false);
   };
 
   const dayRecords = selectedDate
@@ -1163,6 +1193,60 @@ function MainScreen({ currentUser, employees }) {
         alert("등록에 실패했어요: " + (err && err.message ? err.message : err));
       })
       .finally(() => setSaving(false));
+  };
+
+  // 중간관리자 확인 도장
+  const handleConfirmStamp = (record) => {
+    window.VacationAPI.confirm(record.id, currentUser.name).then(() => {
+      setMonthMap((prev) => {
+        const next = { ...prev };
+        next[selectedDate] = (next[selectedDate] || []).map((v) =>
+          v.id === record.id ? { ...v, confirmedBy: currentUser.name } : v
+        );
+        return next;
+      });
+    });
+  };
+
+  // 중간관리자 - 대신 기록 폼 열기
+  const openManagerForm = () => {
+    setManagerTargetId("");
+    setManagerFormType(NON_CAPACITY_TYPES[0]);
+    setManagerFormDia("");
+    setShowManagerForm(true);
+  };
+
+  const branchAllEmployees = employees.filter((e) => e.branch === currentUser.branch);
+
+  const handleSubmitManagerRecord = () => {
+    const target = branchAllEmployees.find((e) => e.id === managerTargetId);
+    if (!target) {
+      alert("대상자를 선택해주세요");
+      return;
+    }
+    if (!managerFormDia.trim()) {
+      alert("DIA를 입력해주세요");
+      return;
+    }
+    setManagerSaving(true);
+    window.VacationAPI.add({
+      name: target.name,
+      branch: target.branch,
+      employeeId: target.id,
+      vacationType: managerFormType,
+      dia: managerFormDia.trim(),
+      date: selectedDate,
+      recordedBy: currentUser.name,
+    })
+      .then(() => {
+        setShowManagerForm(false);
+        loadMonth(viewYear, viewMonth);
+      })
+      .catch((err) => {
+        console.error(err);
+        alert("등록에 실패했어요: " + (err && err.message ? err.message : err));
+      })
+      .finally(() => setManagerSaving(false));
   };
 
   return (
@@ -1270,11 +1354,99 @@ function MainScreen({ currentUser, employees }) {
                     </div>
                   </div>
                 ))}
+                {dayRecords.length > 0 && dayRecords.some((v) => v.status !== "취소됨") && (
+                  <div style={{ marginBottom: "8px" }}>
+                    {dayRecords
+                      .filter((v) => v.status !== "취소됨")
+                      .map((v) =>
+                        v.confirmedBy ? (
+                          <div key={v.id + "-confirm"} style={{ fontSize: "12px", color: "#1caa5c", marginBottom: "2px" }}>
+                            ✅ {v.name} - {v.confirmedBy}님 확인
+                          </div>
+                        ) : isMidManager ? (
+                          <div key={v.id + "-confirm"} style={{ display: "flex", alignItems: "center", marginBottom: "2px" }}>
+                            <span style={{ fontSize: "12px", color: "#999", marginRight: "6px" }}>{v.name} - 확인 대기</span>
+                            <button
+                              style={{ ...modal.smallCancelBtn, color: "#3478f6" }}
+                              onClick={() => handleConfirmStamp(v)}
+                            >
+                              확인 도장
+                            </button>
+                          </div>
+                        ) : (
+                          <div key={v.id + "-confirm"} style={{ fontSize: "12px", color: "#ccc", marginBottom: "2px" }}>
+                            {v.name} - 확인 대기중
+                          </div>
+                        )
+                      )}
+                  </div>
+                )}
 
                 <button style={modal.addBtn} onClick={() => setShowRegisterForm(true)}>
                   + 휴가 신청
                 </button>
+                {isMidManager && (
+                  <button style={{ ...modal.addBtn, background: "#1a73e8" }} onClick={openManagerForm}>
+                    + 대신 기록 (병가·청휴·교육 등)
+                  </button>
+                )}
                 <button style={modal.closeBtn} onClick={closeModal}>닫기</button>
+              </React.Fragment>
+            ) : showManagerForm ? (
+              <React.Fragment>
+                <div style={modal.dateTitle}>{formatDateHeader(selectedDate)} 대신 기록</div>
+                <div style={{ ...modal.countText, marginBottom: "20px" }}>중간관리자({currentUser.name}) 기록</div>
+
+                <div style={modal.formRow}>
+                  <label style={modal.label}>대상자</label>
+                  <select
+                    style={modal.input}
+                    value={managerTargetId}
+                    onChange={(e) => setManagerTargetId(e.target.value)}
+                  >
+                    <option value="">이름 선택</option>
+                    {[...branchAllEmployees]
+                      .sort((a, b) => a.name.localeCompare(b.name, "ko"))
+                      .map((emp) => (
+                        <option key={emp.id} value={emp.id}>{emp.name}</option>
+                      ))}
+                  </select>
+                </div>
+
+                <div style={modal.formRow}>
+                  <label style={modal.label}>휴가명</label>
+                  <select
+                    style={modal.input}
+                    value={managerFormType}
+                    onChange={(e) => setManagerFormType(e.target.value)}
+                  >
+                    <optgroup label="⚪ 보장인원 미포함">
+                      {NON_CAPACITY_TYPES.map((t) => (
+                        <option key={t} value={t}>{t}</option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="🟢 보장인원 포함">
+                      {CAPACITY_TYPES.map((t) => (
+                        <option key={t} value={t}>{t}</option>
+                      ))}
+                    </optgroup>
+                  </select>
+                </div>
+
+                <div style={modal.formRow}>
+                  <label style={modal.label}>DIA</label>
+                  <input
+                    style={modal.input}
+                    value={managerFormDia}
+                    onChange={(e) => setManagerFormDia(e.target.value)}
+                    placeholder="예: 22, 대1, 27~"
+                  />
+                </div>
+
+                <button style={modal.addBtn} onClick={handleSubmitManagerRecord} disabled={managerSaving}>
+                  {managerSaving ? "저장 중..." : "저장"}
+                </button>
+                <button style={modal.closeBtn} onClick={() => setShowManagerForm(false)}>취소</button>
               </React.Fragment>
             ) : (
               <React.Fragment>
@@ -1288,19 +1460,12 @@ function MainScreen({ currentUser, employees }) {
                     value={formType}
                     onChange={(e) => setFormType(e.target.value)}
                   >
-                    <optgroup label="🟢 보장인원 포함">
-                      {CAPACITY_TYPES.map((t) => (
-                        <option key={t} value={t}>{t}</option>
-                      ))}
-                    </optgroup>
-                    <optgroup label="⚪ 보장인원 미포함">
-                      {NON_CAPACITY_TYPES.map((t) => (
-                        <option key={t} value={t}>{t}</option>
-                      ))}
-                    </optgroup>
+                    {CAPACITY_TYPES.map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
                   </select>
-                  <div style={{ fontSize: "12px", marginTop: "6px", fontWeight: 700, color: isCapacityType(formType) ? "#1caa5c" : "#999" }}>
-                    {isCapacityType(formType) ? "🟢 보장인원 포함" : "⚪ 보장인원 미포함"}
+                  <div style={{ fontSize: "12px", marginTop: "6px", color: "#888" }}>
+                    병가·청휴·교육 등은 중간관리자가 대신 기록해요
                   </div>
                 </div>
 
