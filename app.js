@@ -667,8 +667,9 @@ const cal = {
     color: type === "휴일" ? "#e02020" : type === "토요일" ? "#1a73e8" : "#333",
   }),
   dayCode: {
-    fontSize: "10px",
-    color: "#999",
+    fontSize: "13px",
+    fontWeight: 700,
+    color: "#1a1a1a",
     marginTop: "1px",
   },
   dayBadge: (color) => ({
