@@ -1151,17 +1151,20 @@ function MainScreen({ currentUser, employees }) {
                     value={formType}
                     onChange={(e) => setFormType(e.target.value)}
                   >
-                    <optgroup label="보장인원 포함">
+                    <optgroup label="🟢 보장인원 포함">
                       {CAPACITY_TYPES.map((t) => (
                         <option key={t} value={t}>{t}</option>
                       ))}
                     </optgroup>
-                    <optgroup label="보장인원 미포함">
+                    <optgroup label="⚪ 보장인원 미포함">
                       {NON_CAPACITY_TYPES.map((t) => (
                         <option key={t} value={t}>{t}</option>
                       ))}
                     </optgroup>
                   </select>
+                  <div style={{ fontSize: "12px", marginTop: "6px", fontWeight: 700, color: isCapacityType(formType) ? "#1caa5c" : "#999" }}>
+                    {isCapacityType(formType) ? "🟢 보장인원 포함" : "⚪ 보장인원 미포함"}
+                  </div>
                 </div>
 
                 <div style={modal.formRow}>
