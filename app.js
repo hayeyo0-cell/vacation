@@ -1457,9 +1457,11 @@ function MainScreen({ currentUser, employees }) {
                   </div>
                 )}
 
-                <button style={modal.addBtn} onClick={() => setShowRegisterForm(true)}>
-                  + 휴가 신청
-                </button>
+                {!isMidManager && (
+                  <button style={modal.addBtn} onClick={() => setShowRegisterForm(true)}>
+                    + 휴가 신청
+                  </button>
+                )}
                 {isMidManager && (
                   <button style={{ ...modal.addBtn, background: "#1a73e8" }} onClick={openManagerForm}>
                     + 대신 기록 (병가·청휴·교육 등)
