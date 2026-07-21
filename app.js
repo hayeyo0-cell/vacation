@@ -766,6 +766,15 @@ function formatDateHeader(dateStr) {
   return `${dateStr} ${WEEKDAYS[d.getDay()]}요일`;
 }
 
+function formatEntryTime(ts) {
+  if (!ts) return "";
+  const date = typeof ts.toDate === "function" ? ts.toDate() : new Date(ts);
+  if (isNaN(date.getTime())) return "";
+  const hh = String(date.getHours()).padStart(2, "0");
+  const mm = String(date.getMinutes()).padStart(2, "0");
+  return `${hh}:${mm} 입력`;
+}
+
 /* ------------------------------------------------------------------ */
 /* 메인 화면 - 월별 달력                                                 */
 /* ------------------------------------------------------------------ */
@@ -856,7 +865,7 @@ function badgeColor(count) {
 // 보장인원 계산에 포함되는 휴가 종류만 카운트 (병가/교육/노조 등은 기록은 되지만 여유 계산엔 미포함)
 const CAPACITY_TYPES = [
   "연차", "연차비", "분지", "분지비", "장재", "장재비",
-  "지정교번휴무", "검진공가", "연간지",
+  "지정교번휴무", "검진공가", "연간지", "돌봄",
 ];
 
 function isCapacityType(type) {
@@ -942,6 +951,7 @@ const TYPE_ICON = {
   지정교번휴무: "🗓️",
   검진공가: "🩺",
   연간지: "🌙",
+  돌봄: "🏖️",
   // 보장인원 미포함 (휴충당)
   청휴: "🌿",
   청휴비: "🌿",
@@ -1486,12 +1496,15 @@ function MainScreen({ currentUser, employees }) {
                     등록된 휴가가 없어요
                   </div>
                 )}
-                {dayRecords.map((v) => (
+                {dayRecords.map((v, idx) => (
                   <div
                     key={v.id}
                     style={{ ...modal.card, ...(v.status === "취소됨" ? modal.cancelledCard : {}) }}
                   >
                     <div style={{ display: "flex", alignItems: "center" }}>
+                      <div style={{ width: "22px", flexShrink: 0, fontSize: "13px", color: "#aaa", fontWeight: 700 }}>
+                        {idx + 1}
+                      </div>
                       <div style={{ fontSize: "20px", marginRight: "10px" }}>
                         {TYPE_ICON[v.vacationType] || "📌"}
                       </div>
@@ -1501,6 +1514,12 @@ function MainScreen({ currentUser, employees }) {
                           {v.branch} · {v.vacationType}
                           {v.status === "취소됨" ? " (취소됨)" : ""}
                         </div>
+                        {v.createdAt && (
+                          <div style={{ fontSize: "11px", color: "#bbb", marginTop: "1px" }}>
+                            {formatEntryTime(v.createdAt)}
+                            {v.recordedBy ? ` · ${v.recordedBy} 대신기록` : ""}
+                          </div>
+                        )}
                       </div>
                     </div>
                     <div style={{ display: "flex", alignItems: "center" }}>
@@ -1508,6 +1527,14 @@ function MainScreen({ currentUser, employees }) {
                       {v.status !== "취소됨" && v.employeeId === currentUser.id && (
                         <button style={modal.smallCancelBtn} onClick={() => handleCancel(v)}>
                           취소
+                        </button>
+                      )}
+                      {v.status !== "취소됨" && isMidManager && v.recordedBy === currentUser.name && (
+                        <button
+                          style={{ ...modal.smallCancelBtn, color: "#e02020" }}
+                          onClick={() => handleAdminDelete(v)}
+                        >
+                          삭제
                         </button>
                       )}
                       {isAdmin && (
