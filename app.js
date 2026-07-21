@@ -359,85 +359,271 @@ function formatDateHeader(dateStr) {
 }
 
 /* ------------------------------------------------------------------ */
-/* 메인 화면 컴포넌트 (날짜별 조회)                                       */
+/* 메인 화면 - 월별 달력                                                 */
 /* ------------------------------------------------------------------ */
-const mainStyles = {
-  wrap: { minHeight: "100vh", background: "#f5f6f8", paddingBottom: "80px" },
+const cal = {
+  wrap: { minHeight: "100vh", background: "#f5f6f8", paddingBottom: "40px" },
   header: {
-    padding: "20px 20px 12px",
+    padding: "16px 16px 8px",
     background: "#fff",
     borderBottom: "1px solid #eee",
   },
-  dateInput: {
-    width: "100%",
-    padding: "12px",
-    fontSize: "16px",
+  navRow: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  navBtn: {
+    width: "36px",
+    height: "36px",
+    borderRadius: "50%",
+    border: "none",
+    background: "#f0f2f5",
+    fontSize: "18px",
+    color: "#333",
+  },
+  monthTitle: { fontSize: "18px", fontWeight: 700 },
+  weekRow: {
+    display: "grid",
+    gridTemplateColumns: "repeat(7, 1fr)",
+    marginTop: "14px",
+    textAlign: "center",
+    fontSize: "12px",
+    color: "#999",
+  },
+  grid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(7, 1fr)",
+    gap: "4px",
+    padding: "8px 8px 16px",
+  },
+  dayCell: (isToday) => ({
+    aspectRatio: "1",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
     borderRadius: "10px",
-    border: "1px solid #ddd",
-    marginTop: "8px",
-  },
-  countBadge: {
-    fontSize: "14px",
-    color: "#3478f6",
-    fontWeight: 700,
-    marginTop: "6px",
-  },
-  list: { padding: "12px 16px" },
-  card: {
     background: "#fff",
+    border: isToday ? "2px solid #3478f6" : "1px solid #f0f0f0",
+    cursor: "pointer",
+    position: "relative",
+  }),
+  dayNum: { fontSize: "14px", fontWeight: 600, color: "#333" },
+  dayBadge: (color) => ({
+    marginTop: "3px",
+    width: "22px",
+    height: "22px",
+    borderRadius: "50%",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: "12px",
+    fontWeight: 700,
+    color: "#fff",
+    background: color,
+  }),
+  emptyCell: { visibility: "hidden" },
+};
+
+function badgeColor(count) {
+  if (count >= 5) return "#e02020";
+  if (count >= 3) return "#f5a623";
+  return "#1caa5c";
+}
+
+/* ---- 경산 전용: 요일별 보장인원 + 비번 포함시 +1 로직 ---- */
+// 보장인원 계산에 포함되는 휴가 종류만 카운트 (병가/교육/노조 등은 기록은 되지만 여유 계산엔 미포함)
+const CAPACITY_TYPES = [
+  "연차", "연차비", "분지", "분지비", "장재", "장재비",
+  "지정교번휴무", "검진공가", "연간지야",
+];
+
+function isCapacityType(type) {
+  return CAPACITY_TYPES.includes(type);
+}
+
+// 2026년 공휴일 (신정/설/삼일절·대체/어린이날/부처님오신날·대체/지방선거/현충일/광복절·대체/추석/개천절·대체/한글날/성탄절)
+const HOLIDAYS_2026 = new Set([
+  "2026-01-01", "2026-02-16", "2026-02-17", "2026-02-18",
+  "2026-03-01", "2026-03-02", "2026-05-05", "2026-05-24", "2026-05-25",
+  "2026-06-03", "2026-06-06", "2026-08-15", "2026-08-17",
+  "2026-09-24", "2026-09-25", "2026-09-26",
+  "2026-10-03", "2026-10-05", "2026-10-09", "2026-12-25",
+]);
+
+function getDayType(dateStr) {
+  const d = new Date(dateStr + "T00:00:00");
+  const day = d.getDay(); // 0=일 6=토
+  if (HOLIDAYS_2026.has(dateStr) || day === 0) return "휴일";
+  if (day === 6) return "토요일";
+  return "평일";
+}
+
+const GUARANTEE = { 평일: 4, 토요일: 5, 휴일: 7 };
+
+// activeRecords: 취소 아닌 전체 기록 (비번 감지는 전체 기록 대상)
+function gyeongsanCapacity(dateStr, activeRecords) {
+  let base = GUARANTEE[getDayType(dateStr)];
+  const hasOffDuty = activeRecords.some((r) => (r.dia || "").includes("비번"));
+  if (hasOffDuty) base += 1;
+  return base;
+}
+
+function gyeongsanColor(remain) {
+  if (remain <= 0) return "#e02020";
+  if (remain === 1) return "#f5a623";
+  return "#1caa5c";
+}
+
+const TYPE_ICON = {
+  // 보장인원 포함
+  연차: "🏖️",
+  연차비: "🏖️",
+  분지: "🌴",
+  분지비: "🌴",
+  장재: "🛌",
+  장재비: "🛌",
+  지정교번휴무: "🗓️",
+  검진공가: "🩺",
+  연간지야: "🌙",
+  // 보장인원 미포함 (휴충당)
+  청휴: "🌿",
+  청휴비: "🌿",
+  "청휴(탈상)": "🕯️",
+  병가: "🏥",
+  병가비: "🏥",
+  노조: "🤝",
+  공란: "⬜",
+  교육: "📚",
+  출장: "🧳",
+  "교휴(공휴)": "📅",
+};
+
+// 보장인원에 포함되지 않는(휴충당 처리) 휴가 종류
+const NON_CAPACITY_TYPES = [
+  "청휴", "청휴비", "청휴(탈상)", "병가", "병가비",
+  "노조", "공란", "교육", "출장", "교휴(공휴)",
+];
+
+const modal = {
+  overlay: {
+    position: "fixed",
+    inset: 0,
+    background: "rgba(0,0,0,0.4)",
+    display: "flex",
+    alignItems: "flex-end",
+    zIndex: 100,
+  },
+  sheet: {
+    background: "#fff",
+    width: "100%",
+    maxHeight: "85vh",
+    overflowY: "auto",
+    borderRadius: "20px 20px 0 0",
+    padding: "20px",
+  },
+  dateTitle: { fontSize: "18px", fontWeight: 700, marginBottom: "4px" },
+  countText: { fontSize: "14px", color: "#888", marginBottom: "16px" },
+  card: {
+    background: "#f8f9fb",
     borderRadius: "12px",
-    padding: "14px 16px",
+    padding: "12px 14px",
     marginBottom: "8px",
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
-    border: "1px solid #eee",
   },
-  nameCol: { display: "flex", flexDirection: "column" },
-  name: { fontSize: "16px", fontWeight: 700, color: "#1a1a1a" },
-  typeRow: { fontSize: "13px", color: "#888", marginTop: "2px" },
-  dia: { fontSize: "15px", fontWeight: 700, color: "#3478f6" },
   cancelledCard: { opacity: 0.45, textDecoration: "line-through" },
-  empty: {
-    textAlign: "center",
-    color: "#aaa",
-    padding: "60px 20px",
-    fontSize: "15px",
+  name: { fontSize: "15px", fontWeight: 700 },
+  typeRow: { fontSize: "13px", color: "#888", marginTop: "2px" },
+  dia: { fontSize: "14px", fontWeight: 700, color: "#3478f6" },
+  smallCancelBtn: {
+    marginLeft: "10px",
+    fontSize: "12px",
+    color: "#e02020",
+    background: "none",
+    border: "none",
+    textDecoration: "underline",
   },
-  fab: {
-    position: "fixed",
-    bottom: "28px",
-    right: "20px",
-    width: "56px",
-    height: "56px",
-    borderRadius: "50%",
+  addBtn: {
+    width: "100%",
+    padding: "14px",
+    marginTop: "8px",
+    borderRadius: "12px",
+    border: "none",
     background: "#3478f6",
     color: "#fff",
-    fontSize: "28px",
-    border: "none",
-    boxShadow: "0 4px 12px rgba(0,0,0,0.2)",
-    cursor: "pointer",
+    fontSize: "15px",
+    fontWeight: 700,
   },
+  closeBtn: {
+    width: "100%",
+    padding: "14px",
+    marginTop: "8px",
+    borderRadius: "12px",
+    border: "1px solid #ddd",
+    background: "#fff",
+    color: "#666",
+    fontSize: "15px",
+    fontWeight: 600,
+  },
+  formRow: { marginBottom: "14px" },
+  label: { fontSize: "13px", color: "#666", marginBottom: "6px", display: "block" },
+  input: {
+    width: "100%",
+    padding: "12px",
+    fontSize: "15px",
+    borderRadius: "10px",
+    border: "1px solid #ddd",
+  },
+  typeChips: { display: "flex", flexWrap: "wrap", gap: "8px", marginTop: "8px" },
+  chip: (active) => ({
+    padding: "8px 14px",
+    borderRadius: "999px",
+    border: active ? "1px solid #3478f6" : "1px solid #ddd",
+    background: active ? "#eaf1ff" : "#fff",
+    color: active ? "#3478f6" : "#666",
+    fontSize: "13px",
+    fontWeight: 600,
+  }),
 };
 
-function MainScreen({ currentUser }) {
-  const [date, setDate] = useState(todayStr());
-  const [vacations, setVacations] = useState([]);
-  const [loading, setLoading] = useState(true);
+const VACATION_TYPES = [...CAPACITY_TYPES, ...NON_CAPACITY_TYPES];
 
-  const load = useCallback((d) => {
+function pad2(n) {
+  return String(n).padStart(2, "0");
+}
+
+function MainScreen({ currentUser }) {
+  const now = new Date();
+  const [viewYear, setViewYear] = useState(now.getFullYear());
+  const [viewMonth, setViewMonth] = useState(now.getMonth()); // 0-indexed
+  const [monthMap, setMonthMap] = useState({}); // { "YYYY-MM-DD": [records] }
+  const [loading, setLoading] = useState(true);
+  const [selectedDate, setSelectedDate] = useState(null); // 모달용
+  const [showRegisterForm, setShowRegisterForm] = useState(false);
+  const [formType, setFormType] = useState(VACATION_TYPES[0]);
+  const [formDia, setFormDia] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const loadMonth = useCallback((y, m) => {
     setLoading(true);
+    const start = `${y}-${pad2(m + 1)}-01`;
+    const lastDay = new Date(y, m + 1, 0).getDate();
+    const end = `${y}-${pad2(m + 1)}-${pad2(lastDay)}`;
     waitForFirestore()
-      .then(() => window.VacationAPI.getByDate(d))
+      .then(() => window.VacationAPI.getByRange(start, end))
       .then((list) => {
-        // 이름순 정렬, 취소된 건 뒤로
-        list.sort((a, b) => {
-          if ((a.status === "취소됨") !== (b.status === "취소됨")) {
-            return a.status === "취소됨" ? 1 : -1;
-          }
-          return (a.name || "").localeCompare(b.name || "");
+        const map = {};
+        list.forEach((v) => {
+          if (!map[v.date]) map[v.date] = [];
+          map[v.date].push(v);
         });
-        setVacations(list);
+        Object.values(map).forEach((arr) =>
+          arr.sort((a, b) => (a.name || "").localeCompare(b.name || ""))
+        );
+        setMonthMap(map);
       })
       .catch((err) => {
         console.error(err);
@@ -447,55 +633,228 @@ function MainScreen({ currentUser }) {
   }, []);
 
   useEffect(() => {
-    load(date);
-  }, [date, load]);
+    loadMonth(viewYear, viewMonth);
+  }, [viewYear, viewMonth, loadMonth]);
 
-  const activeCount = vacations.filter((v) => v.status !== "취소됨").length;
+  const changeMonth = (delta) => {
+    let y = viewYear;
+    let m = viewMonth + delta;
+    if (m < 0) { m = 11; y -= 1; }
+    if (m > 11) { m = 0; y += 1; }
+    setViewYear(y);
+    setViewMonth(m);
+  };
+
+  const firstWeekday = new Date(viewYear, viewMonth, 1).getDay();
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const todayKey = todayStr();
+
+  const cells = [];
+  for (let i = 0; i < firstWeekday; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+
+  const openDate = (d) => {
+    const key = `${viewYear}-${pad2(viewMonth + 1)}-${pad2(d)}`;
+    setSelectedDate(key);
+    setShowRegisterForm(false);
+    setFormType(VACATION_TYPES[0]);
+    setFormDia("");
+  };
+
+  const closeModal = () => {
+    setSelectedDate(null);
+    setShowRegisterForm(false);
+  };
+
+  const dayRecords = selectedDate
+    ? (monthMap[selectedDate] || []).filter((v) => v.branch === currentUser.branch)
+    : [];
+  const activeRecordsForCapacity = dayRecords.filter((v) => v.status !== "취소됨");
+  const activeCount = activeRecordsForCapacity.length;
+  const capacityCount = activeRecordsForCapacity.filter((v) => isCapacityType(v.vacationType)).length;
+  const gyeongsanInfo =
+    currentUser.branch === "경산" && selectedDate
+      ? (() => {
+          const capacity = gyeongsanCapacity(selectedDate, activeRecordsForCapacity);
+          const remain = capacity - capacityCount;
+          return { capacity, remain, capacityCount };
+        })()
+      : null;
+
+  const handleCancel = (record) => {
+    if (!confirm(`${record.name}님의 ${record.vacationType} 기록을 취소할까요?`)) return;
+    window.VacationAPI.cancel(record.id).then(() => {
+      loadMonth(viewYear, viewMonth);
+      // 모달 내 목록도 즉시 갱신
+      setMonthMap((prev) => {
+        const next = { ...prev };
+        next[selectedDate] = (next[selectedDate] || []).map((v) =>
+          v.id === record.id ? { ...v, status: "취소됨" } : v
+        );
+        return next;
+      });
+    });
+  };
+
+  const handleSubmitRegister = () => {
+    if (!formDia.trim()) {
+      alert("DIA를 입력해주세요");
+      return;
+    }
+    setSaving(true);
+    window.VacationAPI.add({
+      name: currentUser.name,
+      branch: currentUser.branch,
+      employeeId: currentUser.id,
+      vacationType: formType,
+      dia: formDia.trim(),
+      date: selectedDate,
+    })
+      .then(() => {
+        setShowRegisterForm(false);
+        setFormDia("");
+        loadMonth(viewYear, viewMonth);
+      })
+      .catch((err) => {
+        console.error(err);
+        alert("등록에 실패했어요");
+      })
+      .finally(() => setSaving(false));
+  };
 
   return (
-    <div style={mainStyles.wrap}>
-      <div style={mainStyles.header}>
-        <div style={{ fontWeight: 700, fontSize: "18px" }}>{currentUser?.name}님</div>
-        <input
-          type="date"
-          value={date}
-          onChange={(e) => setDate(e.target.value)}
-          style={mainStyles.dateInput}
-        />
-        <div style={mainStyles.countBadge}>
-          {formatDateHeader(date)} · 휴가자 {activeCount}명
+    <div style={cal.wrap}>
+      <div style={cal.header}>
+        <div style={{ fontWeight: 700, fontSize: "16px", marginBottom: "10px" }}>
+          {currentUser?.name}님
+        </div>
+        <div style={cal.navRow}>
+          <button style={cal.navBtn} onClick={() => changeMonth(-1)}>‹</button>
+          <div style={cal.monthTitle}>{viewYear}년 {viewMonth + 1}월</div>
+          <button style={cal.navBtn} onClick={() => changeMonth(1)}>›</button>
+        </div>
+        <div style={cal.weekRow}>
+          {WEEKDAYS.map((w) => <div key={w}>{w}</div>)}
         </div>
       </div>
 
-      <div style={mainStyles.list}>
-        {loading && <div style={mainStyles.empty}>불러오는 중...</div>}
-        {!loading && vacations.length === 0 && (
-          <div style={mainStyles.empty}>이 날짜에 등록된 휴가가 없어요</div>
-        )}
-        {!loading &&
-          vacations.map((v) => (
-            <div
-              key={v.id}
-              style={{
-                ...mainStyles.card,
-                ...(v.status === "취소됨" ? mainStyles.cancelledCard : {}),
-              }}
-            >
-              <div style={mainStyles.nameCol}>
-                <div style={mainStyles.name}>{v.name}</div>
-                <div style={mainStyles.typeRow}>
-                  {v.branch} · {v.vacationType}
-                  {v.status === "취소됨" ? " (취소됨)" : ""}
-                </div>
-              </div>
-              <div style={mainStyles.dia}>{v.dia}</div>
+      <div style={cal.grid}>
+        {cells.map((d, i) => {
+          if (d === null) return <div key={i} style={cal.emptyCell} />;
+          const key = `${viewYear}-${pad2(viewMonth + 1)}-${pad2(d)}`;
+          const branchRecords = (monthMap[key] || []).filter((v) => v.branch === currentUser.branch);
+          const activeRecords = branchRecords.filter((v) => v.status !== "취소됨");
+          const capacityCount = activeRecords.filter((v) => isCapacityType(v.vacationType)).length;
+
+          let badge = null;
+          if (currentUser.branch === "경산") {
+            const capacity = gyeongsanCapacity(key, activeRecords);
+            const remain = capacity - capacityCount;
+            badge = <div style={cal.dayBadge(gyeongsanColor(remain))}>{capacityCount}</div>;
+          } else if (activeRecords.length > 0) {
+            badge = <div style={cal.dayBadge(badgeColor(activeRecords.length))}>{activeRecords.length}</div>;
+          }
+
+          return (
+            <div key={i} style={cal.dayCell(key === todayKey)} onClick={() => openDate(d)}>
+              <div style={cal.dayNum}>{d}</div>
+              {badge}
             </div>
-          ))}
+          );
+        })}
       </div>
 
-      <button style={mainStyles.fab} onClick={() => alert("다음 단계에서 등록 화면을 만들 예정이에요")}>
-        +
-      </button>
+      {loading && <div style={{ textAlign: "center", color: "#aaa", padding: "10px" }}>불러오는 중...</div>}
+
+      {selectedDate && (
+        <div style={modal.overlay} onClick={closeModal}>
+          <div style={modal.sheet} onClick={(e) => e.stopPropagation()}>
+            {!showRegisterForm ? (
+              <React.Fragment>
+                <div style={modal.dateTitle}>{formatDateHeader(selectedDate)}</div>
+                <div style={modal.countText}>
+                  휴가자 {activeCount}명
+                  {gyeongsanInfo &&
+                    ` · 보장대상 ${gyeongsanInfo.capacityCount}/${gyeongsanInfo.capacity}명 (여유 ${gyeongsanInfo.remain}명)`}
+                </div>
+
+                {dayRecords.length === 0 && (
+                  <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0" }}>
+                    등록된 휴가가 없어요
+                  </div>
+                )}
+                {dayRecords.map((v) => (
+                  <div
+                    key={v.id}
+                    style={{ ...modal.card, ...(v.status === "취소됨" ? modal.cancelledCard : {}) }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center" }}>
+                      <div style={{ fontSize: "20px", marginRight: "10px" }}>
+                        {TYPE_ICON[v.vacationType] || "📌"}
+                      </div>
+                      <div>
+                        <div style={modal.name}>{v.name}</div>
+                        <div style={modal.typeRow}>
+                          {v.branch} · {v.vacationType}
+                          {v.status === "취소됨" ? " (취소됨)" : ""}
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center" }}>
+                      <div style={modal.dia}>{v.dia}</div>
+                      {v.status !== "취소됨" && v.employeeId === currentUser.id && (
+                        <button style={modal.smallCancelBtn} onClick={() => handleCancel(v)}>
+                          취소
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+
+                <button style={modal.addBtn} onClick={() => setShowRegisterForm(true)}>
+                  + 휴가 신청
+                </button>
+                <button style={modal.closeBtn} onClick={closeModal}>닫기</button>
+              </React.Fragment>
+            ) : (
+              <React.Fragment>
+                <div style={modal.dateTitle}>{formatDateHeader(selectedDate)} 휴가 신청</div>
+                <div style={{ ...modal.countText, marginBottom: "20px" }}>{currentUser.name}님 이름으로 등록돼요</div>
+
+                <div style={modal.formRow}>
+                  <label style={modal.label}>휴가명</label>
+                  <div style={modal.typeChips}>
+                    {VACATION_TYPES.map((t) => (
+                      <button
+                        key={t}
+                        style={modal.chip(formType === t)}
+                        onClick={() => setFormType(t)}
+                      >
+                        {t}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={modal.formRow}>
+                  <label style={modal.label}>DIA</label>
+                  <input
+                    style={modal.input}
+                    value={formDia}
+                    onChange={(e) => setFormDia(e.target.value)}
+                    placeholder="예: 22, 대1, 27~"
+                  />
+                </div>
+
+                <button style={modal.addBtn} onClick={handleSubmitRegister} disabled={saving}>
+                  {saving ? "저장 중..." : "저장"}
+                </button>
+                <button style={modal.closeBtn} onClick={() => setShowRegisterForm(false)}>취소</button>
+              </React.Fragment>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
