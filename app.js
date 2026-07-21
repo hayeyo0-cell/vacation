@@ -6,6 +6,8 @@ const { useState, useEffect, useCallback } = React;
 
 /* ------------------------------------------------------------------ */
 /* 실제 직원 데이터 연동 (교번앱 Apps Script, JSONP)                     */
+/* + 기준일(baseDate) 대비 오늘까지의 날짜차이만큼 교번틀을 밀어서       */
+/*   "오늘 기준 실제 교번"을 계산 (교번앱과 동일한 방식)                  */
 /* ------------------------------------------------------------------ */
 const GAS_URL =
   "https://script.google.com/macros/s/AKfycbw8NMVjH3J_Mt7SBymWOg44zvD4gd4GXkQB3r95QTl63M3aWqtf-OglLrG2rQPH7J6UjA/exec";
@@ -37,19 +39,72 @@ function jsonpRequest(url, params) {
   });
 }
 
+// 교번앱과 동일한 날짜 계산 방식 (한국 시간 기준)
+function koreaTodayStr() {
+  const now = new Date();
+  const utcTime = now.getTime() + now.getTimezoneOffset() * 60000;
+  const kst = new Date(utcTime + 9 * 60 * 60000);
+  const y = kst.getFullYear();
+  const m = String(kst.getMonth() + 1).padStart(2, "0");
+  const d = String(kst.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function parseLocalDate_(dateStr) {
+  const [y, m, d] = String(dateStr).split("-").map(Number);
+  return new Date(y, (m || 1) - 1, d || 1);
+}
+
+function diffDays_(a, b) {
+  const da = parseLocalDate_(a);
+  const db = parseLocalDate_(b);
+  da.setHours(0, 0, 0, 0);
+  db.setHours(0, 0, 0, 0);
+  return Math.round((db.getTime() - da.getTime()) / 86400000);
+}
+
+function positiveMod_(n, mod) {
+  if (!mod) return 0;
+  return ((n % mod) + mod) % mod;
+}
+
+// 교번틀 순서(order) 안에서 baseCode 위치를 찾아 dayOffset만큼 민 코드 반환
+function shiftCodeByDays_(order, baseCode, dayOffset) {
+  if (!order || !order.length) return baseCode || "";
+  const baseIdx = order.findIndex((c) => String(c).trim() === String(baseCode).trim());
+  if (baseIdx < 0) return baseCode || "";
+  return order[positiveMod_(baseIdx + dayOffset, order.length)] || baseCode || "";
+}
+
 function fetchEmployees() {
-  return jsonpRequest(GAS_URL, { mode: "roster" }).then((res) => {
-    if (!res || !res.ok) {
-      throw new Error((res && res.error) || "직원 데이터를 불러오지 못했어요");
+  return Promise.all([
+    jsonpRequest(GAS_URL, { mode: "roster" }),
+    jsonpRequest(GAS_URL, { mode: "gyobunOrder" }),
+  ]).then(([rosterRes, orderRes]) => {
+    if (!rosterRes || !rosterRes.ok) {
+      throw new Error((rosterRes && rosterRes.error) || "직원 데이터를 불러오지 못했어요");
     }
-    return res.rows
+    if (!orderRes || !orderRes.ok) {
+      throw new Error((orderRes && orderRes.error) || "교번틀 데이터를 불러오지 못했어요");
+    }
+
+    const baseDate = rosterRes.baseDate || orderRes.baseDate;
+    const today = koreaTodayStr();
+    const dayOffset = baseDate ? diffDays_(baseDate, today) : 0;
+
+    return rosterRes.rows
       .filter((r) => r.team === "ks" || r.team === "my")
-      .map((r) => ({
-        id: r.employeeId || `${r.team}-${r.gyobun}-${r.name}`,
-        name: r.name,
-        branch: TEAM_MAP[r.team],
-        code: r.gyobun,
-      }));
+      .map((r) => {
+        const order = orderRes[r.team] || [];
+        const todayCode = shiftCodeByDays_(order, r.gyobun, dayOffset);
+        return {
+          id: r.employeeId || `${r.team}-${r.gyobun}-${r.name}`,
+          name: r.name,
+          branch: TEAM_MAP[r.team],
+          code: todayCode, // 오늘 기준 실제 교번
+          baseCode: r.gyobun, // 기준일(4/1) 원본 (참고용)
+        };
+      });
   });
 }
 
@@ -380,7 +435,7 @@ function App() {
       return;
     }
     if (pendingCode !== emp.code) {
-      alert("교번이 일치하지 않아요. 본인의 현재 교번을 다시 확인해주세요.");
+      alert("교번이 일치하지 않아요. 본인의 오늘자 현재 교번을 다시 확인해주세요.");
       return;
     }
     setSelectedEmp(emp);
@@ -448,7 +503,7 @@ function App() {
               {[...branchEmployees]
                 .sort((a, b) => a.name.localeCompare(b.name, "ko"))
                 .map((emp) => (
-                  <option key={emp.id} value={emp.id}>{emp.name}</option>
+                  <option key={emp.id} value={emp.id}>{emp.name} ({emp.code})</option>
                 ))}
             </select>
 
