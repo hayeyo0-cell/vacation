@@ -465,7 +465,13 @@ function App() {
     const updated = [...localAuth, { id: selectedEmp.id, name: selectedEmp.name, branch: selectedEmp.branch, pin }];
     saveLocalAuth(updated);
     setLocalAuth(updated);
-    setStep("main");
+    window.ApprovalAPI.request({ id: selectedEmp.id, name: selectedEmp.name, branch: selectedEmp.branch })
+      .then(() => setStep("pendingApproval"))
+      .catch((err) => {
+        console.error(err);
+        alert("승인 요청 중 오류가 발생했어요: " + (err && err.message ? err.message : err));
+        setStep("pendingApproval");
+      });
   };
 
   /* ---- 재로그인 흐름 ---- */
@@ -476,11 +482,24 @@ function App() {
   };
 
   const handleLoginPin = (pin) => {
-    if (loginTarget.pin === pin) {
-      setStep("main");
-    } else {
+    if (loginTarget.pin !== pin) {
       setPinError("PIN이 일치하지 않아요");
+      return;
     }
+    window.ApprovalAPI.getStatus(loginTarget.id)
+      .then((data) => {
+        if (!data || data.status === "pending") {
+          setStep("pendingApproval");
+        } else if (data.status === "rejected") {
+          setStep("rejected");
+        } else {
+          setStep("main");
+        }
+      })
+      .catch((err) => {
+        console.error(err);
+        alert("승인 상태 확인 중 오류가 발생했어요: " + (err && err.message ? err.message : err));
+      });
   };
 
   /* ------------------------------ 화면 렌더링 ------------------------------ */
@@ -577,7 +596,45 @@ function App() {
     );
   }
 
-  // 재로그인 - PIN 입력
+  // 승인 대기중
+  if (step === "pendingApproval") {
+    return (
+      <div style={styles.screen}>
+        <div style={styles.title}>승인 대기중이에요 ⏳</div>
+        <div style={styles.subText}>관리자가 확인 후 승인하면 사용하실 수 있어요</div>
+        <button
+          style={styles.primaryButton}
+          onClick={() => {
+            const id = (loginTarget || selectedEmp)?.id;
+            if (!id) return;
+            window.ApprovalAPI.getStatus(id).then((data) => {
+              if (data && data.status === "approved") setStep("main");
+              else if (data && data.status === "rejected") setStep("rejected");
+              else alert("아직 승인 대기중이에요");
+            });
+          }}
+        >
+          승인 상태 다시 확인
+        </button>
+        <button style={{ ...styles.button, border: "none", color: "#888" }} onClick={() => setStep("loginName")}>
+          나가기
+        </button>
+      </div>
+    );
+  }
+
+  // 승인 거절됨
+  if (step === "rejected") {
+    return (
+      <div style={styles.screen}>
+        <div style={styles.title}>승인이 거절됐어요</div>
+        <div style={styles.subText}>본인이 맞다면 관리자에게 직접 문의해주세요</div>
+        <button style={{ ...styles.button, border: "none", color: "#888" }} onClick={() => setStep("loginName")}>
+          나가기
+        </button>
+      </div>
+    );
+  }
   if (step === "loginPin") {
     return (
       <div style={styles.screen}>
@@ -905,6 +962,8 @@ function pad2(n) {
 }
 
 function MainScreen({ currentUser, employees }) {
+  const isAdmin = ADMIN_NAMES.includes(currentUser.name);
+  const [showAdmin, setShowAdmin] = useState(false);
   const myCode = (employees || []).find((e) => e.id === currentUser.id)?.code || "";
   const myBaseCode = (employees || []).find((e) => e.id === currentUser.id)?.baseCode || "";
   const myTeamKey = REVERSE_TEAM_MAP[currentUser.branch];
@@ -1054,8 +1113,11 @@ function MainScreen({ currentUser, employees }) {
   return (
     <div style={cal.wrap}>
       <div style={cal.header}>
-        <div style={{ fontWeight: 700, fontSize: "16px", marginBottom: "10px" }}>
-          {currentUser?.name}님
+        <div style={{ display: "flex", alignItems: "center", marginBottom: "10px" }}>
+          <div style={{ fontWeight: 700, fontSize: "16px" }}>{currentUser?.name}님</div>
+          {isAdmin && (
+            <button style={adminStyles.adminBtn} onClick={() => setShowAdmin(true)}>승인 관리</button>
+          )}
         </div>
         <div style={cal.navRow}>
           <button style={cal.navBtn} onClick={() => changeMonth(-1)}>‹</button>
@@ -1198,6 +1260,94 @@ function MainScreen({ currentUser, employees }) {
           </div>
         </div>
       )}
+
+      {showAdmin && <AdminPanel onClose={() => setShowAdmin(false)} />}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* 관리자 승인 패널 (관리자 이름으로 로그인했을 때만 버튼 노출)             */
+/* ------------------------------------------------------------------ */
+// 관리자로 지정할 이름 목록. 나중에 관리자가 바뀌면 여기 이름만 수정/추가하면 돼요.
+const ADMIN_NAMES = ["권재림"];
+
+const adminStyles = {
+  approveBtn: {
+    padding: "8px 14px",
+    borderRadius: "8px",
+    border: "none",
+    background: "#1caa5c",
+    color: "#fff",
+    fontWeight: 700,
+    fontSize: "13px",
+  },
+  rejectBtn: {
+    padding: "8px 14px",
+    borderRadius: "8px",
+    border: "none",
+    background: "#e02020",
+    color: "#fff",
+    fontWeight: 700,
+    fontSize: "13px",
+  },
+  adminBtn: {
+    marginLeft: "auto",
+    padding: "6px 12px",
+    borderRadius: "8px",
+    border: "1px solid #ddd",
+    background: "#fff",
+    color: "#3478f6",
+    fontWeight: 700,
+    fontSize: "13px",
+  },
+};
+
+function AdminPanel({ onClose }) {
+  const [pending, setPending] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = () => {
+    setLoading(true);
+    waitForFirestore()
+      .then(() => window.ApprovalAPI.listPending())
+      .then((list) => setPending(list))
+      .catch((err) => alert("불러오기 실패: " + (err && err.message ? err.message : err)))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  const handleAction = (id, status) => {
+    window.ApprovalAPI.setStatus(id, status).then(() => {
+      setPending((prev) => prev.filter((p) => p.id !== id));
+    });
+  };
+
+  return (
+    <div style={modal.overlay} onClick={onClose}>
+      <div style={modal.sheet} onClick={(e) => e.stopPropagation()}>
+        <div style={modal.dateTitle}>승인 대기 목록 ({pending.length}명)</div>
+        {loading && <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0" }}>불러오는 중...</div>}
+        {!loading && pending.length === 0 && (
+          <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0" }}>대기중인 요청이 없어요</div>
+        )}
+        {pending.map((p) => (
+          <div key={p.id} style={modal.card}>
+            <div>
+              <div style={modal.name}>{p.name}</div>
+              <div style={modal.typeRow}>{p.branch} · {p.id}</div>
+            </div>
+            <div style={{ display: "flex", gap: "8px" }}>
+              <button style={adminStyles.approveBtn} onClick={() => handleAction(p.id, "approved")}>승인</button>
+              <button style={adminStyles.rejectBtn} onClick={() => handleAction(p.id, "rejected")}>거절</button>
+            </div>
+          </div>
+        ))}
+        <button style={modal.closeBtn} onClick={onClose}>닫기</button>
+      </div>
     </div>
   );
 }
