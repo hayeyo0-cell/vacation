@@ -362,9 +362,9 @@ function formatDateHeader(dateStr) {
 /* 메인 화면 - 월별 달력                                                 */
 /* ------------------------------------------------------------------ */
 const cal = {
-  wrap: { minHeight: "100vh", background: "#f5f6f8", paddingBottom: "40px" },
+  wrap: { minHeight: "100vh", background: "#f5f6f8", paddingBottom: "40px", overflowX: "hidden" },
   header: {
-    padding: "16px 16px 8px",
+    padding: "16px 12px 8px",
     background: "#fff",
     borderBottom: "1px solid #eee",
   },
@@ -385,7 +385,7 @@ const cal = {
   monthTitle: { fontSize: "18px", fontWeight: 700 },
   weekRow: {
     display: "grid",
-    gridTemplateColumns: "repeat(7, 1fr)",
+    gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
     marginTop: "14px",
     textAlign: "center",
     fontSize: "12px",
@@ -393,12 +393,14 @@ const cal = {
   },
   grid: {
     display: "grid",
-    gridTemplateColumns: "repeat(7, 1fr)",
+    gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
     gap: "4px",
-    padding: "8px 8px 16px",
+    padding: "8px 12px 16px",
+    boxSizing: "border-box",
   },
   dayCell: (isToday) => ({
     aspectRatio: "1",
+    minWidth: 0,
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
@@ -462,8 +464,14 @@ const MANUAL_HOLIDAYS = [
   // 예시: "2026-06-03", // 전국동시지방선거
 ];
 
+// API가 잘못 포함시키는 날짜(실제로는 근무일)를 매년 자동 제외
+// 제헌절(7/17): 국경일이지만 2008년부터 법정 공휴일(휴무일) 아님
+function isExcludedFakeHoliday(dateStr) {
+  return dateStr.endsWith("-07-17");
+}
+
 // 연도별 공휴일을 Nager.Date API에서 자동 조회 (실패 시 폴백 사용, 2026년 외 연도는 빈 목록)
-// + MANUAL_HOLIDAYS는 항상 합쳐서 반환
+// + MANUAL_HOLIDAYS는 항상 합쳐서 반환, isExcludedFakeHoliday는 항상 제외
 const holidayCache = {};
 function fetchHolidays(year) {
   if (holidayCache[year]) return holidayCache[year];
@@ -473,10 +481,13 @@ function fetchHolidays(year) {
       if (!res.ok) throw new Error("holiday fetch failed");
       return res.json();
     })
-    .then((list) => new Set([...list.map((h) => h.date), ...manualForYear]))
+    .then((list) => {
+      const dates = list.map((h) => h.date).filter((d) => !isExcludedFakeHoliday(d));
+      return new Set([...dates, ...manualForYear]);
+    })
     .catch(() => {
       const base = year === 2026 ? FALLBACK_HOLIDAYS_2026 : new Set();
-      return new Set([...base, ...manualForYear]);
+      return new Set([...base, ...manualForYear].filter((d) => !isExcludedFakeHoliday(d)));
     });
   holidayCache[year] = promise;
   return promise;
