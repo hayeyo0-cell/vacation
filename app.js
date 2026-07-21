@@ -636,9 +636,6 @@ function App() {
             {a.name} ({a.branch})
           </button>
         ))}
-        <button style={{ ...styles.button, border: "none", color: "#888" }} onClick={() => setStep("chooseBranch")}>
-          + 새로운 사용자 등록
-        </button>
       </div>
     );
   }
