@@ -454,6 +454,16 @@ function App() {
     (e) => e.branch === branch && !localAuth.some((a) => a.id === e.id)
   );
 
+  // 현재배정 시트에 없는 중간관리자(갑/을/병/현업일근 등)도 이름 목록에 합침 - 교번 없음
+  const branchManagerEntries = MID_MANAGERS.filter((m) => m.branch === branch)
+    .map((m) => ({ id: `mgr-${m.branch}-${m.name}`, name: m.name, branch: m.branch, code: null }))
+    .filter((m) => !localAuth.some((a) => a.id === m.id));
+
+  const nameOptions = [...branchEmployees, ...branchManagerEntries];
+
+  const selectedNameEntry = nameOptions.find((e) => e.id === pendingNameId);
+  const selectedIsManager = !!selectedNameEntry && selectedNameEntry.code === null;
+
   /* ---- 최초 설정 흐름 ---- */
   const handleChooseBranch = (b) => {
     setBranch(b);
@@ -473,18 +483,22 @@ function App() {
   const branchCodes = [...templateCodes, ...otherCodes];
 
   const handleConfirmNameCode = () => {
-    const emp = branchEmployees.find((e) => e.id === pendingNameId);
+    const emp = nameOptions.find((e) => e.id === pendingNameId);
     if (!emp) {
       alert("이름을 선택해주세요");
       return;
     }
-    if (!pendingCode) {
-      alert("교번을 선택해주세요");
-      return;
-    }
-    if (pendingCode !== emp.code) {
-      alert("교번이 일치하지 않아요. 본인의 오늘자 현재 교번을 다시 확인해주세요.");
-      return;
+
+    // 관리직(교번 없음)은 교번 확인 단계 없이 바로 진행
+    if (emp.code !== null) {
+      if (!pendingCode) {
+        alert("교번을 선택해주세요");
+        return;
+      }
+      if (pendingCode !== emp.code) {
+        alert("교번이 일치하지 않아요. 본인의 오늘자 현재 교번을 다시 확인해주세요.");
+        return;
+      }
     }
 
     if (ADMIN_NAMES.includes(emp.name)) {
@@ -592,37 +606,48 @@ function App() {
     return (
       <div style={styles.screen}>
         {installBanner}
-        <div style={styles.title}>{branch} · 이름과 교번을 선택해주세요</div>
-        {branchEmployees.length === 0 && (
+        <div style={styles.title}>{branch} · 이름을 선택해주세요</div>
+        {nameOptions.length === 0 && (
           <div style={styles.subText}>표시할 이름이 없어요. 인사이동으로 새로 오신 경우 직원목록 시트 반영 후 다시 시도해주세요.</div>
         )}
-        {branchEmployees.length > 0 && (
+        {nameOptions.length > 0 && (
           <React.Fragment>
             <div style={styles.fieldLabel}>이름</div>
             <select
               style={styles.select}
               value={pendingNameId}
-              onChange={(e) => setPendingNameId(e.target.value)}
+              onChange={(e) => {
+                setPendingNameId(e.target.value);
+                setPendingCode("");
+              }}
             >
               <option value="">이름 선택</option>
-              {[...branchEmployees]
+              {[...nameOptions]
                 .sort((a, b) => a.name.localeCompare(b.name, "ko"))
                 .map((emp) => (
                   <option key={emp.id} value={emp.id}>{emp.name}</option>
                 ))}
             </select>
 
-            <div style={styles.fieldLabel}>본인의 현재 교번</div>
-            <select
-              style={styles.select}
-              value={pendingCode}
-              onChange={(e) => setPendingCode(e.target.value)}
-            >
-              <option value="">교번 선택</option>
-              {branchCodes.map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
+            {selectedNameEntry && selectedIsManager && (
+              <div style={styles.subText}>관리직은 교번 확인 없이 등록돼요</div>
+            )}
+
+            {selectedNameEntry && !selectedIsManager && (
+              <React.Fragment>
+                <div style={styles.fieldLabel}>본인의 현재 교번</div>
+                <select
+                  style={styles.select}
+                  value={pendingCode}
+                  onChange={(e) => setPendingCode(e.target.value)}
+                >
+                  <option value="">교번 선택</option>
+                  {branchCodes.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </React.Fragment>
+            )}
 
             <button style={styles.primaryButton} onClick={handleConfirmNameCode}>확인</button>
           </React.Fragment>
@@ -1246,16 +1271,43 @@ function MainScreen({ currentUser, employees }) {
   };
 
   const touchStartX = useRef(null);
+  const gridRef = useRef(null);
+  const [slideX, setSlideX] = useState(0);
+  const [slideTransition, setSlideTransition] = useState(false);
+
   const handleTouchStart = (e) => {
     touchStartX.current = e.touches[0].clientX;
+    setSlideTransition(false);
   };
-  const handleTouchEnd = (e) => {
+  const handleTouchMove = (e) => {
     if (touchStartX.current == null) return;
-    const dx = e.changedTouches[0].clientX - touchStartX.current;
-    if (Math.abs(dx) > 50) {
-      changeMonth(dx < 0 ? 1 : -1);
-    }
+    setSlideX(e.touches[0].clientX - touchStartX.current);
+  };
+  const handleTouchEnd = () => {
+    if (touchStartX.current == null) return;
+    const dx = slideX;
     touchStartX.current = null;
+    const width = gridRef.current ? gridRef.current.offsetWidth : 320;
+
+    if (Math.abs(dx) > 60) {
+      const dir = dx < 0 ? 1 : -1; // dir 1 = 다음달(왼쪽으로 스와이프), -1 = 이전달
+      setSlideTransition(true);
+      setSlideX(-dir * width); // 현재 페이지가 화면 밖으로 완전히 빠져나감
+      setTimeout(() => {
+        changeMonth(dir);
+        setSlideTransition(false);
+        setSlideX(dir * width); // 다음 페이지를 반대편 화면 밖에 미리 배치
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            setSlideTransition(true);
+            setSlideX(0); // 화면 안으로 슬라이드 인
+          });
+        });
+      }, 220);
+    } else {
+      setSlideTransition(true);
+      setSlideX(0);
+    }
   };
 
   return (
@@ -1281,7 +1333,20 @@ function MainScreen({ currentUser, employees }) {
         </div>
       </div>
 
-      <div style={cal.grid} onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
+      <div
+        style={{ overflow: "hidden", width: "100%" }}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+      >
+        <div
+          ref={gridRef}
+          style={{
+            ...cal.grid,
+            transform: `translateX(${slideX}px)`,
+            transition: slideTransition ? "transform 220ms ease" : "none",
+          }}
+        >
         {cells.map((d, i) => {
           if (d === null) return <div key={i} style={cal.emptyCell} />;
           const key = `${viewYear}-${pad2(viewMonth + 1)}-${pad2(d)}`;
@@ -1307,6 +1372,7 @@ function MainScreen({ currentUser, employees }) {
             </div>
           );
         })}
+        </div>
       </div>
 
       {loading && <div style={{ textAlign: "center", color: "#aaa", padding: "10px" }}>불러오는 중...</div>}
