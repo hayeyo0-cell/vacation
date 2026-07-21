@@ -410,19 +410,28 @@ function App() {
   );
 
   useEffect(() => {
+    const auth = loadLocalAuth();
+    setLocalAuth(auth);
+
+    // 재로그인(이미 등록된) 사용자는 직원 데이터를 기다릴 필요 없이 바로 진입
+    if (auth.length > 0) {
+      setStep("loginName");
+    }
+
+    // 직원 데이터는 신규 등록 시 필요하고, 재로그인 사용자도 달력의 날짜별 교번 표시에 필요해서
+    // 어차피 백그라운드로 가져옴
     fetchEmployees()
       .then((list) => {
         setEmployees(list);
-        const auth = loadLocalAuth();
-        setLocalAuth(auth);
-        setStep(auth.length > 0 ? "loginName" : "chooseBranch");
+        if (auth.length === 0) setStep("chooseBranch");
       })
       .catch((err) => {
         console.error(err);
-        alert("직원 데이터를 불러오지 못했어요: " + (err && err.message ? err.message : err));
-        const auth = loadLocalAuth();
-        setLocalAuth(auth);
-        setStep(auth.length > 0 ? "loginName" : "chooseBranch");
+        if (auth.length === 0) {
+          alert("직원 데이터를 불러오지 못했어요: " + (err && err.message ? err.message : err));
+          setStep("chooseBranch");
+        }
+        // 재로그인 사용자는 이미 화면이 떠 있으니 조용히 재시도만 실패 처리 (콘솔 로그만)
       });
   }, []);
 
@@ -465,7 +474,8 @@ function App() {
     const updated = [...localAuth, { id: selectedEmp.id, name: selectedEmp.name, branch: selectedEmp.branch, pin }];
     saveLocalAuth(updated);
     setLocalAuth(updated);
-    window.ApprovalAPI.request({ id: selectedEmp.id, name: selectedEmp.name, branch: selectedEmp.branch })
+    waitForFirestore()
+      .then(() => window.ApprovalAPI.request({ id: selectedEmp.id, name: selectedEmp.name, branch: selectedEmp.branch }))
       .then(() => setStep("pendingApproval"))
       .catch((err) => {
         console.error(err);
@@ -486,7 +496,8 @@ function App() {
       setPinError("PIN이 일치하지 않아요");
       return;
     }
-    window.ApprovalAPI.getStatus(loginTarget.id)
+    waitForFirestore()
+      .then(() => window.ApprovalAPI.getStatus(loginTarget.id))
       .then((data) => {
         if (!data || data.status === "pending") {
           setStep("pendingApproval");
