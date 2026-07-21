@@ -167,6 +167,66 @@ function PinPad({ length = 4, onComplete, error }) {
 }
 
 /* ------------------------------------------------------------------ */
+/* PWA 설치 배너 (안드로이드: 설치 버튼 / iOS: 안내 문구)                  */
+/* ------------------------------------------------------------------ */
+const installStyles = {
+  bar: {
+    width: "100%",
+    maxWidth: "360px",
+    background: "#eaf1ff",
+    border: "1px solid #cfe0ff",
+    borderRadius: "12px",
+    padding: "12px 14px",
+    marginBottom: "16px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "10px",
+  },
+  text: { fontSize: "13px", color: "#333", flex: 1 },
+  installBtn: {
+    flexShrink: 0,
+    padding: "8px 14px",
+    borderRadius: "8px",
+    border: "none",
+    background: "#3478f6",
+    color: "#fff",
+    fontSize: "13px",
+    fontWeight: 700,
+  },
+  closeBtn: {
+    flexShrink: 0,
+    border: "none",
+    background: "none",
+    color: "#999",
+    fontSize: "16px",
+    padding: "0 4px",
+  },
+};
+
+function InstallBanner({ installPrompt, onInstall, showIosHint, dismissed, onDismiss }) {
+  if (dismissed) return null;
+  if (installPrompt) {
+    return (
+      <div style={installStyles.bar}>
+        <span style={installStyles.text}>📱 앱처럼 설치해서 쓸 수 있어요</span>
+        <button style={installStyles.installBtn} onClick={onInstall}>설치</button>
+        <button style={installStyles.closeBtn} onClick={onDismiss}>✕</button>
+      </div>
+    );
+  }
+  if (showIosHint) {
+    return (
+      <div style={installStyles.bar}>
+        <span style={installStyles.text}>📱 공유 버튼 → "홈 화면에 추가"로 앱처럼 설치할 수 있어요</span>
+        <button style={installStyles.closeBtn} onClick={onDismiss}>✕</button>
+      </div>
+    );
+  }
+  return null;
+}
+
+/* ------------------------------------------------------------------ */
 /* 메인 앱                                                              */
 /* ------------------------------------------------------------------ */
 function App() {
@@ -178,6 +238,49 @@ function App() {
   const [selectedEmp, setSelectedEmp] = useState(null);
   const [loginTarget, setLoginTarget] = useState(null);
   const [pinError, setPinError] = useState("");
+
+  // PWA 설치 배너 관련
+  const [installPrompt, setInstallPrompt] = useState(null);
+  const [showIosHint, setShowIosHint] = useState(false);
+  const [bannerDismissed, setBannerDismissed] = useState(
+    localStorage.getItem("install_banner_dismissed") === "1"
+  );
+
+  useEffect(() => {
+    const handler = (e) => {
+      e.preventDefault();
+      setInstallPrompt(e);
+    };
+    window.addEventListener("beforeinstallprompt", handler);
+
+    const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    const isStandalone =
+      window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone;
+    if (isIos && !isStandalone) setShowIosHint(true);
+
+    return () => window.removeEventListener("beforeinstallprompt", handler);
+  }, []);
+
+  const handleInstallClick = () => {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    installPrompt.userChoice.finally(() => setInstallPrompt(null));
+  };
+
+  const handleDismissBanner = () => {
+    setBannerDismissed(true);
+    localStorage.setItem("install_banner_dismissed", "1");
+  };
+
+  const installBanner = (
+    <InstallBanner
+      installPrompt={installPrompt}
+      onInstall={handleInstallClick}
+      showIosHint={showIosHint}
+      dismissed={bannerDismissed}
+      onDismiss={handleDismissBanner}
+    />
+  );
 
   useEffect(() => {
     fetchEmployees().then((list) => {
@@ -243,6 +346,7 @@ function App() {
   if (step === "chooseBranch") {
     return (
       <div style={styles.screen}>
+        {installBanner}
         <div style={styles.title}>소속을 선택해주세요</div>
         <button style={styles.button} onClick={() => handleChooseBranch("경산")}>경산승무팀</button>
         <button style={styles.button} onClick={() => handleChooseBranch("문양")}>문양승무팀</button>
@@ -302,6 +406,7 @@ function App() {
   if (step === "loginName") {
     return (
       <div style={styles.screen}>
+        {installBanner}
         <div style={styles.title}>이름을 선택해주세요</div>
         {localAuth.map((a) => (
           <button key={a.id} style={styles.button} onClick={() => handleLoginNameSelect(a)}>
