@@ -5,18 +5,52 @@
 const { useState, useEffect, useCallback } = React;
 
 /* ------------------------------------------------------------------ */
-/* 더미 직원 데이터 (실제 API 연동 전까지 임시 사용)                    */
-/* 실제 연동 시 이 부분을 fetch(GAS_URL)로 교체할 예정                  */
+/* 실제 직원 데이터 연동 (교번앱 Apps Script, JSONP)                     */
 /* ------------------------------------------------------------------ */
-const DUMMY_EMPLOYEES = [
-  { id: "E027", name: "이재용", branch: "경산", code: "2d" },
-  { id: "E045", name: "권재림", branch: "경산", code: "23~" },
-  { id: "E100", name: "홍길동", branch: "문양", code: "5d" },
-];
+const GAS_URL =
+  "https://script.google.com/macros/s/AKfycbw8NMVjH3J_Mt7SBymWOg44zvD4gd4GXkQB3r95QTl63M3aWqtf-OglLrG2rQPH7J6UjA/exec";
+
+const TEAM_MAP = { ks: "경산", my: "문양" }; // 안심(as)/월배(wb)는 이 앱 대상 아님
+
+function jsonpRequest(url, params) {
+  return new Promise((resolve, reject) => {
+    const callbackName = "jsonp_cb_" + Math.random().toString(36).slice(2);
+    const query = new URLSearchParams({ ...params, callback: callbackName }).toString();
+    const script = document.createElement("script");
+    script.src = url + "?" + query;
+
+    const cleanup = () => {
+      delete window[callbackName];
+      script.remove();
+    };
+
+    window[callbackName] = (data) => {
+      resolve(data);
+      cleanup();
+    };
+    script.onerror = () => {
+      reject(new Error("네트워크 오류로 직원 데이터를 불러오지 못했어요"));
+      cleanup();
+    };
+
+    document.body.appendChild(script);
+  });
+}
 
 function fetchEmployees() {
-  // TODO: 실제 GAS API 연동 예정
-  return Promise.resolve(DUMMY_EMPLOYEES);
+  return jsonpRequest(GAS_URL, { mode: "roster" }).then((res) => {
+    if (!res || !res.ok) {
+      throw new Error((res && res.error) || "직원 데이터를 불러오지 못했어요");
+    }
+    return res.rows
+      .filter((r) => r.team === "ks" || r.team === "my")
+      .map((r) => ({
+        id: r.employeeId || `${r.team}-${r.gyobun}-${r.name}`,
+        name: r.name,
+        branch: TEAM_MAP[r.team],
+        code: r.gyobun,
+      }));
+  });
 }
 
 /* ------------------------------------------------------------------ */
@@ -283,12 +317,20 @@ function App() {
   );
 
   useEffect(() => {
-    fetchEmployees().then((list) => {
-      setEmployees(list);
-      const auth = loadLocalAuth();
-      setLocalAuth(auth);
-      setStep(auth.length > 0 ? "loginName" : "chooseBranch");
-    });
+    fetchEmployees()
+      .then((list) => {
+        setEmployees(list);
+        const auth = loadLocalAuth();
+        setLocalAuth(auth);
+        setStep(auth.length > 0 ? "loginName" : "chooseBranch");
+      })
+      .catch((err) => {
+        console.error(err);
+        alert("직원 데이터를 불러오지 못했어요: " + (err && err.message ? err.message : err));
+        const auth = loadLocalAuth();
+        setLocalAuth(auth);
+        setStep(auth.length > 0 ? "loginName" : "chooseBranch");
+      });
   }, []);
 
   const branchEmployees = employees.filter(
@@ -376,9 +418,12 @@ function App() {
 
   // 교번 확인 (본인확인)
   if (step === "confirmCode") {
-    // 실제로는 여러 교번 중 본인 것을 고르게 해야 하지만,
-    // 여기서는 임시로 정답 포함 3개 보기 예시만 구성
-    const options = [selectedEmp.code, "27~", "14d"].sort(() => Math.random() - 0.5);
+    const otherCodes = employees
+      .filter((e) => e.branch === selectedEmp.branch && e.code !== selectedEmp.code)
+      .map((e) => e.code);
+    const shuffled = [...new Set(otherCodes)].sort(() => Math.random() - 0.5);
+    const decoys = shuffled.slice(0, 2);
+    const options = [selectedEmp.code, ...decoys].sort(() => Math.random() - 0.5);
     return (
       <div style={styles.screen}>
         <div style={styles.title}>{selectedEmp.name}님, 본인의 현재 교번을 선택해주세요</div>
