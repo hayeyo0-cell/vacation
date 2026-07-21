@@ -327,7 +327,7 @@ function App() {
 
   // 메인 화면 - 날짜별 조회
   if (step === "main") {
-    return <MainScreen currentUser={loginTarget || { ...selectedEmp }} />;
+    return <MainScreen currentUser={loginTarget || { ...selectedEmp }} employees={employees} />;
   }
 
   return null;
@@ -636,7 +636,8 @@ function pad2(n) {
   return String(n).padStart(2, "0");
 }
 
-function MainScreen({ currentUser }) {
+function MainScreen({ currentUser, employees }) {
+  const myCode = (employees || []).find((e) => e.id === currentUser.id)?.code || "";
   const now = new Date();
   const [viewYear, setViewYear] = useState(now.getFullYear());
   const [viewMonth, setViewMonth] = useState(now.getMonth()); // 0-indexed
@@ -708,7 +709,7 @@ function MainScreen({ currentUser }) {
     setSelectedDate(key);
     setShowRegisterForm(false);
     setFormType(VACATION_TYPES[0]);
-    setFormDia("");
+    setFormDia(myCode); // 본인 현재 교번을 기본값으로 (날짜별 정확한 값 아님, 수정 가능)
   };
 
   const closeModal = () => {
@@ -878,17 +879,22 @@ function MainScreen({ currentUser }) {
 
                 <div style={modal.formRow}>
                   <label style={modal.label}>휴가명</label>
-                  <div style={modal.typeChips}>
-                    {VACATION_TYPES.map((t) => (
-                      <button
-                        key={t}
-                        style={modal.chip(formType === t)}
-                        onClick={() => setFormType(t)}
-                      >
-                        {t}
-                      </button>
-                    ))}
-                  </div>
+                  <select
+                    style={modal.input}
+                    value={formType}
+                    onChange={(e) => setFormType(e.target.value)}
+                  >
+                    <optgroup label="보장인원 포함">
+                      {CAPACITY_TYPES.map((t) => (
+                        <option key={t} value={t}>{t}</option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="보장인원 미포함">
+                      {NON_CAPACITY_TYPES.map((t) => (
+                        <option key={t} value={t}>{t}</option>
+                      ))}
+                    </optgroup>
+                  </select>
                 </div>
 
                 <div style={modal.formRow}>
