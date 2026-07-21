@@ -42,6 +42,7 @@
     where,
     doc,
     updateDoc,
+    deleteDoc,
     serverTimestamp,
   } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
@@ -101,6 +102,10 @@
         updatedAt: serverTimestamp(),
       });
     },
+    // 완전 삭제 (관리자 전용 - 되돌릴 수 없음)
+    async remove(id) {
+      await deleteDoc(doc(db, COLLECTION, id));
+    },
   };
 
   // 사용자 승인 관련 API
@@ -134,27 +139,3 @@
     async setStatus(id, status) {
       await updateDoc(doc(db, APPROVAL_COLLECTION, id), {
         status,
-        updatedAt: serverTimestamp(),
-      });
-    },
-  };
-
-  window.__firestoreReady = true;
-  window.dispatchEvent(new Event("firestore-ready"));
-</script>
-
-<!-- 실제 앱 코드 (JSX) -->
-<script type="text/babel" src="app.js"></script>
-
-<!-- PWA 설치를 위한 서비스워커 등록 -->
-<script>
-  if ("serviceWorker" in navigator) {
-    window.addEventListener("load", () => {
-      navigator.serviceWorker.register("sw.js").catch((err) => {
-        console.warn("서비스워커 등록 실패:", err);
-      });
-    });
-  }
-</script>
-</body>
-</html>
