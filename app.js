@@ -2,7 +2,7 @@
 // 현재 단계: 로그인 흐름 (소속선택 → 이름선택 → 교번확인 → PIN설정 / 재로그인)
 // TODO: fetchEmployees()의 실제 API 연동은 추후 처리 (지금은 더미 데이터)
 
-const { useState, useEffect, useCallback } = React;
+const { useState, useEffect, useCallback, useRef } = React;
 
 /* ------------------------------------------------------------------ */
 /* 실제 직원 데이터 연동 (교번앱 Apps Script, JSONP)                     */
@@ -831,7 +831,7 @@ function badgeColor(count) {
 // 보장인원 계산에 포함되는 휴가 종류만 카운트 (병가/교육/노조 등은 기록은 되지만 여유 계산엔 미포함)
 const CAPACITY_TYPES = [
   "연차", "연차비", "분지", "분지비", "장재", "장재비",
-  "지정교번휴무", "검진공가", "연간지야",
+  "지정교번휴무", "검진공가", "연간지",
 ];
 
 function isCapacityType(type) {
@@ -916,7 +916,7 @@ const TYPE_ICON = {
   장재비: "🛌",
   지정교번휴무: "🗓️",
   검진공가: "🩺",
-  연간지야: "🌙",
+  연간지: "🌙",
   // 보장인원 미포함 (휴충당)
   청휴: "🌿",
   청휴비: "🌿",
@@ -1170,10 +1170,6 @@ function MainScreen({ currentUser, employees }) {
   };
 
   const handleSubmitRegister = () => {
-    if (!formDia.trim()) {
-      alert("DIA를 입력해주세요");
-      return;
-    }
     setSaving(true);
     window.VacationAPI.add({
       name: currentUser.name,
@@ -1249,6 +1245,19 @@ function MainScreen({ currentUser, employees }) {
       .finally(() => setManagerSaving(false));
   };
 
+  const touchStartX = useRef(null);
+  const handleTouchStart = (e) => {
+    touchStartX.current = e.touches[0].clientX;
+  };
+  const handleTouchEnd = (e) => {
+    if (touchStartX.current == null) return;
+    const dx = e.changedTouches[0].clientX - touchStartX.current;
+    if (Math.abs(dx) > 50) {
+      changeMonth(dx < 0 ? 1 : -1);
+    }
+    touchStartX.current = null;
+  };
+
   return (
     <div style={cal.wrap}>
       <div style={cal.header}>
@@ -1272,7 +1281,7 @@ function MainScreen({ currentUser, employees }) {
         </div>
       </div>
 
-      <div style={cal.grid}>
+      <div style={cal.grid} onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
         {cells.map((d, i) => {
           if (d === null) return <div key={i} style={cal.emptyCell} />;
           const key = `${viewYear}-${pad2(viewMonth + 1)}-${pad2(d)}`;
