@@ -191,18 +191,30 @@ const styles = {
   keypad: {
     display: "grid",
     gridTemplateColumns: "repeat(3, 1fr)",
-    gap: "12px",
+    gap: "18px",
     width: "100%",
-    maxWidth: "300px",
+    maxWidth: "280px",
   },
   key: {
-    padding: "20px 0",
-    fontSize: "20px",
+    aspectRatio: "1",
+    width: "100%",
+    fontSize: "22px",
     fontWeight: 600,
     borderRadius: "50%",
-    border: "1px solid #eee",
-    background: "#fff",
+    border: "none",
+    background: "#f5f6f8",
     color: "#1a1a1a",
+    boxShadow: "0 2px 6px rgba(0,0,0,0.06)",
+  },
+  backspaceKey: {
+    aspectRatio: "1",
+    width: "100%",
+    fontSize: "18px",
+    borderRadius: "50%",
+    border: "none",
+    background: "transparent",
+    color: "#aaa",
+    boxShadow: "none",
   },
   errorText: {
     color: "#e02020",
@@ -273,7 +285,7 @@ function PinPad({ length = 4, onComplete, error }) {
         ))}
         <div />
         <button style={styles.key} onClick={() => press("0")}>0</button>
-        <button style={styles.key} onClick={backspace}>⌫</button>
+        <button style={styles.backspaceKey} onClick={backspace}>⌫</button>
       </div>
     </div>
   );
