@@ -1380,7 +1380,99 @@ function MainScreen({ currentUser, employees }) {
       {selectedDate && (
         <div style={modal.overlay} onClick={closeModal}>
           <div style={modal.sheet} onClick={(e) => e.stopPropagation()}>
-            {!showRegisterForm ? (
+            {showManagerForm ? (
+              <React.Fragment>
+                <div style={modal.dateTitle}>{formatDateHeader(selectedDate)} 대신 기록</div>
+                <div style={{ ...modal.countText, marginBottom: "20px" }}>중간관리자({currentUser.name}) 기록</div>
+
+                <div style={modal.formRow}>
+                  <label style={modal.label}>대상자</label>
+                  <select
+                    style={modal.input}
+                    value={managerTargetId}
+                    onChange={(e) => setManagerTargetId(e.target.value)}
+                  >
+                    <option value="">이름 선택</option>
+                    {[...branchAllEmployees]
+                      .sort((a, b) => a.name.localeCompare(b.name, "ko"))
+                      .map((emp) => (
+                        <option key={emp.id} value={emp.id}>{emp.name}</option>
+                      ))}
+                  </select>
+                </div>
+
+                <div style={modal.formRow}>
+                  <label style={modal.label}>휴가명</label>
+                  <select
+                    style={modal.input}
+                    value={managerFormType}
+                    onChange={(e) => setManagerFormType(e.target.value)}
+                  >
+                    <optgroup label="⚪ 보장인원 미포함">
+                      {NON_CAPACITY_TYPES.map((t) => (
+                        <option key={t} value={t}>{t}</option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="🟢 보장인원 포함">
+                      {CAPACITY_TYPES.map((t) => (
+                        <option key={t} value={t}>{t}</option>
+                      ))}
+                    </optgroup>
+                  </select>
+                </div>
+
+                <div style={modal.formRow}>
+                  <label style={modal.label}>DIA</label>
+                  <input
+                    style={modal.input}
+                    value={managerFormDia}
+                    onChange={(e) => setManagerFormDia(e.target.value)}
+                    placeholder="예: 22, 대1, 27~"
+                  />
+                </div>
+
+                <button style={modal.addBtn} onClick={handleSubmitManagerRecord} disabled={managerSaving}>
+                  {managerSaving ? "저장 중..." : "저장"}
+                </button>
+                <button style={modal.closeBtn} onClick={() => setShowManagerForm(false)}>취소</button>
+              </React.Fragment>
+            ) : showRegisterForm ? (
+              <React.Fragment>
+                <div style={modal.dateTitle}>{formatDateHeader(selectedDate)} 휴가 신청</div>
+                <div style={{ ...modal.countText, marginBottom: "20px" }}>{currentUser.name}님 이름으로 등록돼요</div>
+
+                <div style={modal.formRow}>
+                  <label style={modal.label}>휴가명</label>
+                  <select
+                    style={modal.input}
+                    value={formType}
+                    onChange={(e) => setFormType(e.target.value)}
+                  >
+                    {CAPACITY_TYPES.map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                  <div style={{ fontSize: "12px", marginTop: "6px", color: "#888" }}>
+                    병가·청휴·교육 등은 중간관리자가 대신 기록해요
+                  </div>
+                </div>
+
+                <div style={modal.formRow}>
+                  <label style={modal.label}>DIA</label>
+                  <input
+                    style={modal.input}
+                    value={formDia}
+                    onChange={(e) => setFormDia(e.target.value)}
+                    placeholder="예: 22, 대1, 27~"
+                  />
+                </div>
+
+                <button style={modal.addBtn} onClick={handleSubmitRegister} disabled={saving}>
+                  {saving ? "저장 중..." : "저장"}
+                </button>
+                <button style={modal.closeBtn} onClick={() => setShowRegisterForm(false)}>취소</button>
+              </React.Fragment>
+            ) : (
               <React.Fragment>
                 <div style={modal.dateTitle}>{formatDateHeader(selectedDate)}</div>
                 <div style={modal.countText}>
@@ -1468,98 +1560,6 @@ function MainScreen({ currentUser, employees }) {
                   </button>
                 )}
                 <button style={modal.closeBtn} onClick={closeModal}>닫기</button>
-              </React.Fragment>
-            ) : showManagerForm ? (
-              <React.Fragment>
-                <div style={modal.dateTitle}>{formatDateHeader(selectedDate)} 대신 기록</div>
-                <div style={{ ...modal.countText, marginBottom: "20px" }}>중간관리자({currentUser.name}) 기록</div>
-
-                <div style={modal.formRow}>
-                  <label style={modal.label}>대상자</label>
-                  <select
-                    style={modal.input}
-                    value={managerTargetId}
-                    onChange={(e) => setManagerTargetId(e.target.value)}
-                  >
-                    <option value="">이름 선택</option>
-                    {[...branchAllEmployees]
-                      .sort((a, b) => a.name.localeCompare(b.name, "ko"))
-                      .map((emp) => (
-                        <option key={emp.id} value={emp.id}>{emp.name}</option>
-                      ))}
-                  </select>
-                </div>
-
-                <div style={modal.formRow}>
-                  <label style={modal.label}>휴가명</label>
-                  <select
-                    style={modal.input}
-                    value={managerFormType}
-                    onChange={(e) => setManagerFormType(e.target.value)}
-                  >
-                    <optgroup label="⚪ 보장인원 미포함">
-                      {NON_CAPACITY_TYPES.map((t) => (
-                        <option key={t} value={t}>{t}</option>
-                      ))}
-                    </optgroup>
-                    <optgroup label="🟢 보장인원 포함">
-                      {CAPACITY_TYPES.map((t) => (
-                        <option key={t} value={t}>{t}</option>
-                      ))}
-                    </optgroup>
-                  </select>
-                </div>
-
-                <div style={modal.formRow}>
-                  <label style={modal.label}>DIA</label>
-                  <input
-                    style={modal.input}
-                    value={managerFormDia}
-                    onChange={(e) => setManagerFormDia(e.target.value)}
-                    placeholder="예: 22, 대1, 27~"
-                  />
-                </div>
-
-                <button style={modal.addBtn} onClick={handleSubmitManagerRecord} disabled={managerSaving}>
-                  {managerSaving ? "저장 중..." : "저장"}
-                </button>
-                <button style={modal.closeBtn} onClick={() => setShowManagerForm(false)}>취소</button>
-              </React.Fragment>
-            ) : (
-              <React.Fragment>
-                <div style={modal.dateTitle}>{formatDateHeader(selectedDate)} 휴가 신청</div>
-                <div style={{ ...modal.countText, marginBottom: "20px" }}>{currentUser.name}님 이름으로 등록돼요</div>
-
-                <div style={modal.formRow}>
-                  <label style={modal.label}>휴가명</label>
-                  <select
-                    style={modal.input}
-                    value={formType}
-                    onChange={(e) => setFormType(e.target.value)}
-                  >
-                    {CAPACITY_TYPES.map((t) => (
-                      <option key={t} value={t}>{t}</option>
-                    ))}
-                  </select>
-                  <div style={{ fontSize: "12px", marginTop: "6px", color: "#888" }}>
-                    병가·청휴·교육 등은 중간관리자가 대신 기록해요
-                  </div>
-                </div>
-
-                <div style={modal.formRow}>
-                  <label style={modal.label}>DIA</label>
-                  <input
-                    style={modal.input}
-                    value={formDia}
-                    onChange={(e) => setFormDia(e.target.value)}
-                    placeholder="예: 22, 대1, 27~"
-                  />
-                </div>
-
-                <button style={modal.addBtn} onClick={handleSubmitRegister} disabled={saving}>
-                  {saving ? "저장 중..." : "저장"}
-                </button>
-                <button style={modal.closeBtn} onClick={() => setShowRegisterForm(false)}>취소</button>
               </React.Fragment>
             )}
           </div>
