@@ -466,14 +466,44 @@ function App() {
       alert("교번이 일치하지 않아요. 본인의 오늘자 현재 교번을 다시 확인해주세요.");
       return;
     }
-    setSelectedEmp(emp);
-    setStep("setPin");
+
+    if (ADMIN_NAMES.includes(emp.name)) {
+      setSelectedEmp(emp);
+      setStep("setPin");
+      return;
+    }
+
+    waitForFirestore()
+      .then(() => window.ApprovalAPI.getStatus(emp.id))
+      .then((data) => {
+        if (data && data.status === "approved") {
+          alert("이미 승인되어 사용 중인 계정이에요. 본인이 맞다면 관리자에게 직접 문의해주세요.");
+          return;
+        }
+        if (data && data.status === "pending") {
+          alert("이미 대기중인 신청 건이 있어요. 관리자 확인 후 처리될 때까지 기다려주세요.\n(본인이 신청한 게 아니라면 관리자에게 바로 알려주세요!)");
+          return;
+        }
+        setSelectedEmp(emp);
+        setStep("setPin");
+      })
+      .catch((err) => {
+        console.error(err);
+        alert("확인 중 오류가 발생했어요: " + (err && err.message ? err.message : err));
+      });
   };
 
   const handleSetPin = (pin) => {
     const updated = [...localAuth, { id: selectedEmp.id, name: selectedEmp.name, branch: selectedEmp.branch, pin }];
     saveLocalAuth(updated);
     setLocalAuth(updated);
+
+    if (ADMIN_NAMES.includes(selectedEmp.name)) {
+      // 관리자는 승인 절차 없이 바로 진입 (본인이 승인권자니까)
+      setStep("main");
+      return;
+    }
+
     waitForFirestore()
       .then(() => window.ApprovalAPI.request({ id: selectedEmp.id, name: selectedEmp.name, branch: selectedEmp.branch }))
       .then(() => setStep("pendingApproval"))
@@ -496,6 +526,12 @@ function App() {
       setPinError("PIN이 일치하지 않아요");
       return;
     }
+
+    if (ADMIN_NAMES.includes(loginTarget.name)) {
+      setStep("main");
+      return;
+    }
+
     waitForFirestore()
       .then(() => window.ApprovalAPI.getStatus(loginTarget.id))
       .then((data) => {
@@ -1095,6 +1131,17 @@ function MainScreen({ currentUser, employees }) {
     });
   };
 
+  const handleAdminDelete = (record) => {
+    if (!confirm(`[관리자] ${record.name}님의 ${record.vacationType} 기록을 완전히 삭제할까요?\n되돌릴 수 없어요.`)) return;
+    window.VacationAPI.remove(record.id).then(() => {
+      setMonthMap((prev) => {
+        const next = { ...prev };
+        next[selectedDate] = (next[selectedDate] || []).filter((v) => v.id !== record.id);
+        return next;
+      });
+    });
+  };
+
   const handleSubmitRegister = () => {
     if (!formDia.trim()) {
       alert("DIA를 입력해주세요");
@@ -1213,6 +1260,14 @@ function MainScreen({ currentUser, employees }) {
                       {v.status !== "취소됨" && v.employeeId === currentUser.id && (
                         <button style={modal.smallCancelBtn} onClick={() => handleCancel(v)}>
                           취소
+                        </button>
+                      )}
+                      {isAdmin && (
+                        <button
+                          style={{ ...modal.smallCancelBtn, color: "#999" }}
+                          onClick={() => handleAdminDelete(v)}
+                        >
+                          🗑
                         </button>
                       )}
                     </div>
