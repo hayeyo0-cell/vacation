@@ -191,14 +191,14 @@ const styles = {
   keypad: {
     display: "grid",
     gridTemplateColumns: "repeat(3, 1fr)",
-    gap: "18px",
+    gap: "20px",
     width: "100%",
-    maxWidth: "280px",
+    maxWidth: "340px",
   },
   key: {
     aspectRatio: "1",
     width: "100%",
-    fontSize: "22px",
+    fontSize: "28px",
     fontWeight: 600,
     borderRadius: "50%",
     border: "none",
@@ -209,7 +209,7 @@ const styles = {
   backspaceKey: {
     aspectRatio: "1",
     width: "100%",
-    fontSize: "18px",
+    fontSize: "22px",
     borderRadius: "50%",
     border: "none",
     background: "transparent",
