@@ -76,6 +76,8 @@ function shiftCodeByDays_(order, baseCode, dayOffset) {
   return order[positiveMod_(baseIdx + dayOffset, order.length)] || baseCode || "";
 }
 
+let GYOBUN_ORDER = { ks: [], my: [] }; // 로그인 화면 교번 드롭다운 순서용
+
 function fetchEmployees() {
   return Promise.all([
     jsonpRequest(GAS_URL, { mode: "roster" }),
@@ -87,6 +89,8 @@ function fetchEmployees() {
     if (!orderRes || !orderRes.ok) {
       throw new Error((orderRes && orderRes.error) || "교번틀 데이터를 불러오지 못했어요");
     }
+
+    GYOBUN_ORDER = { ks: orderRes.ks || [], my: orderRes.my || [] };
 
     const baseDate = rosterRes.baseDate || orderRes.baseDate;
     const today = koreaTodayStr();
@@ -420,8 +424,10 @@ function App() {
     setStep("nameAndCode");
   };
 
-  const branchCodes = [...new Set(branchEmployees.map((e) => e.code))].sort((a, b) =>
-    a.localeCompare(b, "ko")
+  const REVERSE_TEAM_MAP = { 경산: "ks", 문양: "my" };
+  const branchOrder = GYOBUN_ORDER[REVERSE_TEAM_MAP[branch]] || [];
+  const branchCodes = branchOrder.filter((c) =>
+    branchEmployees.some((e) => e.code === c)
   );
 
   const handleConfirmNameCode = () => {
@@ -503,7 +509,7 @@ function App() {
               {[...branchEmployees]
                 .sort((a, b) => a.name.localeCompare(b.name, "ko"))
                 .map((emp) => (
-                  <option key={emp.id} value={emp.id}>{emp.name} ({emp.code})</option>
+                  <option key={emp.id} value={emp.id}>{emp.name}</option>
                 ))}
             </select>
 
