@@ -678,7 +678,7 @@ function MainScreen({ currentUser, employees }) {
       })
       .catch((err) => {
         console.error(err);
-        alert("데이터를 불러오지 못했어요");
+        alert("데이터를 불러오지 못했어요: " + (err && err.message ? err.message : err));
       })
       .finally(() => setLoading(false));
   }, []);
@@ -768,7 +768,7 @@ function MainScreen({ currentUser, employees }) {
       })
       .catch((err) => {
         console.error(err);
-        alert("등록에 실패했어요");
+        alert("등록에 실패했어요: " + (err && err.message ? err.message : err));
       })
       .finally(() => setSaving(false));
   };
