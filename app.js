@@ -13,6 +13,7 @@ const GAS_URL =
   "https://script.google.com/macros/s/AKfycbw8NMVjH3J_Mt7SBymWOg44zvD4gd4GXkQB3r95QTl63M3aWqtf-OglLrG2rQPH7J6UjA/exec";
 
 const TEAM_MAP = { ks: "경산", my: "문양" }; // 안심(as)/월배(wb)는 이 앱 대상 아님
+const REVERSE_TEAM_MAP = { 경산: "ks", 문양: "my" };
 
 function jsonpRequest(url, params) {
   return new Promise((resolve, reject) => {
@@ -76,7 +77,8 @@ function shiftCodeByDays_(order, baseCode, dayOffset) {
   return order[positiveMod_(baseIdx + dayOffset, order.length)] || baseCode || "";
 }
 
-let GYOBUN_ORDER = { ks: [], my: [] }; // 로그인 화면 교번 드롭다운 순서용
+let GYOBUN_ORDER = { ks: [], my: [] }; // 달력 교번 계산용
+let BASE_DATE = ""; // 달력 교번 계산용 (기준일)
 
 function fetchEmployees() {
   return Promise.all([
@@ -91,10 +93,10 @@ function fetchEmployees() {
     }
 
     GYOBUN_ORDER = { ks: orderRes.ks || [], my: orderRes.my || [] };
+    BASE_DATE = rosterRes.baseDate || orderRes.baseDate || "";
 
-    const baseDate = rosterRes.baseDate || orderRes.baseDate;
     const today = koreaTodayStr();
-    const dayOffset = baseDate ? diffDays_(baseDate, today) : 0;
+    const dayOffset = BASE_DATE ? diffDays_(BASE_DATE, today) : 0;
 
     return rosterRes.rows
       .filter((r) => r.team === "ks" || r.team === "my")
@@ -424,7 +426,6 @@ function App() {
     setStep("nameAndCode");
   };
 
-  const REVERSE_TEAM_MAP = { 경산: "ks", 문양: "my" };
   const branchOrder = GYOBUN_ORDER[REVERSE_TEAM_MAP[branch]] || [];
   const branchCodes = branchOrder.filter((c) =>
     branchEmployees.some((e) => e.code === c)
@@ -665,6 +666,11 @@ const cal = {
     fontWeight: 700,
     color: type === "휴일" ? "#e02020" : type === "토요일" ? "#1a73e8" : "#333",
   }),
+  dayCode: {
+    fontSize: "10px",
+    color: "#999",
+    marginTop: "1px",
+  },
   dayBadge: (color) => ({
     marginTop: "3px",
     width: "22px",
@@ -887,6 +893,16 @@ function pad2(n) {
 
 function MainScreen({ currentUser, employees }) {
   const myCode = (employees || []).find((e) => e.id === currentUser.id)?.code || "";
+  const myBaseCode = (employees || []).find((e) => e.id === currentUser.id)?.baseCode || "";
+  const myTeamKey = REVERSE_TEAM_MAP[currentUser.branch];
+  const myOrder = GYOBUN_ORDER[myTeamKey] || [];
+
+  // 특정 날짜의 본인 교번을 계산 (기준일 대비 날짜차이만큼 교번틀을 밀어서)
+  const codeForDate = (dateStr) => {
+    if (!BASE_DATE || !myBaseCode || !myOrder.length) return "";
+    const offset = diffDays_(BASE_DATE, dateStr);
+    return shiftCodeByDays_(myOrder, myBaseCode, offset);
+  };
   const now = new Date();
   const [viewYear, setViewYear] = useState(now.getFullYear());
   const [viewMonth, setViewMonth] = useState(now.getMonth()); // 0-indexed
@@ -958,7 +974,7 @@ function MainScreen({ currentUser, employees }) {
     setSelectedDate(key);
     setShowRegisterForm(false);
     setFormType(VACATION_TYPES[0]);
-    setFormDia(myCode); // 본인 현재 교번을 기본값으로 (날짜별 정확한 값 아님, 수정 가능)
+    setFormDia(codeForDate(key)); // 선택한 날짜의 실제 교번 (기준일 대비 계산, 수정 가능)
   };
 
   const closeModal = () => {
@@ -1063,6 +1079,7 @@ function MainScreen({ currentUser, employees }) {
           return (
             <div key={i} style={cal.dayCell(key === todayKey)} onClick={() => openDate(d)}>
               <div style={cal.dayNum(dayType)}>{d}</div>
+              <div style={cal.dayCode}>{codeForDate(key)}</div>
               {badge}
             </div>
           );
