@@ -106,6 +106,14 @@
     async remove(id) {
       await deleteDoc(doc(db, COLLECTION, id));
     },
+    // 중간관리자 확인 도장
+    async confirm(id, managerName) {
+      await updateDoc(doc(db, COLLECTION, id), {
+        confirmedBy: managerName,
+        confirmedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    },
   };
 
   // 사용자 승인 관련 API
