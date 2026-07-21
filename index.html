@@ -61,6 +61,16 @@
       const snap = await getDocs(q);
       return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     },
+    // 월 범위 조회 (달력용) - startStr, endStr: "YYYY-MM-DD"
+    async getByRange(startStr, endStr) {
+      const q = query(
+        collection(db, COLLECTION),
+        where("date", ">=", startStr),
+        where("date", "<=", endStr)
+      );
+      const snap = await getDocs(q);
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    },
     // 새 휴가 등록
     async add(record) {
       const ref = await addDoc(collection(db, COLLECTION), {
@@ -81,17 +91,4 @@
     // 취소 처리 (삭제 아님, 상태만 변경)
     async cancel(id) {
       await updateDoc(doc(db, COLLECTION, id), {
-        status: "취소됨",
-        updatedAt: serverTimestamp(),
-      });
-    },
-  };
-
-  window.__firestoreReady = true;
-  window.dispatchEvent(new Event("firestore-ready"));
-</script>
-
-<!-- 실제 앱 코드 (JSX) -->
-<script type="text/babel" src="app.js"></script>
-</body>
-</html>
+        status: "
