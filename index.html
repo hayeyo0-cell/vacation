@@ -91,4 +91,17 @@
     // 취소 처리 (삭제 아님, 상태만 변경)
     async cancel(id) {
       await updateDoc(doc(db, COLLECTION, id), {
-        status: "
+        status: "취소됨",
+        updatedAt: serverTimestamp(),
+      });
+    },
+  };
+
+  window.__firestoreReady = true;
+  window.dispatchEvent(new Event("firestore-ready"));
+</script>
+
+<!-- 실제 앱 코드 (JSX) -->
+<script type="text/babel" src="app.js"></script>
+</body>
+</html>
