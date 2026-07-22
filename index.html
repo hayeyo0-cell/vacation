@@ -17,6 +17,17 @@
     -webkit-tap-highlight-color: transparent;
   }
   #root { min-height: 100vh; }
+
+  /* PC 등 넓은 화면에서는 모바일 폭으로 가운데 정렬 (관리자는 주로 PC에서 사용) */
+  @media (min-width: 640px) {
+    body { background: #e7e2d5; }
+    #root > div {
+      max-width: 480px;
+      margin: 0 auto;
+      min-height: 100vh;
+      box-shadow: 0 0 50px rgba(0,0,0,0.12);
+    }
+  }
 </style>
 </head>
 <body>
