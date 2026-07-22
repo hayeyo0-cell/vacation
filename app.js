@@ -381,6 +381,7 @@ function App() {
   const [pendingCode, setPendingCode] = useState("");
   const [loginTarget, setLoginTarget] = useState(null);
   const [pinError, setPinError] = useState("");
+  const [firstPin, setFirstPin] = useState(""); // PIN 최초 설정 시 재입력 확인용
 
   // PWA 설치 배너 관련
   const [installPrompt, setInstallPrompt] = useState(null);
@@ -528,7 +529,7 @@ function App() {
       .then(() => window.ApprovalAPI.getStatus(emp.id))
       .then((data) => {
         if (data && data.status === "approved") {
-          alert("이미 승인되어 사용 중인 계정이에요. 본인이 맞다면 관리자에게 직접 문의해주세요.");
+          alert("이미 다른 기기에서 승인받아 사용 중인 계정이에요.\n\n휴대폰을 바꾸신 거라면, 관리자(권재림)에게 '기기변경'을 요청해주세요. 관리자가 처리해주면 다시 등록하실 수 있어요.");
           return;
         }
         if (data && data.status === "pending") {
@@ -542,6 +543,23 @@ function App() {
         console.error(err);
         alert("확인 중 오류가 발생했어요: " + (err && err.message ? err.message : err));
       });
+  };
+
+  // PIN 최초 입력 → 재확인 단계로 이동
+  const handlePinFirstEntry = (pin) => {
+    setFirstPin(pin);
+    setStep("setPinConfirm");
+  };
+
+  // PIN 재입력 확인 → 일치하면 실제 등록 진행, 불일치하면 처음부터 다시
+  const handlePinConfirm = (pin) => {
+    if (pin !== firstPin) {
+      alert("PIN이 일치하지 않아요. 처음부터 다시 입력해주세요.");
+      setFirstPin("");
+      setStep("setPin");
+      return;
+    }
+    handleSetPin(pin);
   };
 
   const handleSetPin = (pin) => {
@@ -702,13 +720,24 @@ function App() {
     );
   }
 
-  // PIN 설정
+  // PIN 설정 (1차 입력)
   if (step === "setPin") {
     return (
       <div style={styles.screen}>
         <div style={styles.title}>사용하실 PIN 4자리를 설정해주세요</div>
         <div style={styles.subText}>이 PIN은 이 휴대폰에만 저장돼요</div>
-        <PinPad onComplete={handleSetPin} />
+        <PinPad onComplete={handlePinFirstEntry} />
+      </div>
+    );
+  }
+
+  // PIN 설정 (재입력 확인)
+  if (step === "setPinConfirm") {
+    return (
+      <div style={styles.screen}>
+        <div style={styles.title}>PIN을 한 번 더 입력해주세요</div>
+        <div style={styles.subText}>정확히 입력했는지 확인할게요</div>
+        <PinPad onComplete={handlePinConfirm} />
       </div>
     );
   }
@@ -1795,6 +1824,35 @@ const adminStyles = {
     whiteSpace: "nowrap",
     flexShrink: 0,
   },
+  tabBtn: {
+    flex: 1,
+    padding: "9px 0",
+    borderRadius: "8px",
+    border: "1px solid #ddd",
+    background: "#fff",
+    color: "#888",
+    fontWeight: 700,
+    fontSize: "13px",
+  },
+  tabBtnActive: {
+    flex: 1,
+    padding: "9px 0",
+    borderRadius: "8px",
+    border: "1px solid #1b3a5c",
+    background: "#1b3a5c",
+    color: "#fff",
+    fontWeight: 700,
+    fontSize: "13px",
+  },
+  resetBtn: {
+    padding: "8px 14px",
+    borderRadius: "8px",
+    border: "none",
+    background: "#e08a20",
+    color: "#fff",
+    fontWeight: 700,
+    fontSize: "13px",
+  },
 };
 
 function MyVacationsPanel({ currentUser, onClose }) {
@@ -1874,14 +1932,19 @@ function MyVacationsPanel({ currentUser, onClose }) {
 }
 
 function AdminPanel({ onClose }) {
+  const [tab, setTab] = useState("pending"); // "pending" | "approved"
   const [pending, setPending] = useState([]);
+  const [approved, setApproved] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const load = () => {
     setLoading(true);
     waitForFirestore()
-      .then(() => window.ApprovalAPI.listPending())
-      .then((list) => setPending(list))
+      .then(() => Promise.all([window.ApprovalAPI.listPending(), window.ApprovalAPI.listApproved()]))
+      .then(([pendingList, approvedList]) => {
+        setPending(pendingList);
+        setApproved(approvedList);
+      })
       .catch((err) => alert("불러오기 실패: " + (err && err.message ? err.message : err)))
       .finally(() => setLoading(false));
   };
@@ -1896,26 +1959,78 @@ function AdminPanel({ onClose }) {
     });
   };
 
+  const handleResetDevice = (p) => {
+    if (
+      !confirm(
+        `${p.name} (${p.branch})님의 기기변경을 허용할까요?\n기존 등록 정보가 초기화되고, 새 기기에서 다시 등록 후 재승인을 받아야 해요.`
+      )
+    )
+      return;
+    window.ApprovalAPI.reset(p.id).then(() => {
+      setApproved((prev) => prev.filter((a) => a.id !== p.id));
+    });
+  };
+
   return (
     <div style={modal.overlay} onClick={onClose}>
       <div style={modal.sheet} onClick={(e) => e.stopPropagation()}>
-        <div style={modal.dateTitle}>승인 대기 목록 ({pending.length}명)</div>
+        <div style={{ display: "flex", gap: "6px", marginBottom: "14px" }}>
+          <button
+            style={tab === "pending" ? adminStyles.tabBtnActive : adminStyles.tabBtn}
+            onClick={() => setTab("pending")}
+          >
+            승인 대기 ({pending.length})
+          </button>
+          <button
+            style={tab === "approved" ? adminStyles.tabBtnActive : adminStyles.tabBtn}
+            onClick={() => setTab("approved")}
+          >
+            승인된 사용자
+          </button>
+        </div>
+
         {loading && <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0" }}>불러오는 중...</div>}
-        {!loading && pending.length === 0 && (
-          <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0" }}>대기중인 요청이 없어요</div>
+
+        {!loading && tab === "pending" && (
+          <React.Fragment>
+            {pending.length === 0 && (
+              <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0" }}>대기중인 요청이 없어요</div>
+            )}
+            {pending.map((p) => (
+              <div key={p.id} style={modal.card}>
+                <div>
+                  <div style={modal.name}>{p.name}</div>
+                  <div style={modal.typeRow}>{p.branch} · {p.id}</div>
+                </div>
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <button style={adminStyles.approveBtn} onClick={() => handleAction(p.id, "approved")}>승인</button>
+                  <button style={adminStyles.rejectBtn} onClick={() => handleAction(p.id, "rejected")}>거절</button>
+                </div>
+              </div>
+            ))}
+          </React.Fragment>
         )}
-        {pending.map((p) => (
-          <div key={p.id} style={modal.card}>
-            <div>
-              <div style={modal.name}>{p.name}</div>
-              <div style={modal.typeRow}>{p.branch} · {p.id}</div>
+
+        {!loading && tab === "approved" && (
+          <React.Fragment>
+            <div style={{ ...modal.countText, marginBottom: "10px" }}>
+              폰을 바꾼 사람이 새 기기에서 다시 등록할 수 있도록 허용해요
             </div>
-            <div style={{ display: "flex", gap: "8px" }}>
-              <button style={adminStyles.approveBtn} onClick={() => handleAction(p.id, "approved")}>승인</button>
-              <button style={adminStyles.rejectBtn} onClick={() => handleAction(p.id, "rejected")}>거절</button>
-            </div>
-          </div>
-        ))}
+            {approved.length === 0 && (
+              <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0" }}>승인된 사용자가 없어요</div>
+            )}
+            {approved.map((p) => (
+              <div key={p.id} style={modal.card}>
+                <div>
+                  <div style={modal.name}>{p.name}</div>
+                  <div style={modal.typeRow}>{p.branch} · {p.id}</div>
+                </div>
+                <button style={adminStyles.resetBtn} onClick={() => handleResetDevice(p)}>기기변경</button>
+              </div>
+            ))}
+          </React.Fragment>
+        )}
+
         <button style={modal.closeBtn} onClick={onClose}>닫기</button>
       </div>
     </div>
