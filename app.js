@@ -13,6 +13,10 @@ const GAS_URL =
   "https://script.google.com/macros/s/AKfycbw8NMVjH3J_Mt7SBymWOg44zvD4gd4GXkQB3r95QTl63M3aWqtf-OglLrG2rQPH7J6UjA/exec";
 
 const TEAM_MAP = { ks: "경산", my: "문양" }; // 안심(as)/월배(wb)는 이 앱 대상 아님
+// ⚠️ 테스트 모드: true면 누구나 교번확인/승인 없이 바로 들어갈 수 있어요.
+// 실제 운영 시작하면 반드시 false로 바꿔주세요!
+const TEST_MODE = true;
+
 const REVERSE_TEAM_MAP = { 경산: "ks", 문양: "my" };
 
 // 중간관리자 명단. 수시로 바뀌면 여기 이름/소속만 수정·추가하면 돼요.
@@ -490,7 +494,7 @@ function App() {
     }
 
     // 관리직(교번 없음)은 교번 확인 단계 없이 바로 진행
-    if (emp.code !== null) {
+    if (!TEST_MODE && emp.code !== null) {
       if (!pendingCode) {
         alert("교번을 선택해주세요");
         return;
@@ -532,7 +536,7 @@ function App() {
     saveLocalAuth(updated);
     setLocalAuth(updated);
 
-    if (ADMIN_NAMES.includes(selectedEmp.name) || isMidManagerUser(selectedEmp)) {
+    if (TEST_MODE || ADMIN_NAMES.includes(selectedEmp.name) || isMidManagerUser(selectedEmp)) {
       // 관리자는 승인 절차 없이 바로 진입 (본인이 승인권자니까)
       setStep("main");
       return;
@@ -561,7 +565,7 @@ function App() {
       return;
     }
 
-    if (ADMIN_NAMES.includes(loginTarget.name) || isMidManagerUser(loginTarget)) {
+    if (TEST_MODE || ADMIN_NAMES.includes(loginTarget.name) || isMidManagerUser(loginTarget)) {
       setStep("main");
       return;
     }
