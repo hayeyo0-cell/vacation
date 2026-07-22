@@ -19,19 +19,10 @@ const TEST_MODE = true;
 
 const REVERSE_TEAM_MAP = { 경산: "ks", 문양: "my" };
 
-// 중간관리자 명단. 수시로 바뀌면 여기 이름/소속만 수정·추가하면 돼요.
-const MID_MANAGERS = [
-  { name: "박광훈", branch: "경산" },
-  { name: "고병준", branch: "경산" },
-  { name: "류인석", branch: "경산" },
-  { name: "김성대", branch: "경산" },
-  { name: "이영식", branch: "경산" },
-  { name: "이재환", branch: "경산" },
-  { name: "황종만", branch: "경산" },
-];
-
-function isMidManagerUser(user) {
-  return MID_MANAGERS.some((m) => m.name === user.name && m.branch === user.branch);
+// 운용(중간관리자) 명단은 더 이상 코드에 하드코딩하지 않고 Firestore(window.ManagerAPI)로 관리해요.
+// 관리자(권재림)가 앱 내 "운용 인원 관리" 화면에서 직접 추가/삭제할 수 있어요.
+function isMidManagerUser(user, managers) {
+  return (managers || []).some((m) => m.name === user.name && m.branch === user.branch);
 }
 
 function jsonpRequest(url, params) {
@@ -381,8 +372,10 @@ function App() {
   // step: "loading" | "chooseBranch" | "nameAndCode" | "setPin" | "loginName" | "loginPin" | "main"
   const [step, setStep] = useState("loading");
   const [employees, setEmployees] = useState([]);
+  const [managers, setManagers] = useState([]); // 운용(중간관리자) 명단 - Firestore
   const [localAuth, setLocalAuth] = useState([]);
   const [branch, setBranch] = useState(null);
+  const [role, setRole] = useState(null); // "기관사" | "운용"
   const [selectedEmp, setSelectedEmp] = useState(null);
   const [pendingNameId, setPendingNameId] = useState("");
   const [pendingCode, setPendingCode] = useState("");
@@ -456,18 +449,26 @@ function App() {
         }
         // 재로그인 사용자는 이미 화면이 떠 있으니 조용히 재시도만 실패 처리 (콘솔 로그만)
       });
+
+    // 운용(중간관리자) 명단은 Firestore에서 불러옴
+    waitForFirestore()
+      .then(() => window.ManagerAPI.list())
+      .then((list) => setManagers(list))
+      .catch((err) => console.error("운용 명단 로드 실패:", err));
   }, []);
 
   const branchEmployees = employees.filter(
     (e) => e.branch === branch && !localAuth.some((a) => a.id === e.id)
   );
 
-  // 현재배정 시트에 없는 중간관리자(갑/을/병/현업일근 등)도 이름 목록에 합침 - 교번 없음
-  const branchManagerEntries = MID_MANAGERS.filter((m) => m.branch === branch)
-    .map((m) => ({ id: `mgr-${m.branch}-${m.name}`, name: m.name, branch: m.branch, code: null }))
+  // 운용(중간관리자) 명단 - 교번 없음
+  const branchManagerEntries = managers
+    .filter((m) => m.branch === branch)
+    .map((m) => ({ id: m.id, name: m.name, branch: m.branch, code: null }))
     .filter((m) => !localAuth.some((a) => a.id === m.id));
 
-  const nameOptions = [...branchEmployees, ...branchManagerEntries];
+  // 선택한 구분(기관사/운용)에 따라 이름 목록을 분리해서 보여줌
+  const nameOptions = role === "운용" ? branchManagerEntries : branchEmployees;
 
   const selectedNameEntry = nameOptions.find((e) => e.id === pendingNameId);
   const selectedIsManager = !!selectedNameEntry && selectedNameEntry.code === null;
@@ -475,6 +476,14 @@ function App() {
   /* ---- 최초 설정 흐름 ---- */
   const handleChooseBranch = (b) => {
     setBranch(b);
+    setRole(null);
+    setPendingNameId("");
+    setPendingCode("");
+    setStep("chooseRole");
+  };
+
+  const handleChooseRole = (r) => {
+    setRole(r);
     setPendingNameId("");
     setPendingCode("");
     setStep("nameAndCode");
@@ -509,7 +518,7 @@ function App() {
       }
     }
 
-    if (TEST_MODE || ADMIN_NAMES.includes(emp.name) || isMidManagerUser(emp)) {
+    if (TEST_MODE || ADMIN_NAMES.includes(emp.name) || isMidManagerUser(emp, managers)) {
       setSelectedEmp(emp);
       setStep("setPin");
       return;
@@ -540,7 +549,7 @@ function App() {
     saveLocalAuth(updated);
     setLocalAuth(updated);
 
-    if (TEST_MODE || ADMIN_NAMES.includes(selectedEmp.name) || isMidManagerUser(selectedEmp)) {
+    if (TEST_MODE || ADMIN_NAMES.includes(selectedEmp.name) || isMidManagerUser(selectedEmp, managers)) {
       // 관리자는 승인 절차 없이 바로 진입 (본인이 승인권자니까)
       setStep("main");
       return;
@@ -569,7 +578,7 @@ function App() {
       return;
     }
 
-    if (TEST_MODE || ADMIN_NAMES.includes(loginTarget.name) || isMidManagerUser(loginTarget)) {
+    if (TEST_MODE || ADMIN_NAMES.includes(loginTarget.name) || isMidManagerUser(loginTarget, managers)) {
       setStep("main");
       return;
     }
@@ -616,14 +625,33 @@ function App() {
     );
   }
 
+  // 구분 선택 (기관사 / 운용)
+  if (step === "chooseRole") {
+    return (
+      <div style={styles.screen}>
+        {installBanner}
+        <div style={styles.title}>{branch} · 구분을 선택해주세요</div>
+        <button style={styles.button} onClick={() => handleChooseRole("기관사")}>기관사</button>
+        <button style={styles.button} onClick={() => handleChooseRole("운용")}>운용</button>
+        <button style={{ ...styles.button, border: "none", color: "#888" }} onClick={() => setStep("chooseBranch")}>
+          ← 소속 다시 선택
+        </button>
+      </div>
+    );
+  }
+
   // 이름 + 교번 확인 (한 페이지, 드롭다운)
   if (step === "nameAndCode") {
     return (
       <div style={styles.screen}>
         {installBanner}
-        <div style={styles.title}>{branch} · 이름을 선택해주세요</div>
+        <div style={styles.title}>{branch} · {role} · 이름을 선택해주세요</div>
         {nameOptions.length === 0 && (
-          <div style={styles.subText}>표시할 이름이 없어요. 인사이동으로 새로 오신 경우 직원목록 시트 반영 후 다시 시도해주세요.</div>
+          <div style={styles.subText}>
+            {role === "운용"
+              ? "등록된 운용 인원이 없어요. 관리자에게 문의해주세요."
+              : "표시할 이름이 없어요. 인사이동으로 새로 오신 경우 직원목록 시트 반영 후 다시 시도해주세요."}
+          </div>
         )}
         {nameOptions.length > 0 && (
           <React.Fragment>
@@ -667,8 +695,8 @@ function App() {
             <button style={styles.primaryButton} onClick={handleConfirmNameCode}>확인</button>
           </React.Fragment>
         )}
-        <button style={{ ...styles.button, border: "none", color: "#888" }} onClick={() => setStep("chooseBranch")}>
-          ← 소속 다시 선택
+        <button style={{ ...styles.button, border: "none", color: "#888" }} onClick={() => setStep("chooseRole")}>
+          ← 구분 다시 선택
         </button>
       </div>
     );
@@ -755,7 +783,7 @@ function App() {
 
   // 메인 화면 - 날짜별 조회
   if (step === "main") {
-    return <MainScreen currentUser={loginTarget || { ...selectedEmp }} employees={employees} />;
+    return <MainScreen currentUser={loginTarget || { ...selectedEmp }} employees={employees} managers={managers} />;
   }
 
   return null;
@@ -1124,10 +1152,11 @@ function pad2(n) {
   return String(n).padStart(2, "0");
 }
 
-function MainScreen({ currentUser, employees }) {
+function MainScreen({ currentUser, employees, managers }) {
   const isAdmin = ADMIN_NAMES.includes(currentUser.name);
-  const isMidManager = isMidManagerUser(currentUser);
+  const isMidManager = isMidManagerUser(currentUser, managers);
   const [showAdmin, setShowAdmin] = useState(false);
+  const [showManagerAdmin, setShowManagerAdmin] = useState(false);
   const [showMyVacations, setShowMyVacations] = useState(false);
   const myCode = (employees || []).find((e) => e.id === currentUser.id)?.code || "";
   const myBaseCode = (employees || []).find((e) => e.id === currentUser.id)?.baseCode || "";
@@ -1412,6 +1441,11 @@ function MainScreen({ currentUser, employees }) {
           {isAdmin && (
             <button style={adminStyles.adminBtn} onClick={() => setShowAdmin(true)}>승인 관리</button>
           )}
+          {isAdmin && (
+            <button style={{ ...adminStyles.adminBtn, marginLeft: "8px" }} onClick={() => setShowManagerAdmin(true)}>
+              운용 인원 관리
+            </button>
+          )}
         </div>
         <div style={cal.navRow}>
           <button style={cal.navBtn} onClick={() => changeMonth(-1)}>‹</button>
@@ -1695,6 +1729,9 @@ function MainScreen({ currentUser, employees }) {
       )}
 
       {showAdmin && <AdminPanel onClose={() => setShowAdmin(false)} />}
+      {showManagerAdmin && (
+        <ManagerAdminPanel branch={currentUser.branch} onClose={() => setShowManagerAdmin(false)} />
+      )}
       {showMyVacations && (
         <MyVacationsPanel currentUser={currentUser} onClose={() => setShowMyVacations(false)} />
       )}
@@ -1858,6 +1895,104 @@ function AdminPanel({ onClose }) {
             </div>
           </div>
         ))}
+        <button style={modal.closeBtn} onClick={onClose}>닫기</button>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* 운용(중간관리자) 인원 관리 패널 (관리자 전용)                          */
+/* ------------------------------------------------------------------ */
+function ManagerAdminPanel({ branch, onClose }) {
+  const [list, setList] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [newName, setNewName] = useState("");
+  const [newBranch, setNewBranch] = useState(branch || "경산");
+  const [saving, setSaving] = useState(false);
+
+  const load = () => {
+    setLoading(true);
+    waitForFirestore()
+      .then(() => window.ManagerAPI.list())
+      .then((data) => setList(data))
+      .catch((err) => alert("불러오기 실패: " + (err && err.message ? err.message : err)))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  const handleAdd = () => {
+    const name = newName.trim();
+    if (!name) {
+      alert("이름을 입력해주세요");
+      return;
+    }
+    if (list.some((m) => m.name === name && m.branch === newBranch)) {
+      alert("이미 등록된 이름이에요");
+      return;
+    }
+    setSaving(true);
+    window.ManagerAPI.add({ name, branch: newBranch })
+      .then(() => {
+        setNewName("");
+        load();
+      })
+      .catch((err) => alert("추가 실패: " + (err && err.message ? err.message : err)))
+      .finally(() => setSaving(false));
+  };
+
+  const handleRemove = (m) => {
+    if (!confirm(`${m.name} (${m.branch})님을 운용 명단에서 삭제할까요?`)) return;
+    window.ManagerAPI.remove(m.id)
+      .then(() => setList((prev) => prev.filter((x) => x.id !== m.id)))
+      .catch((err) => alert("삭제 실패: " + (err && err.message ? err.message : err)));
+  };
+
+  return (
+    <div style={modal.overlay} onClick={onClose}>
+      <div style={modal.sheet} onClick={(e) => e.stopPropagation()}>
+        <div style={modal.dateTitle}>운용 인원 관리</div>
+        <div style={{ ...modal.countText, marginBottom: "12px" }}>
+          인사이동으로 인원이 바뀌면 여기서 바로 추가/삭제하면 돼요
+        </div>
+
+        <div style={{ display: "flex", gap: "6px", marginBottom: "16px" }}>
+          <select
+            style={{ ...styles.select, flex: "0 0 90px", marginBottom: 0 }}
+            value={newBranch}
+            onChange={(e) => setNewBranch(e.target.value)}
+          >
+            <option value="경산">경산</option>
+            <option value="문양">문양</option>
+          </select>
+          <input
+            style={{ ...styles.select, flex: 1, marginBottom: 0 }}
+            placeholder="이름 입력"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+          />
+          <button style={adminStyles.approveBtn} disabled={saving} onClick={handleAdd}>
+            추가
+          </button>
+        </div>
+
+        {loading && <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0" }}>불러오는 중...</div>}
+        {!loading && list.length === 0 && (
+          <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0" }}>등록된 운용 인원이 없어요</div>
+        )}
+        {!loading &&
+          list.map((m) => (
+            <div key={m.id} style={modal.card}>
+              <div>
+                <div style={modal.name}>{m.name}</div>
+                <div style={modal.typeRow}>{m.branch}</div>
+              </div>
+              <button style={adminStyles.rejectBtn} onClick={() => handleRemove(m)}>삭제</button>
+            </div>
+          ))}
         <button style={modal.closeBtn} onClick={onClose}>닫기</button>
       </div>
     </div>
