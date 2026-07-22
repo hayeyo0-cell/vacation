@@ -1014,6 +1014,8 @@ const modal = {
   sheet: {
     background: "#fff",
     width: "100%",
+    maxWidth: "480px",
+    margin: "0 auto",
     maxHeight: "85vh",
     overflowY: "auto",
     borderRadius: "20px 20px 0 0",
