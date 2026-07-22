@@ -1012,7 +1012,7 @@ const modal = {
     padding: "20px",
   },
   dateTitle: { fontSize: "18px", fontWeight: 700, marginBottom: "4px" },
-  countText: { fontSize: "14px", color: "#888", marginBottom: "16px" },
+  countText: { fontSize: "14px", color: "#1a1a1a", fontWeight: 600, marginBottom: "16px" },
   card: {
     background: "#f8f9fb",
     borderRadius: "12px",
@@ -1183,13 +1183,25 @@ function MainScreen({ currentUser, employees }) {
     setShowManagerForm(false);
     setFormType(VACATION_TYPES[0]);
     setFormDia(codeForDate(key)); // 선택한 날짜의 실제 교번 (기준일 대비 계산, 수정 가능)
+    window.history.pushState({ modal: true }, "");
   };
 
   const closeModal = () => {
-    setSelectedDate(null);
-    setShowRegisterForm(false);
-    setShowManagerForm(false);
+    if (selectedDate) {
+      window.history.back(); // popstate 핸들러가 실제 상태 초기화를 처리
+    }
   };
+
+  // 안드로이드/브라우저 뒤로가기 버튼을 누르면 앱을 나가는 대신 모달만 닫히도록 처리
+  useEffect(() => {
+    const handlePopState = () => {
+      setSelectedDate(null);
+      setShowRegisterForm(false);
+      setShowManagerForm(false);
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
 
   const dayRecords = selectedDate
     ? (monthMap[selectedDate] || []).filter((v) => v.branch === currentUser.branch)
