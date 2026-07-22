@@ -376,6 +376,7 @@ function App() {
   const [localAuth, setLocalAuth] = useState([]);
   const [branch, setBranch] = useState(null);
   const [role, setRole] = useState(null); // "기관사" | "운용"
+  const [addManagerOnly, setAddManagerOnly] = useState(false); // "이 기기에 다른 사람 등록"은 운용 전용
   const [selectedEmp, setSelectedEmp] = useState(null);
   const [pendingNameId, setPendingNameId] = useState("");
   const [pendingCode, setPendingCode] = useState("");
@@ -478,9 +479,19 @@ function App() {
   const handleChooseBranch = (b) => {
     setBranch(b);
     setRole(null);
+    setAddManagerOnly(false);
     setPendingNameId("");
     setPendingCode("");
     setStep("chooseRole");
+  };
+
+  // "이 기기에 다른 사람 등록" 전용 - 운용만 추가할 수 있어서 구분 선택 단계를 건너뜀
+  const handleChooseBranchManagerOnly = (b) => {
+    setBranch(b);
+    setRole("운용");
+    setPendingNameId("");
+    setPendingCode("");
+    setStep("nameAndCode");
   };
 
   const handleChooseRole = (r) => {
@@ -627,10 +638,11 @@ function App() {
     setStep("chooseBranch");
   };
 
-  // 공용 PC 등, 이 기기에 다른 사람을 추가로 등록할 때 사용 (기존 등록자는 유지됨)
+  // 공용 PC 등, 이 기기에 운용 인원을 추가로 등록할 때 사용 (기존 등록자는 유지됨, 기관사는 등록 불가)
   const handleAddAnother = () => {
     setBranch(null);
     setRole(null);
+    setAddManagerOnly(true);
     setPendingNameId("");
     setPendingCode("");
     setStep("chooseBranch");
@@ -647,9 +659,31 @@ function App() {
     return (
       <div style={styles.screen}>
         {installBanner}
-        <div style={styles.title}>소속을 선택해주세요</div>
-        <button style={styles.button} onClick={() => handleChooseBranch("경산")}>경산승무팀</button>
-        <button style={styles.button} onClick={() => handleChooseBranch("문양")}>문양승무팀</button>
+        <div style={styles.title}>
+          {addManagerOnly ? "운용 인원 추가 · 소속을 선택해주세요" : "소속을 선택해주세요"}
+        </div>
+        {addManagerOnly ? (
+          <React.Fragment>
+            <button style={styles.button} onClick={() => handleChooseBranchManagerOnly("경산")}>경산승무팀</button>
+            <button style={styles.button} onClick={() => handleChooseBranchManagerOnly("문양")}>문양승무팀</button>
+          </React.Fragment>
+        ) : (
+          <React.Fragment>
+            <button style={styles.button} onClick={() => handleChooseBranch("경산")}>경산승무팀</button>
+            <button style={styles.button} onClick={() => handleChooseBranch("문양")}>문양승무팀</button>
+          </React.Fragment>
+        )}
+        {addManagerOnly && (
+          <button
+            style={{ ...styles.button, border: "none", color: "#888" }}
+            onClick={() => {
+              setAddManagerOnly(false);
+              setStep("loginName");
+            }}
+          >
+            ← 취소
+          </button>
+        )}
       </div>
     );
   }
@@ -724,8 +758,11 @@ function App() {
             <button style={styles.primaryButton} onClick={handleConfirmNameCode}>확인</button>
           </React.Fragment>
         )}
-        <button style={{ ...styles.button, border: "none", color: "#888" }} onClick={() => setStep("chooseRole")}>
-          ← 구분 다시 선택
+        <button
+          style={{ ...styles.button, border: "none", color: "#888" }}
+          onClick={() => setStep(addManagerOnly ? "chooseBranch" : "chooseRole")}
+        >
+          {addManagerOnly ? "← 소속 다시 선택" : "← 구분 다시 선택"}
         </button>
       </div>
     );
@@ -755,6 +792,7 @@ function App() {
 
   // 재로그인 - 이름 선택
   if (step === "loginName") {
+    const hasManagerOnDevice = localAuth.some((a) => isMidManagerUser(a, managers));
     return (
       <div style={styles.screen}>
         {installBanner}
@@ -764,12 +802,14 @@ function App() {
             {a.name} ({a.branch})
           </button>
         ))}
-        <button
-          style={{ ...styles.button, border: "1px dashed #1b3a5c", color: "#1b3a5c", marginTop: "16px" }}
-          onClick={handleAddAnother}
-        >
-          + 이 기기에 다른 사람 등록
-        </button>
+        {hasManagerOnDevice && (
+          <button
+            style={{ ...styles.button, border: "1px dashed #1b3a5c", color: "#1b3a5c", marginTop: "16px" }}
+            onClick={handleAddAnother}
+          >
+            + 이 기기에 다른 사람 등록
+          </button>
+        )}
         {TEST_MODE && (
           <button style={{ ...styles.button, border: "none", color: "#e02020", marginTop: "8px" }} onClick={handleResetAll}>
             🔄 (테스트용) 전체 초기화
