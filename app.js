@@ -1555,7 +1555,9 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
         <div style={cal.headerTop}>
           <div style={{ display: "flex", alignItems: "center" }}>
             <div style={cal.userName}>{currentUser?.name}님</div>
-            <button style={cal.switchUserBtn} onClick={onSwitchUser}>전환</button>
+            {isMidManager && (
+              <button style={cal.switchUserBtn} onClick={onSwitchUser}>전환</button>
+            )}
           </div>
           <div style={cal.headerBtnRow}>
             {!isMidManager && (
