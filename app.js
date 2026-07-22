@@ -786,9 +786,11 @@ function formatEntryTime(ts) {
   if (!ts) return "";
   const date = typeof ts.toDate === "function" ? ts.toDate() : new Date(ts);
   if (isNaN(date.getTime())) return "";
+  const mo = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
   const hh = String(date.getHours()).padStart(2, "0");
   const mm = String(date.getMinutes()).padStart(2, "0");
-  return `${hh}:${mm} 입력`;
+  return `${mo}/${dd} ${hh}:${mm} 입력`;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1606,6 +1608,10 @@ function MainScreen({ currentUser, employees }) {
                   dayRecords.some((v) => v.employeeId === currentUser.id && v.status !== "취소됨") ? (
                     <div style={{ textAlign: "center", color: "#999", fontSize: "13px", padding: "10px 0" }}>
                       이미 이 날짜에 신청하셨어요
+                    </div>
+                  ) : gyeongsanInfo && gyeongsanInfo.remain <= 0 ? (
+                    <div style={{ textAlign: "center", color: "#e02020", fontSize: "13px", padding: "10px 0" }}>
+                      이 날짜는 보장인원이 다 찼어요 (여유 0명)
                     </div>
                   ) : (
                     <button style={modal.addBtn} onClick={() => setShowRegisterForm(true)}>
