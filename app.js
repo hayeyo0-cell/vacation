@@ -850,7 +850,6 @@ const cal = {
     aspectRatio: "1",
     minWidth: 0,
     width: "100%",
-    overflow: "hidden",
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
@@ -1102,8 +1101,8 @@ const modal = {
 const VACATION_TYPES = [...CAPACITY_TYPES, ...NON_CAPACITY_TYPES];
 
 const tbl = {
-  th: { padding: "8px 6px", textAlign: "center", fontSize: "13px", color: "#666", whiteSpace: "nowrap" },
-  td: { padding: "10px 6px", textAlign: "center", verticalAlign: "top", fontSize: "15px", whiteSpace: "nowrap" },
+  th: { padding: "6px 4px", textAlign: "center", fontSize: "12px", color: "#666", whiteSpace: "nowrap" },
+  td: { padding: "8px 4px", textAlign: "center", verticalAlign: "top", fontSize: "14px", whiteSpace: "nowrap" },
 };
 
 function pad2(n) {
@@ -1587,7 +1586,7 @@ function MainScreen({ currentUser, employees }) {
                             >
                               <td style={tbl.td}>{idx + 1}</td>
                               <td style={{ ...tbl.td, textAlign: "left" }}>
-                                <div style={{ fontWeight: 700, fontSize: "15px" }}>
+                                <div style={{ fontWeight: 700, fontSize: "14px" }}>
                                   {TYPE_ICON[v.vacationType] || "📌"} {v.name}
                                 </div>
                                 {v.createdAt && (
