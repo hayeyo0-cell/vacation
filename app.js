@@ -508,7 +508,8 @@ function App() {
     }
 
     // 관리직(교번 없음)은 교번 확인 단계 없이 바로 진행
-    if (!TEST_MODE && emp.code !== null) {
+    // ※ 교번 검증은 테스트 버전이어도 절차상 그대로 유지해요 (TEST_MODE와 무관)
+    if (emp.code !== null) {
       if (!pendingCode) {
         alert("교번을 선택해주세요");
         return;
@@ -519,6 +520,7 @@ function App() {
       }
     }
 
+    // TEST_MODE에서는 "이미 승인된 기기" 같은 중복 차단만 건너뛰고, 그 외 절차(교번확인·PIN)는 그대로 거쳐요
     if (TEST_MODE || ADMIN_NAMES.includes(emp.name) || isMidManagerUser(emp, managers)) {
       setSelectedEmp(emp);
       setStep("setPin");
