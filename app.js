@@ -1615,7 +1615,12 @@ function MainScreen({ currentUser, employees }) {
                                 )}
                               </td>
                               <td style={tbl.td}>
-                                {!cancelled && v.employeeId === currentUser.id && (
+                                {!cancelled && v.employeeId === currentUser.id && !v.confirmedBy && (
+                                  <button style={{ ...modal.smallCancelBtn, margin: 0 }} onClick={() => handleCancel(v)}>
+                                    취소
+                                  </button>
+                                )}
+                                {!cancelled && isMidManager && v.employeeId !== currentUser.id && (
                                   <button style={{ ...modal.smallCancelBtn, margin: 0 }} onClick={() => handleCancel(v)}>
                                     취소
                                   </button>
@@ -1773,10 +1778,15 @@ function MyVacationsPanel({ currentUser, onClose }) {
                 </div>
                 <div style={{ display: "flex", alignItems: "center" }}>
                   <div style={modal.dia}>{v.dia}</div>
-                  {!cancelled && (
+                  {!cancelled && !v.confirmedBy && (
                     <button style={modal.smallCancelBtn} onClick={() => handleCancelMine(v)}>
                       취소
                     </button>
+                  )}
+                  {!cancelled && v.confirmedBy && (
+                    <span style={{ fontSize: "11px", color: "#bbb", marginLeft: "8px" }}>
+                      확인완료·취소는 관리자에게 문의
+                    </span>
                   )}
                 </div>
               </div>
