@@ -863,11 +863,15 @@ const cal = {
   }),
   dayNum: (type) => ({
     fontSize: "14px",
+    lineHeight: "16px",
+    height: "16px",
     fontWeight: 700,
     color: type === "휴일" ? "#e02020" : type === "토요일" ? "#1a73e8" : "#333",
   }),
   dayCode: {
     fontSize: "12px",
+    lineHeight: "14px",
+    height: "14px",
     fontWeight: 700,
     color: "#1a1a1a",
     marginTop: "1px",
@@ -1105,8 +1109,8 @@ const modal = {
 const VACATION_TYPES = [...CAPACITY_TYPES, ...NON_CAPACITY_TYPES];
 
 const tbl = {
-  th: { padding: "6px 4px", textAlign: "center", fontSize: "12px", color: "#666", whiteSpace: "nowrap" },
-  td: { padding: "8px 4px", textAlign: "center", verticalAlign: "top", fontSize: "14px", whiteSpace: "nowrap" },
+  th: { padding: "5px 3px", textAlign: "center", fontSize: "11px", color: "#666", whiteSpace: "nowrap" },
+  td: { padding: "6px 3px", textAlign: "center", verticalAlign: "top", fontSize: "13px", whiteSpace: "nowrap" },
 };
 
 function pad2(n) {
@@ -1592,13 +1596,12 @@ function MainScreen({ currentUser, employees }) {
                             >
                               <td style={tbl.td}>{idx + 1}</td>
                               <td style={{ ...tbl.td, textAlign: "left" }}>
-                                <div style={{ fontWeight: 700, fontSize: "14px" }}>
+                                <div style={{ fontWeight: 700, fontSize: "13px" }}>
                                   {TYPE_ICON[v.vacationType] || "📌"} {v.name}
                                 </div>
                                 {v.createdAt && (
                                   <div style={{ fontSize: "12px", color: "#333" }}>
                                     {formatEntryTime(v.createdAt)}
-                                    {v.recordedBy ? ` · ${v.recordedBy}` : ""}
                                   </div>
                                 )}
                               </td>
