@@ -165,22 +165,23 @@ const styles = {
   },
   title: {
     fontSize: "22px",
-    fontWeight: 700,
+    fontWeight: 800,
     marginBottom: "24px",
-    color: "#1a1a1a",
+    color: "#1b3a5c",
     textAlign: "center",
+    letterSpacing: "-0.3px",
   },
   button: {
     width: "100%",
     maxWidth: "360px",
     padding: "16px",
     margin: "6px 0",
-    borderRadius: "12px",
-    border: "1px solid #e0e0e0",
+    borderRadius: "14px",
+    border: "1px solid #e6e2d8",
     background: "#fff",
     fontSize: "16px",
     fontWeight: 600,
-    color: "#1a1a1a",
+    color: "#1f2a33",
     cursor: "pointer",
   },
   primaryButton: {
@@ -188,51 +189,54 @@ const styles = {
     maxWidth: "360px",
     padding: "16px",
     margin: "16px 0 6px",
-    borderRadius: "12px",
+    borderRadius: "14px",
     border: "none",
-    background: "#3478f6",
+    background: "#1b3a5c",
     fontSize: "16px",
     fontWeight: 700,
     color: "#fff",
     cursor: "pointer",
+    boxShadow: "0 4px 10px rgba(27,58,92,0.25)",
   },
   pinDots: {
     display: "flex",
-    gap: "16px",
+    gap: "18px",
     margin: "24px 0",
   },
   pinDot: (filled) => ({
-    width: "18px",
-    height: "18px",
+    width: "16px",
+    height: "16px",
     borderRadius: "50%",
-    background: filled ? "#3478f6" : "#e0e0e0",
+    background: filled ? "#d99a3d" : "#e6e2d8",
+    boxShadow: filled ? "0 0 0 4px rgba(217,154,61,0.18)" : "none",
+    transition: "box-shadow 120ms ease",
   }),
   keypad: {
     display: "grid",
     gridTemplateColumns: "repeat(3, 1fr)",
-    gap: "20px",
+    gap: "22px",
     width: "100%",
     maxWidth: "340px",
   },
   key: {
     aspectRatio: "1",
     width: "100%",
-    fontSize: "28px",
+    fontSize: "26px",
     fontWeight: 600,
     borderRadius: "50%",
     border: "none",
-    background: "#f5f6f8",
-    color: "#1a1a1a",
-    boxShadow: "0 2px 6px rgba(0,0,0,0.06)",
+    background: "#fff",
+    color: "#1f2a33",
+    boxShadow: "0 2px 8px rgba(27,58,92,0.08)",
   },
   backspaceKey: {
     aspectRatio: "1",
     width: "100%",
-    fontSize: "22px",
+    fontSize: "20px",
     borderRadius: "50%",
     border: "none",
     background: "transparent",
-    color: "#aaa",
+    color: "#b5aa96",
     boxShadow: "none",
   },
   errorText: {
@@ -333,7 +337,7 @@ const installStyles = {
     padding: "8px 14px",
     borderRadius: "8px",
     border: "none",
-    background: "#3478f6",
+    background: "#1b3a5c",
     color: "#fff",
     fontSize: "13px",
     fontWeight: 700,
@@ -797,11 +801,15 @@ function formatEntryTime(ts) {
 /* 메인 화면 - 월별 달력                                                 */
 /* ------------------------------------------------------------------ */
 const cal = {
-  wrap: { minHeight: "100vh", background: "#f5f6f8", paddingBottom: "40px", overflowX: "hidden" },
+  wrap: { minHeight: "100vh", background: "#f7f4ee", paddingBottom: "40px", overflowX: "hidden" },
   header: {
-    padding: "16px 12px 8px",
-    background: "#fff",
-    borderBottom: "1px solid #eee",
+    padding: "18px 14px 14px",
+    background: "#1b3a5c",
+  },
+  railDivider: {
+    height: 0,
+    borderBottom: "2px dashed rgba(255,255,255,0.25)",
+    margin: "14px 0 0",
   },
   navRow: {
     display: "flex",
@@ -813,18 +821,18 @@ const cal = {
     height: "36px",
     borderRadius: "50%",
     border: "none",
-    background: "#f0f2f5",
+    background: "rgba(255,255,255,0.14)",
     fontSize: "18px",
-    color: "#333",
+    color: "#fff",
   },
-  monthTitle: { fontSize: "18px", fontWeight: 700 },
+  monthTitle: { fontSize: "18px", fontWeight: 800, color: "#fff", letterSpacing: "0.5px" },
   weekRow: {
     display: "grid",
     gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
     marginTop: "14px",
     textAlign: "center",
     fontSize: "12px",
-    color: "#999",
+    color: "#c9d4de",
   },
   grid: {
     display: "grid",
@@ -842,7 +850,7 @@ const cal = {
     justifyContent: "center",
     borderRadius: "10px",
     background: "#fff",
-    border: isToday ? "2px solid #3478f6" : "1px solid #f0f0f0",
+    border: isToday ? "2px solid #1b3a5c" : "1px solid #f0f0f0",
     cursor: "pointer",
     position: "relative",
   }),
@@ -1025,7 +1033,7 @@ const modal = {
   cancelledCard: { opacity: 0.45, textDecoration: "line-through" },
   name: { fontSize: "15px", fontWeight: 700 },
   typeRow: { fontSize: "13px", color: "#888", marginTop: "2px" },
-  dia: { fontSize: "14px", fontWeight: 700, color: "#3478f6" },
+  dia: { fontSize: "14px", fontWeight: 700, color: "#1b3a5c" },
   smallCancelBtn: {
     marginLeft: "10px",
     fontSize: "12px",
@@ -1040,7 +1048,7 @@ const modal = {
     marginTop: "8px",
     borderRadius: "12px",
     border: "none",
-    background: "#3478f6",
+    background: "#1b3a5c",
     color: "#fff",
     fontSize: "15px",
     fontWeight: 700,
@@ -1069,9 +1077,9 @@ const modal = {
   chip: (active) => ({
     padding: "8px 14px",
     borderRadius: "999px",
-    border: active ? "1px solid #3478f6" : "1px solid #ddd",
+    border: active ? "1px solid #1b3a5c" : "1px solid #ddd",
     background: active ? "#eaf1ff" : "#fff",
-    color: active ? "#3478f6" : "#666",
+    color: active ? "#1b3a5c" : "#666",
     fontSize: "13px",
     fontWeight: 600,
   }),
@@ -1363,7 +1371,7 @@ function MainScreen({ currentUser, employees }) {
     <div style={cal.wrap}>
       <div style={cal.header}>
         <div style={{ display: "flex", alignItems: "center", marginBottom: "10px" }}>
-          <div style={{ fontWeight: 700, fontSize: "16px" }}>{currentUser?.name}님</div>
+          <div style={{ fontWeight: 700, fontSize: "16px", color: "#fff" }}>{currentUser?.name}님</div>
           {isAdmin && (
             <button style={adminStyles.adminBtn} onClick={() => setShowAdmin(true)}>승인 관리</button>
           )}
@@ -1375,11 +1383,12 @@ function MainScreen({ currentUser, employees }) {
         </div>
         <div style={cal.weekRow}>
           {WEEKDAYS.map((w, i) => (
-            <div key={w} style={{ color: i === 0 ? "#e02020" : i === 6 ? "#1a73e8" : "#999" }}>
+            <div key={w} style={{ color: i === 0 ? "#ff8a80" : i === 6 ? "#8ecdff" : "#c9d4de" }}>
               {w}
             </div>
           ))}
         </div>
+        <div style={cal.railDivider} />
       </div>
 
       <div
@@ -1568,7 +1577,7 @@ function MainScreen({ currentUser, employees }) {
                                 )}
                               </td>
                               <td style={{ ...tbl.td, textAlign: "left" }}>{v.vacationType}</td>
-                              <td style={{ ...tbl.td, fontWeight: 700, color: "#3478f6" }}>{v.dia}</td>
+                              <td style={{ ...tbl.td, fontWeight: 700, color: "#1b3a5c" }}>{v.dia}</td>
                               <td style={{ ...tbl.td, textAlign: "left" }}>
                                 {cancelled ? (
                                   "-"
@@ -1576,7 +1585,7 @@ function MainScreen({ currentUser, employees }) {
                                   <span style={{ color: "#1caa5c" }}>✅{v.confirmedBy}</span>
                                 ) : isMidManager ? (
                                   <button
-                                    style={{ ...modal.smallCancelBtn, color: "#3478f6", margin: 0 }}
+                                    style={{ ...modal.smallCancelBtn, color: "#1b3a5c", margin: 0 }}
                                     onClick={() => handleConfirmStamp(v)}
                                   >
                                     확인
@@ -1679,7 +1688,7 @@ const adminStyles = {
     borderRadius: "8px",
     border: "1px solid #ddd",
     background: "#fff",
-    color: "#3478f6",
+    color: "#1b3a5c",
     fontWeight: 700,
     fontSize: "13px",
   },
