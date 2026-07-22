@@ -161,12 +161,23 @@
       const snap = await getDocs(q);
       return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     },
+    // 승인된 사용자 목록 조회 (관리자용 - 기기변경 처리 대상)
+    async listApproved() {
+      const q = query(collection(db, APPROVAL_COLLECTION), where("status", "==", "approved"));
+      const snap = await getDocs(q);
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    },
     // 승인/거절 처리 (관리자용)
     async setStatus(id, status) {
       await updateDoc(doc(db, APPROVAL_COLLECTION, id), {
         status,
         updatedAt: serverTimestamp(),
       });
+    },
+    // 기기변경(재등록 허용) - 승인 기록을 지워서 새 기기에서 처음부터 다시 등록할 수 있게 함
+    // (재등록 후에는 다시 승인 대기 상태를 거쳐요)
+    async reset(id) {
+      await deleteDoc(doc(db, APPROVAL_COLLECTION, id));
     },
   };
 
