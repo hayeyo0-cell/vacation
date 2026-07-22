@@ -627,6 +627,15 @@ function App() {
     setStep("chooseBranch");
   };
 
+  // 공용 PC 등, 이 기기에 다른 사람을 추가로 등록할 때 사용 (기존 등록자는 유지됨)
+  const handleAddAnother = () => {
+    setBranch(null);
+    setRole(null);
+    setPendingNameId("");
+    setPendingCode("");
+    setStep("chooseBranch");
+  };
+
   /* ------------------------------ 화면 렌더링 ------------------------------ */
 
   if (step === "loading") {
@@ -755,8 +764,14 @@ function App() {
             {a.name} ({a.branch})
           </button>
         ))}
+        <button
+          style={{ ...styles.button, border: "1px dashed #1b3a5c", color: "#1b3a5c", marginTop: "16px" }}
+          onClick={handleAddAnother}
+        >
+          + 이 기기에 다른 사람 등록
+        </button>
         {TEST_MODE && (
-          <button style={{ ...styles.button, border: "none", color: "#e02020", marginTop: "16px" }} onClick={handleResetAll}>
+          <button style={{ ...styles.button, border: "none", color: "#e02020", marginTop: "8px" }} onClick={handleResetAll}>
             🔄 (테스트용) 전체 초기화
           </button>
         )}
@@ -814,7 +829,14 @@ function App() {
 
   // 메인 화면 - 날짜별 조회
   if (step === "main") {
-    return <MainScreen currentUser={loginTarget || { ...selectedEmp }} employees={employees} managers={managers} />;
+    return (
+      <MainScreen
+        currentUser={loginTarget || { ...selectedEmp }}
+        employees={employees}
+        managers={managers}
+        onSwitchUser={() => setStep("loginName")}
+      />
+    );
   }
 
   return null;
@@ -884,6 +906,16 @@ const cal = {
     color: "#fff",
     whiteSpace: "nowrap",
     marginRight: "8px",
+  },
+  switchUserBtn: {
+    padding: "3px 8px",
+    borderRadius: "6px",
+    border: "1px solid rgba(255,255,255,0.4)",
+    background: "transparent",
+    color: "#cfe0ff",
+    fontSize: "11px",
+    fontWeight: 700,
+    whiteSpace: "nowrap",
   },
   headerBtnRow: {
     display: "flex",
@@ -1204,7 +1236,7 @@ function pad2(n) {
   return String(n).padStart(2, "0");
 }
 
-function MainScreen({ currentUser, employees, managers }) {
+function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
   const isAdmin = ADMIN_NAMES.includes(currentUser.name);
   const isMidManager = isMidManagerUser(currentUser, managers);
   const [showAdmin, setShowAdmin] = useState(false);
@@ -1481,7 +1513,10 @@ function MainScreen({ currentUser, employees, managers }) {
     <div style={cal.wrap}>
       <div style={cal.header}>
         <div style={cal.headerTop}>
-          <div style={cal.userName}>{currentUser?.name}님</div>
+          <div style={{ display: "flex", alignItems: "center" }}>
+            <div style={cal.userName}>{currentUser?.name}님</div>
+            <button style={cal.switchUserBtn} onClick={onSwitchUser}>전환</button>
+          </div>
           <div style={cal.headerBtnRow}>
             {!isMidManager && (
               <button style={adminStyles.adminBtn} onClick={() => setShowMyVacations(true)}>
