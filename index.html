@@ -70,6 +70,7 @@
   const db = getFirestore(app);
   const COLLECTION = "vacations";
   const APPROVAL_COLLECTION = "approvals";
+  const MANAGER_COLLECTION = "managers";
 
   // app.js(Babel 스크립트)에서 window.VacationAPI.xxx() 형태로 호출
   window.VacationAPI = {
@@ -166,6 +167,28 @@
         status,
         updatedAt: serverTimestamp(),
       });
+    },
+  };
+
+  // 운용(중간관리자) 명단 관리 API - 관리자가 앱 내에서 인사이동 반영
+  window.ManagerAPI = {
+    // 전체 운용 명단 조회
+    async list() {
+      const snap = await getDocs(collection(db, MANAGER_COLLECTION));
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    },
+    // 운용 인원 추가
+    async add(record) {
+      const ref = await addDoc(collection(db, MANAGER_COLLECTION), {
+        name: record.name,
+        branch: record.branch,
+        createdAt: serverTimestamp(),
+      });
+      return ref.id;
+    },
+    // 운용 인원 삭제 (인사이동 등)
+    async remove(id) {
+      await deleteDoc(doc(db, MANAGER_COLLECTION, id));
     },
   };
 
