@@ -1080,8 +1080,8 @@ const modal = {
 const VACATION_TYPES = [...CAPACITY_TYPES, ...NON_CAPACITY_TYPES];
 
 const tbl = {
-  th: { padding: "6px 4px", textAlign: "center", fontSize: "12px", color: "#666" },
-  td: { padding: "8px 4px", textAlign: "center", verticalAlign: "top" },
+  th: { padding: "8px 4px", textAlign: "center", fontSize: "13px", color: "#666" },
+  td: { padding: "10px 4px", textAlign: "center", verticalAlign: "top", fontSize: "15px" },
 };
 
 function pad2(n) {
@@ -1549,7 +1549,7 @@ function MainScreen({ currentUser, employees }) {
                               <td style={{ ...tbl.td, textAlign: "left" }}>
                                 <div style={{ fontWeight: 700 }}>{v.name}</div>
                                 {v.createdAt && (
-                                  <div style={{ fontSize: "10px", color: "#bbb" }}>
+                                  <div style={{ fontSize: "11px", color: "#333" }}>
                                     {formatEntryTime(v.createdAt)}
                                     {v.recordedBy ? ` · ${v.recordedBy}` : ""}
                                   </div>
