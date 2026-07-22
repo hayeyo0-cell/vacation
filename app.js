@@ -1524,7 +1524,6 @@ function MainScreen({ currentUser, employees }) {
                       <thead>
                         <tr style={{ borderBottom: "2px solid #333" }}>
                           <th style={tbl.th}>#</th>
-                          <th style={tbl.th}>구분</th>
                           <th style={{ ...tbl.th, textAlign: "left" }}>이름</th>
                           <th style={{ ...tbl.th, textAlign: "left" }}>휴가명</th>
                           <th style={tbl.th}>DIA</th>
@@ -1545,9 +1544,10 @@ function MainScreen({ currentUser, employees }) {
                               }}
                             >
                               <td style={tbl.td}>{idx + 1}</td>
-                              <td style={tbl.td}>{TYPE_ICON[v.vacationType] || "📌"}</td>
                               <td style={{ ...tbl.td, textAlign: "left" }}>
-                                <div style={{ fontWeight: 700 }}>{v.name}</div>
+                                <div style={{ fontWeight: 700, fontSize: "13px" }}>
+                                  {TYPE_ICON[v.vacationType] || "📌"} {v.name}
+                                </div>
                                 {v.createdAt && (
                                   <div style={{ fontSize: "11px", color: "#333" }}>
                                     {formatEntryTime(v.createdAt)}
