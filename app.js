@@ -1080,8 +1080,8 @@ const modal = {
 const VACATION_TYPES = [...CAPACITY_TYPES, ...NON_CAPACITY_TYPES];
 
 const tbl = {
-  th: { padding: "8px 4px", textAlign: "center", fontSize: "13px", color: "#666" },
-  td: { padding: "10px 4px", textAlign: "center", verticalAlign: "top", fontSize: "15px" },
+  th: { padding: "8px 6px", textAlign: "center", fontSize: "13px", color: "#666", whiteSpace: "nowrap" },
+  td: { padding: "10px 6px", textAlign: "center", verticalAlign: "top", fontSize: "15px", whiteSpace: "nowrap" },
 };
 
 function pad2(n) {
@@ -1520,7 +1520,7 @@ function MainScreen({ currentUser, employees }) {
                 )}
                 {dayRecords.length > 0 && (
                   <div style={{ overflowX: "auto", marginBottom: "12px" }}>
-                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
+                    <table style={{ width: "max-content", minWidth: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
                       <thead>
                         <tr style={{ borderBottom: "2px solid #333" }}>
                           <th style={tbl.th}>#</th>
