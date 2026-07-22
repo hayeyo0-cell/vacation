@@ -1056,6 +1056,11 @@ const modal = {
 
 const VACATION_TYPES = [...CAPACITY_TYPES, ...NON_CAPACITY_TYPES];
 
+const tbl = {
+  th: { padding: "6px 4px", textAlign: "center", fontSize: "12px", color: "#666" },
+  td: { padding: "8px 4px", textAlign: "center", verticalAlign: "top" },
+};
+
 function pad2(n) {
   return String(n).padStart(2, "0");
 }
@@ -1496,83 +1501,89 @@ function MainScreen({ currentUser, employees }) {
                     등록된 휴가가 없어요
                   </div>
                 )}
-                {dayRecords.map((v, idx) => (
-                  <div
-                    key={v.id}
-                    style={{ ...modal.card, ...(v.status === "취소됨" ? modal.cancelledCard : {}) }}
-                  >
-                    <div style={{ display: "flex", alignItems: "center" }}>
-                      <div style={{ width: "22px", flexShrink: 0, fontSize: "13px", color: "#aaa", fontWeight: 700 }}>
-                        {idx + 1}
-                      </div>
-                      <div style={{ fontSize: "20px", marginRight: "10px" }}>
-                        {TYPE_ICON[v.vacationType] || "📌"}
-                      </div>
-                      <div>
-                        <div style={modal.name}>{v.name}</div>
-                        <div style={modal.typeRow}>
-                          {v.branch} · {v.vacationType}
-                          {v.status === "취소됨" ? " (취소됨)" : ""}
-                        </div>
-                        {v.createdAt && (
-                          <div style={{ fontSize: "11px", color: "#bbb", marginTop: "1px" }}>
-                            {formatEntryTime(v.createdAt)}
-                            {v.recordedBy ? ` · ${v.recordedBy} 대신기록` : ""}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center" }}>
-                      <div style={modal.dia}>{v.dia}</div>
-                      {v.status !== "취소됨" && v.employeeId === currentUser.id && (
-                        <button style={modal.smallCancelBtn} onClick={() => handleCancel(v)}>
-                          취소
-                        </button>
-                      )}
-                      {v.status !== "취소됨" && isMidManager && v.recordedBy === currentUser.name && (
-                        <button
-                          style={{ ...modal.smallCancelBtn, color: "#e02020" }}
-                          onClick={() => handleAdminDelete(v)}
-                        >
-                          삭제
-                        </button>
-                      )}
-                      {isAdmin && (
-                        <button
-                          style={{ ...modal.smallCancelBtn, color: "#999" }}
-                          onClick={() => handleAdminDelete(v)}
-                        >
-                          🗑
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-                {dayRecords.length > 0 && dayRecords.some((v) => v.status !== "취소됨") && (
-                  <div style={{ marginBottom: "8px" }}>
-                    {dayRecords
-                      .filter((v) => v.status !== "취소됨")
-                      .map((v) =>
-                        v.confirmedBy ? (
-                          <div key={v.id + "-confirm"} style={{ fontSize: "12px", color: "#1caa5c", marginBottom: "2px" }}>
-                            ✅ {v.name} - {v.confirmedBy}님 확인
-                          </div>
-                        ) : isMidManager ? (
-                          <div key={v.id + "-confirm"} style={{ display: "flex", alignItems: "center", marginBottom: "2px" }}>
-                            <span style={{ fontSize: "12px", color: "#999", marginRight: "6px" }}>{v.name} - 확인 대기</span>
-                            <button
-                              style={{ ...modal.smallCancelBtn, color: "#3478f6" }}
-                              onClick={() => handleConfirmStamp(v)}
+                {dayRecords.length > 0 && (
+                  <div style={{ overflowX: "auto", marginBottom: "12px" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
+                      <thead>
+                        <tr style={{ borderBottom: "2px solid #333" }}>
+                          <th style={tbl.th}>#</th>
+                          <th style={tbl.th}>구분</th>
+                          <th style={{ ...tbl.th, textAlign: "left" }}>이름</th>
+                          <th style={{ ...tbl.th, textAlign: "left" }}>휴가명</th>
+                          <th style={tbl.th}>DIA</th>
+                          <th style={{ ...tbl.th, textAlign: "left" }}>확인</th>
+                          <th style={tbl.th}></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {dayRecords.map((v, idx) => {
+                          const cancelled = v.status === "취소됨";
+                          return (
+                            <tr
+                              key={v.id}
+                              style={{
+                                borderBottom: "1px solid #eee",
+                                opacity: cancelled ? 0.45 : 1,
+                                textDecoration: cancelled ? "line-through" : "none",
+                              }}
                             >
-                              확인 도장
-                            </button>
-                          </div>
-                        ) : (
-                          <div key={v.id + "-confirm"} style={{ fontSize: "12px", color: "#ccc", marginBottom: "2px" }}>
-                            {v.name} - 확인 대기중
-                          </div>
-                        )
-                      )}
+                              <td style={tbl.td}>{idx + 1}</td>
+                              <td style={tbl.td}>{TYPE_ICON[v.vacationType] || "📌"}</td>
+                              <td style={{ ...tbl.td, textAlign: "left" }}>
+                                <div style={{ fontWeight: 700 }}>{v.name}</div>
+                                {v.createdAt && (
+                                  <div style={{ fontSize: "10px", color: "#bbb" }}>
+                                    {formatEntryTime(v.createdAt)}
+                                    {v.recordedBy ? ` · ${v.recordedBy}` : ""}
+                                  </div>
+                                )}
+                              </td>
+                              <td style={{ ...tbl.td, textAlign: "left" }}>{v.vacationType}</td>
+                              <td style={{ ...tbl.td, fontWeight: 700, color: "#3478f6" }}>{v.dia}</td>
+                              <td style={{ ...tbl.td, textAlign: "left" }}>
+                                {cancelled ? (
+                                  "-"
+                                ) : v.confirmedBy ? (
+                                  <span style={{ color: "#1caa5c" }}>✅{v.confirmedBy}</span>
+                                ) : isMidManager ? (
+                                  <button
+                                    style={{ ...modal.smallCancelBtn, color: "#3478f6", margin: 0 }}
+                                    onClick={() => handleConfirmStamp(v)}
+                                  >
+                                    확인
+                                  </button>
+                                ) : (
+                                  <span style={{ color: "#ccc" }}>대기중</span>
+                                )}
+                              </td>
+                              <td style={tbl.td}>
+                                {!cancelled && v.employeeId === currentUser.id && (
+                                  <button style={{ ...modal.smallCancelBtn, margin: 0 }} onClick={() => handleCancel(v)}>
+                                    취소
+                                  </button>
+                                )}
+                                {!cancelled && isMidManager && v.recordedBy === currentUser.name && (
+                                  <button
+                                    style={{ ...modal.smallCancelBtn, color: "#e02020", margin: 0 }}
+                                    onClick={() => handleAdminDelete(v)}
+                                  >
+                                    삭제
+                                  </button>
+                                )}
+                                {isAdmin && (
+                                  <button
+                                    style={{ ...modal.smallCancelBtn, color: "#999", margin: 0 }}
+                                    onClick={() => handleAdminDelete(v)}
+                                  >
+                                    🗑
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                   </div>
                 )}
 
