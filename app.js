@@ -928,11 +928,16 @@ function getDayType(dateStr, holidaySet) {
   return "평일";
 }
 
-const GUARANTEE = { 평일: 4, 토요일: 5, 휴일: 7 };
+const GUARANTEE_BY_BRANCH = {
+  경산: { 평일: 4, 토요일: 5, 휴일: 7 },
+  문양: { 평일: 5, 토요일: 7, 휴일: 8 },
+};
 
 // activeRecords: 취소 아닌 전체 기록 (비번 감지는 전체 기록 대상)
-function gyeongsanCapacity(dateStr, activeRecords, holidaySet) {
-  let base = GUARANTEE[getDayType(dateStr, holidaySet)];
+// branch: "경산" | "문양"
+function gyeongsanCapacity(branch, dateStr, activeRecords, holidaySet) {
+  const table = GUARANTEE_BY_BRANCH[branch] || GUARANTEE_BY_BRANCH["경산"];
+  let base = table[getDayType(dateStr, holidaySet)];
   const hasOffDuty = activeRecords.some((r) => (r.dia || "").includes("비번"));
   if (hasOffDuty) base += 1;
   return base;
@@ -1178,14 +1183,13 @@ function MainScreen({ currentUser, employees }) {
   const activeRecordsForCapacity = dayRecords.filter((v) => v.status !== "취소됨");
   const activeCount = activeRecordsForCapacity.length;
   const capacityCount = activeRecordsForCapacity.filter((v) => isCapacityType(v.vacationType)).length;
-  const gyeongsanInfo =
-    currentUser.branch === "경산" && selectedDate
-      ? (() => {
-          const capacity = gyeongsanCapacity(selectedDate, activeRecordsForCapacity, holidaySet);
-          const remain = capacity - capacityCount;
-          return { capacity, remain, capacityCount };
-        })()
-      : null;
+  const gyeongsanInfo = selectedDate
+    ? (() => {
+        const capacity = gyeongsanCapacity(currentUser.branch, selectedDate, activeRecordsForCapacity, holidaySet);
+        const remain = capacity - capacityCount;
+        return { capacity, remain, capacityCount };
+      })()
+    : null;
 
   const handleCancel = (record) => {
     if (!confirm(`${record.name}님의 ${record.vacationType} 기록을 취소할까요?`)) return;
@@ -1374,14 +1378,9 @@ function MainScreen({ currentUser, employees }) {
           const activeRecords = branchRecords.filter((v) => v.status !== "취소됨");
           const capacityCount = activeRecords.filter((v) => isCapacityType(v.vacationType)).length;
 
-          let badge = null;
-          if (currentUser.branch === "경산") {
-            const capacity = gyeongsanCapacity(key, activeRecords, holidaySet);
-            const remain = capacity - capacityCount;
-            badge = <div style={cal.dayBadge(gyeongsanColor(remain))}>{capacityCount}</div>;
-          } else if (activeRecords.length > 0) {
-            badge = <div style={cal.dayBadge(badgeColor(activeRecords.length))}>{activeRecords.length}</div>;
-          }
+          const capacity = gyeongsanCapacity(currentUser.branch, key, activeRecords, holidaySet);
+          const remain = capacity - capacityCount;
+          const badge = <div style={cal.dayBadge(gyeongsanColor(remain))}>{activeRecords.length}</div>;
 
           return (
             <div key={i} style={cal.dayCell(key === todayKey)} onClick={() => openDate(d)}>
