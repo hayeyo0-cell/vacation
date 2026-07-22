@@ -1588,9 +1588,15 @@ function MainScreen({ currentUser, employees }) {
                 )}
 
                 {!isMidManager && (
-                  <button style={modal.addBtn} onClick={() => setShowRegisterForm(true)}>
-                    + 휴가 신청
-                  </button>
+                  dayRecords.some((v) => v.employeeId === currentUser.id && v.status !== "취소됨") ? (
+                    <div style={{ textAlign: "center", color: "#999", fontSize: "13px", padding: "10px 0" }}>
+                      이미 이 날짜에 신청하셨어요
+                    </div>
+                  ) : (
+                    <button style={modal.addBtn} onClick={() => setShowRegisterForm(true)}>
+                      + 휴가 신청
+                    </button>
+                  )
                 )}
                 {isMidManager && (
                   <button style={{ ...modal.addBtn, background: "#1a73e8" }} onClick={openManagerForm}>
