@@ -839,6 +839,27 @@ const cal = {
     padding: "18px 14px 14px",
     background: "#1b3a5c",
   },
+  headerTop: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    flexWrap: "wrap",
+    rowGap: "8px",
+    marginBottom: "10px",
+  },
+  userName: {
+    fontWeight: 700,
+    fontSize: "16px",
+    color: "#fff",
+    whiteSpace: "nowrap",
+    marginRight: "8px",
+  },
+  headerBtnRow: {
+    display: "flex",
+    gap: "6px",
+    flexWrap: "wrap",
+    justifyContent: "flex-end",
+  },
   railDivider: {
     height: 0,
     borderBottom: "2px dashed rgba(255,255,255,0.25)",
@@ -1428,24 +1449,23 @@ function MainScreen({ currentUser, employees, managers }) {
   return (
     <div style={cal.wrap}>
       <div style={cal.header}>
-        <div style={{ display: "flex", alignItems: "center", marginBottom: "10px" }}>
-          <div style={{ fontWeight: 700, fontSize: "16px", color: "#fff" }}>{currentUser?.name}님</div>
-          {!isMidManager && (
-            <button
-              style={{ ...adminStyles.adminBtn, marginLeft: isAdmin ? "8px" : "auto" }}
-              onClick={() => setShowMyVacations(true)}
-            >
-              내 휴가현황
-            </button>
-          )}
-          {isAdmin && (
-            <button style={adminStyles.adminBtn} onClick={() => setShowAdmin(true)}>승인 관리</button>
-          )}
-          {isAdmin && (
-            <button style={{ ...adminStyles.adminBtn, marginLeft: "8px" }} onClick={() => setShowManagerAdmin(true)}>
-              운용 인원 관리
-            </button>
-          )}
+        <div style={cal.headerTop}>
+          <div style={cal.userName}>{currentUser?.name}님</div>
+          <div style={cal.headerBtnRow}>
+            {!isMidManager && (
+              <button style={adminStyles.adminBtn} onClick={() => setShowMyVacations(true)}>
+                내 휴가현황
+              </button>
+            )}
+            {isAdmin && (
+              <button style={adminStyles.adminBtn} onClick={() => setShowAdmin(true)}>승인 관리</button>
+            )}
+            {isAdmin && (
+              <button style={adminStyles.adminBtn} onClick={() => setShowManagerAdmin(true)}>
+                운용 인원
+              </button>
+            )}
+          </div>
         </div>
         <div style={cal.navRow}>
           <button style={cal.navBtn} onClick={() => changeMonth(-1)}>‹</button>
@@ -1765,14 +1785,15 @@ const adminStyles = {
     fontSize: "13px",
   },
   adminBtn: {
-    marginLeft: "auto",
-    padding: "6px 12px",
+    padding: "6px 10px",
     borderRadius: "8px",
     border: "1px solid #ddd",
     background: "#fff",
     color: "#1b3a5c",
     fontWeight: 700,
-    fontSize: "13px",
+    fontSize: "12px",
+    whiteSpace: "nowrap",
+    flexShrink: 0,
   },
 };
 
