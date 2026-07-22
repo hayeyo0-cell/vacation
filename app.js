@@ -587,6 +587,13 @@ function App() {
       });
   };
 
+  const handleResetAll = () => {
+    if (!confirm("이 기기에 저장된 로그인 정보를 전부 지울까요?\n(테스트용 초기화 - 다시 처음부터 등록해야 해요)")) return;
+    localStorage.removeItem(STORAGE_KEY);
+    setLocalAuth([]);
+    setStep("chooseBranch");
+  };
+
   /* ------------------------------ 화면 렌더링 ------------------------------ */
 
   if (step === "loading") {
@@ -685,6 +692,11 @@ function App() {
             {a.name} ({a.branch})
           </button>
         ))}
+        {TEST_MODE && (
+          <button style={{ ...styles.button, border: "none", color: "#e02020", marginTop: "16px" }} onClick={handleResetAll}>
+            🔄 (테스트용) 전체 초기화
+          </button>
+        )}
       </div>
     );
   }
