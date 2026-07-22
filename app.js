@@ -505,7 +505,7 @@ function App() {
       }
     }
 
-    if (ADMIN_NAMES.includes(emp.name)) {
+    if (TEST_MODE || ADMIN_NAMES.includes(emp.name) || isMidManagerUser(emp)) {
       setSelectedEmp(emp);
       setStep("setPin");
       return;
