@@ -871,10 +871,14 @@ const cal = {
     fontWeight: 700,
     color: "#1a1a1a",
     marginTop: "1px",
-    maxWidth: "100%",
+    width: "100%",
+    alignSelf: "stretch",
     overflow: "hidden",
     whiteSpace: "nowrap",
     textOverflow: "ellipsis",
+    textAlign: "center",
+    boxSizing: "border-box",
+    padding: "0 2px",
   },
   dayBadge: (color) => ({
     marginTop: "3px",
@@ -1045,7 +1049,7 @@ const modal = {
   },
   cancelledCard: { opacity: 0.45, textDecoration: "line-through" },
   name: { fontSize: "15px", fontWeight: 700 },
-  typeRow: { fontSize: "13px", color: "#888", marginTop: "2px" },
+  typeRow: { fontSize: "13px", color: "#1a1a1a", marginTop: "2px" },
   dia: { fontSize: "14px", fontWeight: 700, color: "#1b3a5c" },
   smallCancelBtn: {
     marginLeft: "10px",
@@ -1386,12 +1390,14 @@ function MainScreen({ currentUser, employees }) {
       <div style={cal.header}>
         <div style={{ display: "flex", alignItems: "center", marginBottom: "10px" }}>
           <div style={{ fontWeight: 700, fontSize: "16px", color: "#fff" }}>{currentUser?.name}님</div>
-          <button
-            style={{ ...adminStyles.adminBtn, marginLeft: isAdmin ? "8px" : "auto" }}
-            onClick={() => setShowMyVacations(true)}
-          >
-            내 휴가현황
-          </button>
+          {!isMidManager && (
+            <button
+              style={{ ...adminStyles.adminBtn, marginLeft: isAdmin ? "8px" : "auto" }}
+              onClick={() => setShowMyVacations(true)}
+            >
+              내 휴가현황
+            </button>
+          )}
           {isAdmin && (
             <button style={adminStyles.adminBtn} onClick={() => setShowAdmin(true)}>승인 관리</button>
           )}
@@ -1767,28 +1773,28 @@ function MyVacationsPanel({ currentUser, onClose }) {
             return (
               <div
                 key={v.id}
-                style={{ ...modal.card, ...(cancelled ? modal.cancelledCard : {}) }}
+                style={{ ...modal.card, flexDirection: "column", alignItems: "stretch", ...(cancelled ? modal.cancelledCard : {}) }}
               >
-                <div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <div style={modal.name}>{v.date} ({weekdayShort(v.date)})</div>
-                  <div style={modal.typeRow}>
-                    {TYPE_ICON[v.vacationType] || "📌"} {v.vacationType}
-                    {v.confirmedBy ? ` · ✅${v.confirmedBy} 확인` : " · 확인 대기중"}
+                  <div style={{ display: "flex", alignItems: "center" }}>
+                    <div style={modal.dia}>{v.dia}</div>
+                    {!cancelled && !v.confirmedBy && (
+                      <button style={modal.smallCancelBtn} onClick={() => handleCancelMine(v)}>
+                        취소
+                      </button>
+                    )}
                   </div>
                 </div>
-                <div style={{ display: "flex", alignItems: "center" }}>
-                  <div style={modal.dia}>{v.dia}</div>
-                  {!cancelled && !v.confirmedBy && (
-                    <button style={modal.smallCancelBtn} onClick={() => handleCancelMine(v)}>
-                      취소
-                    </button>
-                  )}
-                  {!cancelled && v.confirmedBy && (
-                    <span style={{ fontSize: "11px", color: "#bbb", marginLeft: "8px" }}>
-                      확인완료·취소는 관리자에게 문의
-                    </span>
-                  )}
+                <div style={modal.typeRow}>
+                  {TYPE_ICON[v.vacationType] || "📌"} {v.vacationType}
+                  {v.confirmedBy ? ` · ✅${v.confirmedBy} 확인` : " · 확인 대기중"}
                 </div>
+                {!cancelled && v.confirmedBy && (
+                  <div style={{ fontSize: "12px", color: "#1a1a1a", marginTop: "4px" }}>
+                    확인완료 · 취소는 관리자에게 문의해주세요
+                  </div>
+                )}
               </div>
             );
           })}
