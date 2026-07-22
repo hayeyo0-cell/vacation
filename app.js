@@ -781,6 +781,11 @@ function todayStr() {
 
 const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
 
+function weekdayShort(dateStr) {
+  const d = new Date(dateStr + "T00:00:00");
+  return WEEKDAYS[d.getDay()];
+}
+
 function formatDateHeader(dateStr) {
   const d = new Date(dateStr + "T00:00:00");
   return `${dateStr} ${WEEKDAYS[d.getDay()]}요일`;
@@ -844,6 +849,8 @@ const cal = {
   dayCell: (isToday) => ({
     aspectRatio: "1",
     minWidth: 0,
+    width: "100%",
+    overflow: "hidden",
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
@@ -853,6 +860,7 @@ const cal = {
     border: isToday ? "2px solid #1b3a5c" : "1px solid #f0f0f0",
     cursor: "pointer",
     position: "relative",
+    boxSizing: "border-box",
   }),
   dayNum: (type) => ({
     fontSize: "14px",
@@ -860,10 +868,14 @@ const cal = {
     color: type === "휴일" ? "#e02020" : type === "토요일" ? "#1a73e8" : "#333",
   }),
   dayCode: {
-    fontSize: "13px",
+    fontSize: "12px",
     fontWeight: 700,
     color: "#1a1a1a",
     marginTop: "1px",
+    maxWidth: "100%",
+    overflow: "hidden",
+    whiteSpace: "nowrap",
+    textOverflow: "ellipsis",
   },
   dayBadge: (color) => ({
     marginTop: "3px",
@@ -1102,6 +1114,7 @@ function MainScreen({ currentUser, employees }) {
   const isAdmin = ADMIN_NAMES.includes(currentUser.name);
   const isMidManager = isMidManagerUser(currentUser);
   const [showAdmin, setShowAdmin] = useState(false);
+  const [showMyVacations, setShowMyVacations] = useState(false);
   const myCode = (employees || []).find((e) => e.id === currentUser.id)?.code || "";
   const myBaseCode = (employees || []).find((e) => e.id === currentUser.id)?.baseCode || "";
   const myTeamKey = REVERSE_TEAM_MAP[currentUser.branch];
@@ -1374,6 +1387,12 @@ function MainScreen({ currentUser, employees }) {
       <div style={cal.header}>
         <div style={{ display: "flex", alignItems: "center", marginBottom: "10px" }}>
           <div style={{ fontWeight: 700, fontSize: "16px", color: "#fff" }}>{currentUser?.name}님</div>
+          <button
+            style={{ ...adminStyles.adminBtn, marginLeft: isAdmin ? "8px" : "auto" }}
+            onClick={() => setShowMyVacations(true)}
+          >
+            내 휴가현황
+          </button>
           {isAdmin && (
             <button style={adminStyles.adminBtn} onClick={() => setShowAdmin(true)}>승인 관리</button>
           )}
@@ -1568,11 +1587,11 @@ function MainScreen({ currentUser, employees }) {
                             >
                               <td style={tbl.td}>{idx + 1}</td>
                               <td style={{ ...tbl.td, textAlign: "left" }}>
-                                <div style={{ fontWeight: 700, fontSize: "13px" }}>
+                                <div style={{ fontWeight: 700, fontSize: "15px" }}>
                                   {TYPE_ICON[v.vacationType] || "📌"} {v.name}
                                 </div>
                                 {v.createdAt && (
-                                  <div style={{ fontSize: "11px", color: "#333" }}>
+                                  <div style={{ fontSize: "12px", color: "#333" }}>
                                     {formatEntryTime(v.createdAt)}
                                     {v.recordedBy ? ` · ${v.recordedBy}` : ""}
                                   </div>
@@ -1655,6 +1674,9 @@ function MainScreen({ currentUser, employees }) {
       )}
 
       {showAdmin && <AdminPanel onClose={() => setShowAdmin(false)} />}
+      {showMyVacations && (
+        <MyVacationsPanel currentUser={currentUser} onClose={() => setShowMyVacations(false)} />
+      )}
     </div>
   );
 }
@@ -1695,6 +1717,77 @@ const adminStyles = {
     fontSize: "13px",
   },
 };
+
+function MyVacationsPanel({ currentUser, onClose }) {
+  const [list, setList] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = () => {
+    setLoading(true);
+    waitForFirestore()
+      .then(() => window.VacationAPI.getMine(currentUser.id))
+      .then((records) => {
+        const today = todayStr();
+        const upcoming = records
+          .filter((v) => v.date >= today)
+          .sort((a, b) => a.date.localeCompare(b.date));
+        setList(upcoming);
+      })
+      .catch((err) => alert("불러오기 실패: " + (err && err.message ? err.message : err)))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  const handleCancelMine = (record) => {
+    if (!confirm(`${record.date} ${record.vacationType} 기록을 취소할까요?`)) return;
+    window.VacationAPI.cancel(record.id).then(() => {
+      setList((prev) => prev.map((v) => (v.id === record.id ? { ...v, status: "취소됨" } : v)));
+    });
+  };
+
+  return (
+    <div style={modal.overlay} onClick={onClose}>
+      <div style={modal.sheet} onClick={(e) => e.stopPropagation()}>
+        <div style={modal.dateTitle}>{currentUser.name}님의 예정된 휴가</div>
+        <div style={modal.countText}>오늘부터 이후 신청 내역이에요</div>
+        {loading && <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0" }}>불러오는 중...</div>}
+        {!loading && list.length === 0 && (
+          <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0" }}>예정된 휴가가 없어요</div>
+        )}
+        {!loading &&
+          list.map((v) => {
+            const cancelled = v.status === "취소됨";
+            return (
+              <div
+                key={v.id}
+                style={{ ...modal.card, ...(cancelled ? modal.cancelledCard : {}) }}
+              >
+                <div>
+                  <div style={modal.name}>{v.date} ({weekdayShort(v.date)})</div>
+                  <div style={modal.typeRow}>
+                    {TYPE_ICON[v.vacationType] || "📌"} {v.vacationType}
+                    {v.confirmedBy ? ` · ✅${v.confirmedBy} 확인` : " · 확인 대기중"}
+                  </div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center" }}>
+                  <div style={modal.dia}>{v.dia}</div>
+                  {!cancelled && (
+                    <button style={modal.smallCancelBtn} onClick={() => handleCancelMine(v)}>
+                      취소
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        <button style={modal.closeBtn} onClick={onClose}>닫기</button>
+      </div>
+    </div>
+  );
+}
 
 function AdminPanel({ onClose }) {
   const [pending, setPending] = useState([]);
