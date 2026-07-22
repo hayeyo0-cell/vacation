@@ -842,39 +842,46 @@ const cal = {
   grid: {
     display: "grid",
     gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
-    gap: "4px",
-    padding: "8px 12px 16px",
+    gap: "2px",
+    padding: "2px 2px 16px",
     boxSizing: "border-box",
   },
   dayCell: (isToday) => ({
-    aspectRatio: "1",
     minWidth: 0,
     width: "100%",
+    minHeight: "82px",
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
-    justifyContent: "center",
-    borderRadius: "10px",
+    justifyContent: "flex-start",
+    padding: "8px 2px 6px",
+    borderRadius: "6px",
     background: "#fff",
-    border: isToday ? "2px solid #1b3a5c" : "1px solid #f0f0f0",
+    border: "1px solid #e6e0d0",
+    outline: isToday ? "2px solid #1b3a5c" : "none",
+    outlineOffset: "-2px",
     cursor: "pointer",
     position: "relative",
     boxSizing: "border-box",
   }),
+  dayDivider: {
+    width: "70%",
+    borderBottom: "1px dashed #d8d2c2",
+    margin: "5px 0 6px",
+  },
   dayNum: (type) => ({
+    fontSize: "16px",
+    lineHeight: "18px",
+    height: "18px",
+    fontWeight: 800,
+    color: type === "휴일" ? "#e02020" : type === "토요일" ? "#1a73e8" : "#222",
+  }),
+  dayCode: {
     fontSize: "14px",
     lineHeight: "16px",
     height: "16px",
     fontWeight: 700,
-    color: type === "휴일" ? "#e02020" : type === "토요일" ? "#1a73e8" : "#333",
-  }),
-  dayCode: {
-    fontSize: "12px",
-    lineHeight: "14px",
-    height: "14px",
-    fontWeight: 700,
     color: "#1a1a1a",
-    marginTop: "1px",
     width: "100%",
     alignSelf: "stretch",
     overflow: "hidden",
@@ -885,14 +892,14 @@ const cal = {
     padding: "0 2px",
   },
   dayBadge: (color) => ({
-    marginTop: "3px",
-    width: "22px",
-    height: "22px",
+    marginTop: "auto",
+    width: "24px",
+    height: "24px",
     borderRadius: "50%",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    fontSize: "12px",
+    fontSize: "13px",
     fontWeight: 700,
     color: "#fff",
     background: color,
@@ -1450,6 +1457,7 @@ function MainScreen({ currentUser, employees }) {
           return (
             <div key={i} style={cal.dayCell(key === todayKey)} onClick={() => openDate(d)}>
               <div style={cal.dayNum(dayType)}>{d}</div>
+              <div style={cal.dayDivider} />
               <div style={cal.dayCode}>{codeForDate(key)}</div>
               {badge}
             </div>
