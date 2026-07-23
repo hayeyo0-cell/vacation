@@ -18,7 +18,7 @@
   }
   #root { min-height: 100vh; }
 
-  /* PC 등 넓은 화면에서는 모바일 폭으로 가운데 정렬 (관리자는 주로 PC에서 사용) */
+  /* PC 등 넓은 화면에서는 모바일 폭을 확대해서 보여줌 (관리자는 주로 PC에서 사용) */
   @media (min-width: 640px) {
     body { background: #e7e2d5; }
     #root > div {
@@ -26,6 +26,16 @@
       margin: 0 auto;
       min-height: 100vh;
       box-shadow: 0 0 50px rgba(0,0,0,0.12);
+      zoom: 1.4; /* 크롬/엣지 - 글씨·버튼·달력 격자 전부 같이 커짐 */
+    }
+  }
+  /* zoom 미지원 브라우저(파이어폭스 등) 대체 - transform 확대 */
+  @supports not (zoom: 1) {
+    @media (min-width: 640px) {
+      #root > div {
+        transform: scale(1.4);
+        transform-origin: top center;
+      }
     }
   }
 </style>
