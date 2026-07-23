@@ -1288,6 +1288,14 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
   const myTeamKey = REVERSE_TEAM_MAP[currentUser.branch];
   const myOrder = GYOBUN_ORDER[myTeamKey] || [];
 
+  // "대신 기록" DIA 드롭다운용 - 교번틀 코드 목록 (자기 소속 기준)
+  const managerBranchEmployees = (employees || []).filter((e) => e.branch === currentUser.branch);
+  const managerTemplateCodes = myOrder.filter((c) => managerBranchEmployees.some((e) => e.code === c));
+  const managerOtherCodes = [...new Set(managerBranchEmployees.map((e) => e.code))].filter(
+    (c) => !managerTemplateCodes.includes(c)
+  );
+  const managerBranchCodes = [...managerTemplateCodes, ...managerOtherCodes];
+
   // 특정 날짜의 본인 교번을 계산 (기준일 대비 날짜차이만큼 교번틀을 밀어서)
   const codeForDate = (dateStr) => {
     if (!BASE_DATE || !myBaseCode || !myOrder.length) return "";
@@ -1718,12 +1726,16 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
 
                 <div style={modal.formRow}>
                   <label style={modal.label}>DIA</label>
-                  <input
+                  <select
                     style={modal.input}
                     value={managerFormDia}
                     onChange={(e) => setManagerFormDia(e.target.value)}
-                    placeholder="예: 22, 대1, 27~"
-                  />
+                  >
+                    <option value="">교번을 선택해주세요</option>
+                    {managerBranchCodes.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
                 </div>
 
                 <button style={modal.addBtn} onClick={handleSubmitManagerRecord} disabled={managerSaving}>
