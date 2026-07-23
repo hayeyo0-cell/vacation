@@ -13,11 +13,9 @@ const GAS_URL =
   "https://script.google.com/macros/s/AKfycbw8NMVjH3J_Mt7SBymWOg44zvD4gd4GXkQB3r95QTl63M3aWqtf-OglLrG2rQPH7J6UjA/exec";
 
 // 경산 "2026년 하반기 휴가기록부" 스프레드시트 - 기존 기록 가져오기(마이그레이션) 테스트용
+// (상반기는 날짜 형식이 달라 제외 - 하반기만 가져오고, 내년부터는 앱 자체 데이터로 연간 집계)
 const IMPORT_SHEET_URL =
   "https://script.google.com/macros/s/AKfycbxQH5XeMvE9xXWQqWuwxmrXsn0LC3u8X_QrkAUApE27vww31c-Hnv4KqKDacQ40_FYgDg/exec";
-// 경산 "2026년 상반기 휴가기록부" 스프레드시트
-const IMPORT_SHEET_URL_H1 =
-  "https://script.google.com/macros/s/AKfycbyPum5D2CcjwC6rjJZYi-gMx0wUeq9o_zZQMQ7lhRaE-4MR2_aw71bDCMRjVJPc1vi98Q/exec";
 
 const TEAM_MAP = { ks: "경산", my: "문양" }; // 안심(as)/월배(wb)는 이 앱 대상 아님
 // ⚠️ 테스트 모드: true면 누구나 교번확인/승인 없이 바로 들어갈 수 있어요.
@@ -2617,42 +2615,40 @@ function ImportTestPanel({ onClose, employees, managers }) {
   const [error, setError] = useState("");
   const [rows, setRows] = useState([]); // 변환된 미리보기 행들
   const [tab, setTab] = useState("raw"); // "raw" | "tally" | "convert"
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState(null); // { success, fail }
+  const [importedIds, setImportedIds] = useState([]); // 방금 실제로 저장한 기록 id들 (되돌리기용)
 
   useEffect(() => {
     setLoading(true);
     setError("");
 
-    const fetchOne = (url) =>
-      fetch(url).then((res) => {
+    fetch(IMPORT_SHEET_URL)
+      .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.json();
-      });
-
-    Promise.allSettled([fetchOne(IMPORT_SHEET_URL_H1), fetchOne(IMPORT_SHEET_URL)])
-      .then(([h1Result, h2Result]) => {
+      })
+      .then((data) => {
+        const entries = (data && data.entries) || {};
         const flat = [];
-        const failMsgs = [];
-        [
-          { label: "상반기", result: h1Result },
-          { label: "하반기", result: h2Result },
-        ].forEach(({ label, result }) => {
-          if (result.status === "rejected") {
-            failMsgs.push(`${label} 불러오기 실패: ${result.reason && result.reason.message ? result.reason.message : result.reason}`);
-            return;
-          }
-          const entries = (result.value && result.value.entries) || {};
-          Object.keys(entries).forEach((key) => {
-            // key 예시: "7-23" (월-일, 연도 없음) -> "2026-07-23"
-            const [mo, dd] = key.split("-");
-            const dateStr = `2026-${String(mo).padStart(2, "0")}-${String(dd).padStart(2, "0")}`;
-            (entries[key] || []).forEach((item) => {
-              flat.push({ date: dateStr, ...item });
-            });
+        Object.keys(entries).forEach((key) => {
+          // key 예시: "7-23" (월-일, 연도 없음) -> "2026-07-23"
+          const [mo, dd] = key.split("-");
+          const dateStr = `2026-${String(mo).padStart(2, "0")}-${String(dd).padStart(2, "0")}`;
+          (entries[key] || []).forEach((item) => {
+            flat.push({ date: dateStr, ...item });
           });
         });
         flat.sort((a, b) => a.date.localeCompare(b.date));
         setRows(flat);
-        if (failMsgs.length > 0) setError(failMsgs.join("\n") + "\n(성공한 쪽 데이터는 아래에 표시돼요)");
+      })
+      .catch((err) => {
+        console.error(err);
+        setError(
+          "불러오기 실패: " +
+            (err && err.message ? err.message : err) +
+            " (CORS 문제일 수도 있어요 - 브라우저 콘솔에서 자세한 오류를 확인해주세요)"
+        );
       })
       .finally(() => setLoading(false));
   }, []);
@@ -2705,6 +2701,69 @@ function ImportTestPanel({ onClose, employees, managers }) {
       confirmedBy: r.confirmer || null,
     }));
   const unmatchedCount = converted.filter((c) => !c.employeeId).length;
+  const matchedConverted = converted.filter((c) => c.employeeId);
+
+  const handleRealImport = () => {
+    if (matchedConverted.length === 0) {
+      alert("저장할 수 있는(이름 매칭된) 기록이 없어요");
+      return;
+    }
+    if (
+      !confirm(
+        `${today} 이후 기록 중 이름이 매칭된 ${matchedConverted.length}건을 실제로 저장할까요?\n` +
+          `(달력에 바로 나타나요. 확인 후 문제 있으면 "방금 저장한 것 되돌리기"로 지울 수 있어요)`
+      )
+    )
+      return;
+
+    setImporting(true);
+    setImportResult(null);
+    const newIds = [];
+    let successCount = 0;
+    let failCount = 0;
+
+    const importOne = (c) =>
+      window.VacationAPI.add({
+        name: c.name,
+        branch: c.branch,
+        employeeId: c.employeeId,
+        vacationType: c.vacationType,
+        dia: c.dia,
+        date: c.date,
+      })
+        .then((id) => {
+          newIds.push(id);
+          successCount += 1;
+          if (c.status === "취소됨") return window.VacationAPI.cancel(id);
+          if (c.confirmedBy) return window.VacationAPI.confirm(id, c.confirmedBy);
+        })
+        .catch((err) => {
+          console.error(err);
+          failCount += 1;
+        });
+
+    matchedConverted
+      .reduce((chain, c) => chain.then(() => importOne(c)), Promise.resolve())
+      .then(() => {
+        setImportedIds((prev) => [...prev, ...newIds]);
+        setImportResult({ success: successCount, fail: failCount });
+      })
+      .finally(() => setImporting(false));
+  };
+
+  const handleUndoImport = () => {
+    if (importedIds.length === 0) return;
+    if (!confirm(`방금 저장한 ${importedIds.length}건을 전부 삭제할까요? (되돌릴 수 없어요)`)) return;
+    setImporting(true);
+    Promise.all(importedIds.map((id) => window.VacationAPI.remove(id)))
+      .then(() => {
+        setImportedIds([]);
+        setImportResult(null);
+        alert("삭제했어요");
+      })
+      .catch((err) => alert("삭제 중 오류: " + (err && err.message ? err.message : err)))
+      .finally(() => setImporting(false));
+  };
 
   return (
     <div style={modal.overlay} onClick={onClose}>
@@ -2805,6 +2864,41 @@ function ImportTestPanel({ onClose, employees, managers }) {
                     </span>
                   )}
                 </div>
+
+                <button
+                  style={{ ...adminStyles.approveBtn, width: "100%", padding: "12px", marginBottom: "8px" }}
+                  disabled={importing || matchedConverted.length === 0}
+                  onClick={handleRealImport}
+                >
+                  {importing ? "저장 중..." : `실제로 저장하기 (${matchedConverted.length}건)`}
+                </button>
+
+                {importResult && (
+                  <div
+                    style={{
+                      background: "#f8f9fb",
+                      borderRadius: "10px",
+                      padding: "10px 14px",
+                      marginBottom: "8px",
+                      fontSize: "13px",
+                      fontWeight: 700,
+                      color: "#1b3a5c",
+                    }}
+                  >
+                    저장 완료: 성공 {importResult.success}건 · 실패 {importResult.fail}건 — 달력에서 확인해보세요!
+                  </div>
+                )}
+
+                {importedIds.length > 0 && (
+                  <button
+                    style={{ ...styles.button, border: "1px dashed #e02020", color: "#e02020", marginBottom: "14px", padding: "10px" }}
+                    disabled={importing}
+                    onClick={handleUndoImport}
+                  >
+                    🔄 방금 저장한 {importedIds.length}건 되돌리기(삭제)
+                  </button>
+                )}
+
                 {converted.length === 0 && (
                   <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0" }}>
                     {today} 이후 기록이 없어요
