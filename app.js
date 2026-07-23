@@ -1994,6 +1994,7 @@ const adminStyles = {
 
 function MyVacationsPanel({ currentUser, onClose }) {
   const [list, setList] = useState([]);
+  const [yearStats, setYearStats] = useState([]); // 올해 종류별 보장휴가 사용 개수
   const [loading, setLoading] = useState(true);
 
   const load = () => {
@@ -2006,6 +2007,17 @@ function MyVacationsPanel({ currentUser, onClose }) {
           .filter((v) => v.date >= today)
           .sort((a, b) => a.date.localeCompare(b.date));
         setList(upcoming);
+
+        // 올해(1월 1일부터) 보장휴가만, 취소되지 않은 것만 종류별로 집계
+        const currentYear = today.slice(0, 4);
+        const counts = {};
+        records
+          .filter((v) => v.date.startsWith(currentYear) && v.status !== "취소됨" && isCapacityType(v.vacationType))
+          .forEach((v) => {
+            counts[v.vacationType] = (counts[v.vacationType] || 0) + 1;
+          });
+        const stats = CAPACITY_TYPES.filter((t) => counts[t]).map((t) => ({ type: t, count: counts[t] }));
+        setYearStats(stats);
       })
       .catch((err) => alert("불러오기 실패: " + (err && err.message ? err.message : err)))
       .finally(() => setLoading(false));
@@ -2022,10 +2034,33 @@ function MyVacationsPanel({ currentUser, onClose }) {
     });
   };
 
+  const currentYear = todayStr().slice(0, 4);
+
   return (
     <div style={modal.overlay} onClick={onClose}>
       <div style={modal.sheet} onClick={(e) => e.stopPropagation()}>
         <div style={modal.dateTitle}>{currentUser.name}님의 예정된 휴가</div>
+        {!loading && (
+          <div
+            style={{
+              background: "#f8f9fb",
+              borderRadius: "10px",
+              padding: "10px 14px",
+              marginBottom: "16px",
+            }}
+          >
+            <div style={{ fontSize: "12px", fontWeight: 600, color: "#888", marginBottom: "6px" }}>
+              {currentYear}년 보장휴가 사용 현황
+            </div>
+            {yearStats.length === 0 ? (
+              <div style={{ fontSize: "13px", color: "#aaa" }}>올해 사용한 보장휴가가 없어요</div>
+            ) : (
+              <div style={{ fontSize: "14px", fontWeight: 700, color: "#1b3a5c" }}>
+                {yearStats.map((s) => `${s.type} ${s.count}`).join(" · ")}
+              </div>
+            )}
+          </div>
+        )}
         <div style={modal.countText}>오늘부터 이후 신청 내역이에요</div>
         {loading && <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0" }}>불러오는 중...</div>}
         {!loading && list.length === 0 && (
