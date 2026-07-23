@@ -153,6 +153,13 @@
       const snap = await getDocs(q);
       return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     },
+    // 특정 직원의 전체 휴가 기록 완전 삭제 (인사이동/퇴사로 명단에서 빠졌을 때 관리자 전용, 되돌릴 수 없음)
+    async removeAllForEmployee(employeeId) {
+      const q = query(collection(db, COLLECTION), where("employeeId", "==", employeeId));
+      const snap = await getDocs(q);
+      await Promise.all(snap.docs.map((d) => deleteDoc(doc(db, COLLECTION, d.id))));
+      return snap.docs.length;
+    },
   };
 
   // 사용자 승인 관련 API
