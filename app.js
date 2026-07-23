@@ -2009,10 +2009,18 @@ function MyVacationsPanel({ currentUser, onClose }) {
         setList(upcoming);
 
         // 올해(1월 1일부터) 보장휴가만, 취소되지 않은 것만 종류별로 집계
+        // 단, 연차비/분지비/장재비는 야간근무 시 다음날에 같이 기록되는 것일 뿐 실제 사용 개수는 아니라서 집계에서 제외해요
         const currentYear = today.slice(0, 4);
+        const NIGHT_SHIFT_COMPANION_TYPES = ["연차비", "분지비", "장재비"];
         const counts = {};
         records
-          .filter((v) => v.date.startsWith(currentYear) && v.status !== "취소됨" && isCapacityType(v.vacationType))
+          .filter(
+            (v) =>
+              v.date.startsWith(currentYear) &&
+              v.status !== "취소됨" &&
+              isCapacityType(v.vacationType) &&
+              !NIGHT_SHIFT_COMPANION_TYPES.includes(v.vacationType)
+          )
           .forEach((v) => {
             counts[v.vacationType] = (counts[v.vacationType] || 0) + 1;
           });
