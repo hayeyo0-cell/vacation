@@ -1927,7 +1927,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
           <div style={{ ...modal.sheet, maxWidth: "340px", borderRadius: "16px", textAlign: "center" }}>
             <div style={{ fontSize: "26px", marginBottom: "10px" }}>🙏</div>
             <div style={{ fontSize: "15px", fontWeight: 600, lineHeight: 1.5, marginBottom: "18px" }}>
-              휴가 자리는 여러 사람이 함께 쓰는 만큼, 서로 배려해 신청·취소는 신중하게 부탁드려요^^
+              휴가 자리는 여러 사람이 함께 쓰는 만큼, 서로 배려하는 마음으로 신청·취소는 신중하게 부탁드려요^^
             </div>
             <button style={modal.closeBtn} onClick={() => setShowEtiquetteNotice(false)}>확인</button>
           </div>
