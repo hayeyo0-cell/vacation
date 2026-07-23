@@ -1953,7 +1953,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
         </div>
       )}
 
-      {showAdmin && <AdminPanel onClose={() => setShowAdmin(false)} />}
+      {showAdmin && <AdminPanel onClose={() => setShowAdmin(false)} employees={employees} />}
       {showManagerAdmin && (
         <ManagerAdminPanel branch={currentUser.branch} onClose={() => setShowManagerAdmin(false)} />
       )}
@@ -2224,7 +2224,7 @@ function MyVacationsPanel({ currentUser, onClose }) {
   );
 }
 
-function AdminPanel({ onClose }) {
+function AdminPanel({ onClose, employees }) {
   const [tab, setTab] = useState("pending"); // "pending" | "approved"
   const [pending, setPending] = useState([]);
   const [approved, setApproved] = useState([]);
@@ -2262,6 +2262,24 @@ function AdminPanel({ onClose }) {
     window.ApprovalAPI.reset(p.id).then(() => {
       setApproved((prev) => prev.filter((a) => a.id !== p.id));
     });
+  };
+
+  // 인사이동/퇴사로 현재 직원목록에 없는 사람 - 접근 차단 + 그동안의 휴가 기록까지 완전 삭제 (되돌릴 수 없음)
+  const handleRemoveDeparted = (p) => {
+    if (
+      !confirm(
+        `${p.name} (${p.branch})님은 현재 직원목록에 없어요.\n\n` +
+          `접근을 차단하고, 이 사람이 신청했던 휴가 기록도 전부 삭제할까요?\n` +
+          `※ 되돌릴 수 없어요. 단순 기기변경이 필요한 거라면 이 버튼 대신 "기기변경"을 사용해주세요.`
+      )
+    )
+      return;
+    Promise.all([window.ApprovalAPI.reset(p.id), window.VacationAPI.removeAllForEmployee(p.id)])
+      .then(([, deletedCount]) => {
+        alert(`${p.name}님의 접근을 차단하고, 휴가 기록 ${deletedCount}건을 삭제했어요.`);
+        setApproved((prev) => prev.filter((a) => a.id !== p.id));
+      })
+      .catch((err) => alert("처리 실패: " + (err && err.message ? err.message : err)));
   };
 
   const handleDeleteAll = () => {
@@ -2330,20 +2348,44 @@ function AdminPanel({ onClose }) {
         {!loading && tab === "approved" && (
           <React.Fragment>
             <div style={{ ...modal.countText, marginBottom: "10px" }}>
-              폰을 바꾼 사람이 새 기기에서 다시 등록할 수 있도록 허용해요
+              폰을 바꾼 사람은 "기기변경", 인사이동·퇴사로 명단에 없는 사람은 아래 표시와 함께 삭제할 수 있어요
             </div>
             {approved.length === 0 && (
               <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0" }}>승인된 사용자가 없어요</div>
             )}
-            {approved.map((p) => (
-              <div key={p.id} style={modal.card}>
-                <div>
-                  <div style={modal.name}>{p.name}</div>
-                  <div style={modal.typeRow}>{p.branch} · {p.id}</div>
+            {approved.map((p) => {
+              const stillInRoster = (employees || []).some((e) => e.id === p.id);
+              return (
+                <div key={p.id} style={{ ...modal.card, flexDirection: "column", alignItems: "stretch" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div>
+                      <div style={modal.name}>{p.name}</div>
+                      <div style={modal.typeRow}>{p.branch} · {p.id}</div>
+                    </div>
+                    <button style={adminStyles.resetBtn} onClick={() => handleResetDevice(p)}>기기변경</button>
+                  </div>
+                  {!stillInRoster && (
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        marginTop: "8px",
+                        paddingTop: "8px",
+                        borderTop: "1px dashed #e6e0d0",
+                      }}
+                    >
+                      <div style={{ fontSize: "12px", color: "#e02020", fontWeight: 700 }}>
+                        ⚠️ 현재 명단에 없음 (인사이동/퇴사 추정)
+                      </div>
+                      <button style={adminStyles.rejectBtn} onClick={() => handleRemoveDeparted(p)}>
+                        접근 차단+기록 삭제
+                      </button>
+                    </div>
+                  )}
                 </div>
-                <button style={adminStyles.resetBtn} onClick={() => handleResetDevice(p)}>기기변경</button>
-              </div>
-            ))}
+              );
+            })}
           </React.Fragment>
         )}
 
