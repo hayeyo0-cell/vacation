@@ -1329,6 +1329,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
     return () => { cancelled = true; };
   }, [viewYear]);
 
+  // 수동 새로고침용 (저장/취소/확인 등 액션 직후 즉시 반영하고 싶을 때 호출)
   const loadMonth = useCallback((y, m) => {
     setLoading(true);
     const start = `${y}-${pad2(m + 1)}-01`;
@@ -1354,9 +1355,36 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
       .finally(() => setLoading(false));
   }, []);
 
+  // 보고 있는 달의 데이터를 실시간으로 구독 - 다른 사람이 신청/취소/확인하면 화면이 자동으로 갱신돼요
   useEffect(() => {
-    loadMonth(viewYear, viewMonth);
-  }, [viewYear, viewMonth, loadMonth]);
+    let unsubscribe = null;
+    let cancelled = false;
+    setLoading(true);
+    const start = `${viewYear}-${pad2(viewMonth + 1)}-01`;
+    const lastDay = new Date(viewYear, viewMonth + 1, 0).getDate();
+    const end = `${viewYear}-${pad2(viewMonth + 1)}-${pad2(lastDay)}`;
+
+    waitForFirestore().then(() => {
+      if (cancelled) return;
+      unsubscribe = window.VacationAPI.subscribeRange(start, end, (list) => {
+        const map = {};
+        list.forEach((v) => {
+          if (!map[v.date]) map[v.date] = [];
+          map[v.date].push(v);
+        });
+        Object.values(map).forEach((arr) =>
+          arr.sort((a, b) => (a.name || "").localeCompare(b.name || ""))
+        );
+        setMonthMap(map);
+        setLoading(false);
+      });
+    });
+
+    return () => {
+      cancelled = true;
+      if (unsubscribe) unsubscribe();
+    };
+  }, [viewYear, viewMonth]);
 
   const changeMonth = (delta) => {
     let y = viewYear;
