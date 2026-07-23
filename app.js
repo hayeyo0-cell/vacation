@@ -1076,8 +1076,6 @@ function isCapacityType(type) {
   return CAPACITY_TYPES.includes(type);
 }
 
-// 보장휴가 기본 최대 신청 개수 (오늘 이후 날짜 기준, 취소해도 날짜 지나기 전까진 카운트 유지)
-
 // 2026년 공휴일 폴백 목록 (API 호출 실패/오프라인 시에만 사용)
 const FALLBACK_HOLIDAYS_2026 = new Set([
   "2026-01-01", "2026-02-16", "2026-02-17", "2026-02-18",
@@ -1745,12 +1743,17 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
                     value={formType}
                     onChange={(e) => setFormType(e.target.value)}
                   >
-                    {CAPACITY_TYPES.map((t) => (
-                      <option key={t} value={t}>{t}</option>
-                    ))}
+                    <optgroup label="🟢 보장인원 포함">
+                      {CAPACITY_TYPES.map((t) => (
+                        <option key={t} value={t}>{t}</option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="⚪ 보장인원 미포함">
+                      <option value="청휴">청휴</option>
+                    </optgroup>
                   </select>
                   <div style={{ fontSize: "12px", marginTop: "6px", color: "#888" }}>
-                    병가·청휴·교육 등은 중간관리자가 대신 기록해요
+                    병가·교육 등은 중간관리자가 대신 기록해요
                   </div>
                 </div>
 
