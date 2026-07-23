@@ -1996,6 +1996,9 @@ function MyVacationsPanel({ currentUser, onClose }) {
   const [list, setList] = useState([]);
   const [yearStats, setYearStats] = useState([]); // 올해 종류별 보장휴가 사용 개수
   const [loading, setLoading] = useState(true);
+  const [editingId, setEditingId] = useState(null); // 휴가종류 수정 중인 기록 id
+  const [editType, setEditType] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -2040,6 +2043,26 @@ function MyVacationsPanel({ currentUser, onClose }) {
     window.VacationAPI.cancel(record.id).then(() => {
       setList((prev) => prev.map((v) => (v.id === record.id ? { ...v, status: "취소됨" } : v)));
     });
+  };
+
+  const handleStartEdit = (record) => {
+    setEditingId(record.id);
+    setEditType(record.vacationType);
+  };
+
+  const handleSaveTypeEdit = (record) => {
+    if (editType === record.vacationType) {
+      setEditingId(null);
+      return;
+    }
+    setEditSaving(true);
+    window.VacationAPI.update(record.id, { vacationType: editType })
+      .then(() => {
+        setList((prev) => prev.map((v) => (v.id === record.id ? { ...v, vacationType: editType } : v)));
+        setEditingId(null);
+      })
+      .catch((err) => alert("수정 실패: " + (err && err.message ? err.message : err)))
+      .finally(() => setEditSaving(false));
   };
 
   const currentYear = todayStr().slice(0, 4);
@@ -2087,16 +2110,56 @@ function MyVacationsPanel({ currentUser, onClose }) {
                   <div style={{ display: "flex", alignItems: "center" }}>
                     <div style={modal.dia}>{v.dia}</div>
                     {!cancelled && !v.confirmedBy && (
-                      <button style={modal.smallCancelBtn} onClick={() => handleCancelMine(v)}>
-                        취소
-                      </button>
+                      <React.Fragment>
+                        <button
+                          style={{ ...modal.smallCancelBtn, color: "#1b3a5c" }}
+                          onClick={() => handleStartEdit(v)}
+                        >
+                          수정
+                        </button>
+                        <button style={modal.smallCancelBtn} onClick={() => handleCancelMine(v)}>
+                          취소
+                        </button>
+                      </React.Fragment>
                     )}
                   </div>
                 </div>
-                <div style={modal.typeRow}>
-                  {TYPE_ICON[v.vacationType] || "📌"} {v.vacationType}
-                  {v.confirmedBy ? ` · ✅${v.confirmedBy} 확인` : " · 확인 대기중"}
-                </div>
+                {editingId === v.id ? (
+                  <div style={{ display: "flex", gap: "6px", marginTop: "8px", alignItems: "center" }}>
+                    <select
+                      style={{ ...styles.select, flex: 1, marginBottom: 0 }}
+                      value={editType}
+                      onChange={(e) => setEditType(e.target.value)}
+                    >
+                      <optgroup label="🟢 보장인원 포함">
+                        {CAPACITY_TYPES.map((t) => (
+                          <option key={t} value={t}>{t}</option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="⚪ 보장인원 미포함">
+                        <option value="청휴">청휴</option>
+                      </optgroup>
+                    </select>
+                    <button
+                      style={adminStyles.approveBtn}
+                      disabled={editSaving}
+                      onClick={() => handleSaveTypeEdit(v)}
+                    >
+                      저장
+                    </button>
+                    <button
+                      style={{ ...modal.smallCancelBtn, margin: 0 }}
+                      onClick={() => setEditingId(null)}
+                    >
+                      취소
+                    </button>
+                  </div>
+                ) : (
+                  <div style={modal.typeRow}>
+                    {TYPE_ICON[v.vacationType] || "📌"} {v.vacationType}
+                    {v.confirmedBy ? ` · ✅${v.confirmedBy} 확인` : " · 확인 대기중"}
+                  </div>
+                )}
                 {!cancelled && v.confirmedBy && (
                   <div style={{ fontSize: "12px", color: "#1a1a1a", marginTop: "4px" }}>
                     확인완료 · 취소는 관리자에게 문의해주세요
