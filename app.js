@@ -1312,6 +1312,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
 
   // 중간관리자 - 대신 기록 폼 상태
   const [showManagerForm, setShowManagerForm] = useState(false);
+  const [myQuota, setMyQuota] = useState({ used: 0, limit: DEFAULT_VACATION_QUOTA }); // 본인 보장휴가 한도 현황
   const [managerTargetId, setManagerTargetId] = useState("");
   const [managerFormType, setManagerFormType] = useState(NON_CAPACITY_TYPES[0]);
   const [managerFormDia, setManagerFormDia] = useState("");
@@ -1324,6 +1325,28 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
     });
     return () => { cancelled = true; };
   }, [viewYear]);
+
+  // 본인의 보장휴가 한도 사용 현황 (기관사 본인 신청 제한용)
+  const loadMyQuota = useCallback(() => {
+    if (isMidManager) return;
+    waitForFirestore()
+      .then(() =>
+        Promise.all([window.VacationAPI.getMine(currentUser.id), window.QuotaAPI.get(currentUser.id)])
+      )
+      .then(([records, quotaDoc]) => {
+        const today = todayStr();
+        const used = (records || []).filter(
+          (r) => isCapacityType(r.vacationType) && r.date >= today
+        ).length;
+        const extra = (quotaDoc && quotaDoc.extra) || 0;
+        setMyQuota({ used, limit: DEFAULT_VACATION_QUOTA + extra });
+      })
+      .catch((err) => console.error("휴가 한도 조회 실패:", err));
+  }, [currentUser.id, isMidManager]);
+
+  useEffect(() => {
+    loadMyQuota();
+  }, [loadMyQuota]);
 
   const loadMonth = useCallback((y, m) => {
     setLoading(true);
@@ -1424,6 +1447,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
         );
         return next;
       });
+      if (record.employeeId === currentUser.id) loadMyQuota();
     });
   };
 
@@ -1451,6 +1475,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
         setShowRegisterForm(false);
         setFormDia("");
         loadMonth(viewYear, viewMonth);
+        loadMyQuota();
       })
       .catch((err) => {
         console.error(err);
@@ -1477,9 +1502,9 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
 
         if (activeCount >= maxAllowed) {
           setSaving(false);
+          setMyQuota({ used: activeCount, limit: maxAllowed });
           alert(
-            `보장휴가는 오늘 이후 기준 최대 ${maxAllowed}개까지 신청할 수 있어요 (현재 ${activeCount}개).\n` +
-              `해외여행 등으로 더 필요하시면 관리자(권재림)에게 한도 조정을 요청해주세요.`
+            `보장휴가 신청 한도 ${maxAllowed}개를 모두 사용하셨어요. 여행 등으로 추가 신청이 필요하시면 관리자에게 문의해주세요^^`
           );
           return;
         }
@@ -1880,6 +1905,10 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
                     <div style={{ textAlign: "center", color: "#e02020", fontSize: "13px", padding: "10px 0" }}>
                       이 날짜는 보장인원이 다 찼어요 (여유 0명)
                     </div>
+                  ) : myQuota.used >= myQuota.limit ? (
+                    <div style={{ textAlign: "center", color: "#e02020", fontSize: "13px", padding: "10px 0" }}>
+                      보장휴가 신청 한도 {myQuota.limit}개를 모두 사용하셨어요. 여행 등으로 추가 신청이 필요하시면 관리자에게 문의해주세요^^
+                    </div>
                   ) : (
                     <button style={modal.addBtn} onClick={() => setShowRegisterForm(true)}>
                       + 휴가 신청
@@ -2140,6 +2169,20 @@ function AdminPanel({ onClose }) {
     });
   };
 
+  const handleDeleteAll = () => {
+    if (
+      !confirm(
+        "테스트용으로 쌓인 승인 기록을 전부 삭제할까요?\n(대기중·승인됨 전부 지워져서, 다들 처음부터 자유롭게 다시 등록해볼 수 있어요)"
+      )
+    )
+      return;
+    window.ApprovalAPI.deleteAll().then((count) => {
+      alert(`승인 기록 ${count}건을 삭제했어요.`);
+      setPending([]);
+      setApproved([]);
+    });
+  };
+
   return (
     <div style={modal.overlay} onClick={onClose}>
       <div style={modal.sheet} onClick={(e) => e.stopPropagation()}>
@@ -2157,6 +2200,15 @@ function AdminPanel({ onClose }) {
             승인된 사용자
           </button>
         </div>
+
+        {TEST_MODE && (
+          <button
+            style={{ ...styles.button, border: "1px dashed #e02020", color: "#e02020", marginBottom: "14px", padding: "10px" }}
+            onClick={handleDeleteAll}
+          >
+            🔄 (테스트용) 승인 기록 전체 삭제
+          </button>
+        )}
 
         {loading && <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0" }}>불러오는 중...</div>}
 
