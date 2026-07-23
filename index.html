@@ -273,8 +273,9 @@
   window.dispatchEvent(new Event("firestore-ready"));
 </script>
 
-<!-- 실제 앱 코드 (JSX) -->
-<script type="text/babel" src="app.js"></script>
+<!-- 실제 앱 코드 (JSX) - 두 파일로 나눠서 순서대로 로드 -->
+<script type="text/babel" src="app_part1.js"></script>
+<script type="text/babel" src="app_part2.js"></script>
 
 <!-- PWA 설치를 위한 서비스워커 등록 -->
 <script>
