@@ -1993,17 +1993,19 @@ const adminStyles = {
 function MyVacationsPanel({ currentUser, onClose }) {
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [quotaExtra, setQuotaExtra] = useState(0);
 
   const load = () => {
     setLoading(true);
     waitForFirestore()
-      .then(() => window.VacationAPI.getMine(currentUser.id))
-      .then((records) => {
+      .then(() => Promise.all([window.VacationAPI.getMine(currentUser.id), window.QuotaAPI.get(currentUser.id)]))
+      .then(([records, quotaDoc]) => {
         const today = todayStr();
         const upcoming = records
           .filter((v) => v.date >= today)
           .sort((a, b) => a.date.localeCompare(b.date));
         setList(upcoming);
+        setQuotaExtra((quotaDoc && quotaDoc.extra) || 0);
       })
       .catch((err) => alert("불러오기 실패: " + (err && err.message ? err.message : err)))
       .finally(() => setLoading(false));
@@ -2020,11 +2022,43 @@ function MyVacationsPanel({ currentUser, onClose }) {
     });
   };
 
+  const quotaLimit = DEFAULT_VACATION_QUOTA + quotaExtra;
+  const quotaUsed = list.filter((v) => isCapacityType(v.vacationType)).length;
+
   return (
     <div style={modal.overlay} onClick={onClose}>
       <div style={modal.sheet} onClick={(e) => e.stopPropagation()}>
         <div style={modal.dateTitle}>{currentUser.name}님의 예정된 휴가</div>
         <div style={modal.countText}>오늘부터 이후 신청 내역이에요</div>
+        {!loading && (
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              background: quotaUsed >= quotaLimit ? "#fdeceb" : "#f8f9fb",
+              borderRadius: "10px",
+              padding: "10px 14px",
+              marginBottom: "4px",
+            }}
+          >
+            <span style={{ fontSize: "13px", fontWeight: 600, color: "#1a1a1a" }}>보장휴가 사용 현황</span>
+            <span
+              style={{
+                fontSize: "14px",
+                fontWeight: 700,
+                color: quotaUsed >= quotaLimit ? "#e02020" : "#1b3a5c",
+              }}
+            >
+              {quotaUsed} / {quotaLimit}개{quotaExtra > 0 ? ` (기본 ${DEFAULT_VACATION_QUOTA} + ${quotaExtra})` : ""}
+            </span>
+          </div>
+        )}
+        {!loading && (
+          <div style={{ fontSize: "11px", color: "#999", marginBottom: "16px" }}>
+            취소해도 날짜가 지나기 전까진 한도에 포함돼요 · 병가·청휴·교육 등은 한도 미적용
+          </div>
+        )}
         {loading && <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0" }}>불러오는 중...</div>}
         {!loading && list.length === 0 && (
           <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0" }}>예정된 휴가가 없어요</div>
