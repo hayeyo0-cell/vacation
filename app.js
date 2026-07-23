@@ -61,6 +61,14 @@ function koreaTodayStr() {
   return `${y}-${m}-${d}`;
 }
 
+// 오늘이 "짝수달 1일"인지 확인 (경산 - 다음 두 달 휴가를 선착순으로 신청받는 날, 순번 조정 가능일)
+function isEvenMonthFirstDay() {
+  const today = koreaTodayStr(); // "YYYY-MM-DD"
+  const month = parseInt(today.slice(5, 7), 10);
+  const day = parseInt(today.slice(8, 10), 10);
+  return day === 1 && month % 2 === 0;
+}
+
 function parseLocalDate_(dateStr) {
   const [y, m, d] = String(dateStr).split("-").map(Number);
   return new Date(y, (m || 1) - 1, d || 1);
@@ -923,6 +931,17 @@ function formatEntryTime(ts) {
   return `${mo}/${dd} ${hh}:${mm} 입력`;
 }
 
+// createdAt(Firestore Timestamp)에서 "YYYY-MM-DD"만 추출 (순번 수정 가능 여부 판단용 - "그날 신청한 기록"인지 확인)
+function formatEntryDateOnly(ts) {
+  if (!ts) return "";
+  const date = typeof ts.toDate === "function" ? ts.toDate() : new Date(ts);
+  if (isNaN(date.getTime())) return "";
+  const y = date.getFullYear();
+  const mo = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${y}-${mo}-${dd}`;
+}
+
 /* ------------------------------------------------------------------ */
 /* 메인 화면 - 월별 달력                                                 */
 /* ------------------------------------------------------------------ */
@@ -1323,6 +1342,8 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
   const [formType, setFormType] = useState(VACATION_TYPES[0]);
   const [formDia, setFormDia] = useState("");
   const [saving, setSaving] = useState(false);
+  const [editingPriorityId, setEditingPriorityId] = useState(null); // 순번 수정 중인 기록 id
+  const [priorityInput, setPriorityInput] = useState("");
 
   // 중간관리자 - 대신 기록 폼 상태
   const [showManagerForm, setShowManagerForm] = useState(false);
@@ -1443,6 +1464,13 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
   const dayRecords = selectedDate
     ? (monthMap[selectedDate] || []).filter((v) => v.branch === currentUser.branch)
     : [];
+  // 순번(priority)이 있으면 그 순서대로, 없으면 이름순 뒤에 붙임 - 짝수달 1일 선착순 신청 순서 확인용
+  const sortedDayRecords = [...dayRecords].sort((a, b) => {
+    const pa = a.priority != null ? a.priority : Infinity;
+    const pb = b.priority != null ? b.priority : Infinity;
+    if (pa !== pb) return pa - pb;
+    return (a.name || "").localeCompare(b.name || "");
+  });
   const activeRecordsForCapacity = dayRecords.filter((v) => v.status !== "취소됨");
   const activeCount = activeRecordsForCapacity.length;
   const capacityCount = activeRecordsForCapacity.filter((v) => isCapacityType(v.vacationType)).length;
@@ -1469,6 +1497,32 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
     });
   };
 
+  // 짝수달 1일 선착순 신청 순번 수정 (본인이 그날 신청한 기록만, 그날 하루만 가능)
+  const handleStartPriorityEdit = (record) => {
+    setEditingPriorityId(record.id);
+    setPriorityInput(String(record.priority != null ? record.priority : ""));
+  };
+
+  const handleSavePriorityEdit = (record) => {
+    const num = parseInt(priorityInput, 10);
+    if (Number.isNaN(num) || num < 1) {
+      alert("1 이상의 숫자를 입력해주세요");
+      return;
+    }
+    window.VacationAPI.update(record.id, { priority: num })
+      .then(() => {
+        setMonthMap((prev) => {
+          const next = { ...prev };
+          next[selectedDate] = (next[selectedDate] || []).map((v) =>
+            v.id === record.id ? { ...v, priority: num } : v
+          );
+          return next;
+        });
+        setEditingPriorityId(null);
+      })
+      .catch((err) => alert("수정 실패: " + (err && err.message ? err.message : err)));
+  };
+
   const handleAdminDelete = (record) => {
     if (!confirm(`[관리자] ${record.name}님의 ${record.vacationType} 기록을 완전히 삭제할까요?\n되돌릴 수 없어요.`)) return;
     window.VacationAPI.remove(record.id).then(() => {
@@ -1480,7 +1534,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
     });
   };
 
-  const submitVacationRecord = () => {
+  const submitVacationRecord = (priority) => {
     window.VacationAPI.add({
       name: currentUser.name,
       branch: currentUser.branch,
@@ -1488,6 +1542,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
       vacationType: formType,
       dia: formDia.trim(),
       date: selectedDate,
+      ...(priority != null ? { priority } : {}),
     })
       .then(() => {
         setShowRegisterForm(false);
@@ -1534,7 +1589,14 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
           return;
         }
 
-        submitVacationRecord();
+        // 순번(짝수달 1일 선착순 신청용) - 그 날짜 보장휴가 기록 수(취소 포함) 다음 번호로 자동 부여
+        const priorityBase = (freshDayRecords || []).filter(
+          (v) => v.branch === currentUser.branch && isCapacityType(v.vacationType)
+        ).length;
+        const nextPriority =
+          currentUser.branch === "경산" && isCapacityType(formType) ? priorityBase + 1 : null;
+
+        submitVacationRecord(nextPriority);
       })
       .catch((err) => {
         console.error(err);
@@ -1850,8 +1912,16 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
                         </tr>
                       </thead>
                       <tbody>
-                        {dayRecords.map((v, idx) => {
+                        {sortedDayRecords.map((v, idx) => {
                           const cancelled = v.status === "취소됨";
+                          const canEditPriority =
+                            currentUser.branch === "경산" &&
+                            !cancelled &&
+                            v.employeeId === currentUser.id &&
+                            isCapacityType(v.vacationType) &&
+                            v.createdAt &&
+                            formatEntryDateOnly(v.createdAt) === koreaTodayStr() &&
+                            isEvenMonthFirstDay();
                           return (
                             <tr
                               key={v.id}
@@ -1861,7 +1931,33 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
                                 textDecoration: cancelled ? "line-through" : "none",
                               }}
                             >
-                              <td style={tbl.td}>{idx + 1}</td>
+                              <td style={tbl.td}>
+                                {editingPriorityId === v.id ? (
+                                  <div style={{ display: "flex", gap: "2px", alignItems: "center" }}>
+                                    <input
+                                      type="number"
+                                      value={priorityInput}
+                                      onChange={(e) => setPriorityInput(e.target.value)}
+                                      style={{ width: "36px", fontSize: "12px", padding: "2px" }}
+                                    />
+                                    <button
+                                      style={{ ...modal.smallCancelBtn, margin: 0, color: "#1b3a5c" }}
+                                      onClick={() => handleSavePriorityEdit(v)}
+                                    >
+                                      ✓
+                                    </button>
+                                  </div>
+                                ) : canEditPriority ? (
+                                  <span
+                                    style={{ textDecoration: "underline", cursor: "pointer", color: "#1b3a5c" }}
+                                    onClick={() => handleStartPriorityEdit(v)}
+                                  >
+                                    {v.priority != null ? v.priority : idx + 1}✏️
+                                  </span>
+                                ) : (
+                                  v.priority != null ? v.priority : idx + 1
+                                )}
+                              </td>
                               <td style={{ ...tbl.td, textAlign: "left" }}>
                                 <div style={{ fontWeight: 700, fontSize: "13px" }}>
                                   {TYPE_ICON[v.vacationType] || "📌"} {v.name}
