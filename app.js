@@ -1953,7 +1953,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
         </div>
       )}
 
-      {showAdmin && <AdminPanel onClose={() => setShowAdmin(false)} employees={employees} />}
+      {showAdmin && <AdminPanel onClose={() => setShowAdmin(false)} employees={employees} managers={managers} />}
       {showManagerAdmin && (
         <ManagerAdminPanel branch={currentUser.branch} onClose={() => setShowManagerAdmin(false)} />
       )}
@@ -2224,7 +2224,7 @@ function MyVacationsPanel({ currentUser, onClose }) {
   );
 }
 
-function AdminPanel({ onClose, employees }) {
+function AdminPanel({ onClose, employees, managers }) {
   const [tab, setTab] = useState("pending"); // "pending" | "approved"
   const [pending, setPending] = useState([]);
   const [approved, setApproved] = useState([]);
@@ -2354,7 +2354,9 @@ function AdminPanel({ onClose, employees }) {
               <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0" }}>승인된 사용자가 없어요</div>
             )}
             {approved.map((p) => {
-              const stillInRoster = (employees || []).some((e) => e.id === p.id);
+              const stillInRoster =
+                (employees || []).some((e) => e.id === p.id) ||
+                (managers || []).some((m) => m.name === p.name && m.branch === p.branch);
               return (
                 <div key={p.id} style={{ ...modal.card, flexDirection: "column", alignItems: "stretch" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
