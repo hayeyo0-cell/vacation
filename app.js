@@ -1077,7 +1077,6 @@ function isCapacityType(type) {
 }
 
 // 보장휴가 기본 최대 신청 개수 (오늘 이후 날짜 기준, 취소해도 날짜 지나기 전까진 카운트 유지)
-const DEFAULT_VACATION_QUOTA = 10;
 
 // 2026년 공휴일 폴백 목록 (API 호출 실패/오프라인 시에만 사용)
 const FALLBACK_HOLIDAYS_2026 = new Set([
@@ -1284,7 +1283,6 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
   const isMidManager = isMidManagerUser(currentUser, managers);
   const [showAdmin, setShowAdmin] = useState(false);
   const [showManagerAdmin, setShowManagerAdmin] = useState(false);
-  const [showQuotaAdmin, setShowQuotaAdmin] = useState(false);
   const [showMyVacations, setShowMyVacations] = useState(false);
   const [showEtiquetteNotice, setShowEtiquetteNotice] = useState(true); // 로그인할 때마다 한 번 안내
   const myCode = (employees || []).find((e) => e.id === currentUser.id)?.code || "";
@@ -1312,7 +1310,6 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
 
   // 중간관리자 - 대신 기록 폼 상태
   const [showManagerForm, setShowManagerForm] = useState(false);
-  const [myQuota, setMyQuota] = useState({ used: 0, limit: DEFAULT_VACATION_QUOTA }); // 본인 보장휴가 한도 현황
   const [managerTargetId, setManagerTargetId] = useState("");
   const [managerFormType, setManagerFormType] = useState(NON_CAPACITY_TYPES[0]);
   const [managerFormDia, setManagerFormDia] = useState("");
@@ -1325,28 +1322,6 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
     });
     return () => { cancelled = true; };
   }, [viewYear]);
-
-  // 본인의 보장휴가 한도 사용 현황 (기관사 본인 신청 제한용)
-  const loadMyQuota = useCallback(() => {
-    if (isMidManager) return;
-    waitForFirestore()
-      .then(() =>
-        Promise.all([window.VacationAPI.getMine(currentUser.id), window.QuotaAPI.get(currentUser.id)])
-      )
-      .then(([records, quotaDoc]) => {
-        const today = todayStr();
-        const used = (records || []).filter(
-          (r) => isCapacityType(r.vacationType) && r.date >= today
-        ).length;
-        const extra = (quotaDoc && quotaDoc.extra) || 0;
-        setMyQuota({ used, limit: DEFAULT_VACATION_QUOTA + extra });
-      })
-      .catch((err) => console.error("휴가 한도 조회 실패:", err));
-  }, [currentUser.id, isMidManager]);
-
-  useEffect(() => {
-    loadMyQuota();
-  }, [loadMyQuota]);
 
   const loadMonth = useCallback((y, m) => {
     setLoading(true);
@@ -1447,7 +1422,6 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
         );
         return next;
       });
-      if (record.employeeId === currentUser.id) loadMyQuota();
     });
   };
 
@@ -1475,7 +1449,6 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
         setShowRegisterForm(false);
         setFormDia("");
         loadMonth(viewYear, viewMonth);
-        loadMyQuota();
       })
       .catch((err) => {
         console.error(err);
@@ -1486,34 +1459,43 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
 
   const handleSubmitRegister = () => {
     setSaving(true);
-    // 보장휴가는 오늘 이후 날짜의 기존 기록 수(취소했어도 날짜가 지나기 전이면 포함)가
-    // 기본 10개 + 관리자가 부여한 추가 한도를 넘으면 신청을 막아요.
+    // 저장 시점에 그날의 최신 데이터로 중복신청 여부와 보장인원 정원을 다시 확인해요
+    // (동시 신청으로 인한 중복/초과 방지).
     waitForFirestore()
-      .then(() =>
-        Promise.all([window.VacationAPI.getMine(currentUser.id), window.QuotaAPI.get(currentUser.id)])
-      )
-      .then(([mine, quotaDoc]) => {
-        const today = todayStr();
-        const activeCount = (mine || []).filter(
-          (r) => isCapacityType(r.vacationType) && r.date >= today
-        ).length;
-        const extra = (quotaDoc && quotaDoc.extra) || 0;
-        const maxAllowed = DEFAULT_VACATION_QUOTA + extra;
+      .then(() => window.VacationAPI.getByDate(selectedDate))
+      .then((freshDayRecords) => {
+        const freshActive = (freshDayRecords || []).filter(
+          (v) => v.branch === currentUser.branch && v.status !== "취소됨"
+        );
 
-        if (activeCount >= maxAllowed) {
+        const alreadyMine = freshActive.some((v) => v.employeeId === currentUser.id);
+        if (alreadyMine) {
           setSaving(false);
-          setMyQuota({ used: activeCount, limit: maxAllowed });
-          alert(
-            `보장휴가 신청 한도 ${maxAllowed}개를 모두 사용하셨어요. 여행 등으로 추가 신청이 필요하시면 관리자에게 문의해주세요^^`
-          );
+          alert("이미 이 날짜에 신청하신 기록이 있어요. 화면을 새로고침할게요.");
+          loadMonth(viewYear, viewMonth);
+          setShowRegisterForm(false);
           return;
         }
+
+        const freshCapacityCount = freshActive.filter((v) => isCapacityType(v.vacationType)).length;
+        const capacity = gyeongsanCapacity(currentUser.branch, selectedDate, freshActive, holidaySet);
+
+        if (freshCapacityCount >= capacity) {
+          setSaving(false);
+          alert(
+            `앗, 방금 다른 분이 신청해서 이 날짜의 보장인원(${capacity}명)이 다 찼어요. 다른 날짜를 선택해주세요.`
+          );
+          loadMonth(viewYear, viewMonth); // 화면도 최신 상태로 갱신
+          setShowRegisterForm(false);
+          return;
+        }
+
         submitVacationRecord();
       })
       .catch((err) => {
         console.error(err);
         setSaving(false);
-        alert("한도 확인 중 오류가 발생했어요: " + (err && err.message ? err.message : err));
+        alert("확인 중 오류가 발생했어요: " + (err && err.message ? err.message : err));
       });
   };
 
@@ -1633,11 +1615,6 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
             {isAdmin && (
               <button style={adminStyles.adminBtn} onClick={() => setShowManagerAdmin(true)}>
                 운용 인원
-              </button>
-            )}
-            {isAdmin && (
-              <button style={adminStyles.adminBtn} onClick={() => setShowQuotaAdmin(true)}>
-                휴가 한도
               </button>
             )}
           </div>
@@ -1905,10 +1882,6 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
                     <div style={{ textAlign: "center", color: "#e02020", fontSize: "13px", padding: "10px 0" }}>
                       이 날짜는 보장인원이 다 찼어요 (여유 0명)
                     </div>
-                  ) : myQuota.used >= myQuota.limit ? (
-                    <div style={{ textAlign: "center", color: "#e02020", fontSize: "13px", padding: "10px 0" }}>
-                      보장휴가 신청 한도 {myQuota.limit}개를 모두 사용하셨어요. 여행 등으로 추가 신청이 필요하시면 관리자에게 문의해주세요^^
-                    </div>
                   ) : (
                     <button style={modal.addBtn} onClick={() => setShowRegisterForm(true)}>
                       + 휴가 신청
@@ -1930,9 +1903,6 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
       {showAdmin && <AdminPanel onClose={() => setShowAdmin(false)} />}
       {showManagerAdmin && (
         <ManagerAdminPanel branch={currentUser.branch} onClose={() => setShowManagerAdmin(false)} />
-      )}
-      {showQuotaAdmin && (
-        <QuotaAdminPanel employees={employees} onClose={() => setShowQuotaAdmin(false)} />
       )}
       {showMyVacations && (
         <MyVacationsPanel currentUser={currentUser} onClose={() => setShowMyVacations(false)} />
@@ -2022,19 +1992,17 @@ const adminStyles = {
 function MyVacationsPanel({ currentUser, onClose }) {
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [quotaExtra, setQuotaExtra] = useState(0);
 
   const load = () => {
     setLoading(true);
     waitForFirestore()
-      .then(() => Promise.all([window.VacationAPI.getMine(currentUser.id), window.QuotaAPI.get(currentUser.id)]))
-      .then(([records, quotaDoc]) => {
+      .then(() => window.VacationAPI.getMine(currentUser.id))
+      .then((records) => {
         const today = todayStr();
         const upcoming = records
           .filter((v) => v.date >= today)
           .sort((a, b) => a.date.localeCompare(b.date));
         setList(upcoming);
-        setQuotaExtra((quotaDoc && quotaDoc.extra) || 0);
       })
       .catch((err) => alert("불러오기 실패: " + (err && err.message ? err.message : err)))
       .finally(() => setLoading(false));
@@ -2051,43 +2019,11 @@ function MyVacationsPanel({ currentUser, onClose }) {
     });
   };
 
-  const quotaLimit = DEFAULT_VACATION_QUOTA + quotaExtra;
-  const quotaUsed = list.filter((v) => isCapacityType(v.vacationType)).length;
-
   return (
     <div style={modal.overlay} onClick={onClose}>
       <div style={modal.sheet} onClick={(e) => e.stopPropagation()}>
         <div style={modal.dateTitle}>{currentUser.name}님의 예정된 휴가</div>
         <div style={modal.countText}>오늘부터 이후 신청 내역이에요</div>
-        {!loading && (
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              background: quotaUsed >= quotaLimit ? "#fdeceb" : "#f8f9fb",
-              borderRadius: "10px",
-              padding: "10px 14px",
-              marginBottom: "4px",
-            }}
-          >
-            <span style={{ fontSize: "13px", fontWeight: 600, color: "#1a1a1a" }}>보장휴가 사용 현황</span>
-            <span
-              style={{
-                fontSize: "14px",
-                fontWeight: 700,
-                color: quotaUsed >= quotaLimit ? "#e02020" : "#1b3a5c",
-              }}
-            >
-              {quotaUsed} / {quotaLimit}개{quotaExtra > 0 ? ` (기본 ${DEFAULT_VACATION_QUOTA} + ${quotaExtra})` : ""}
-            </span>
-          </div>
-        )}
-        {!loading && (
-          <div style={{ fontSize: "11px", color: "#999", marginBottom: "16px" }}>
-            취소해도 날짜가 지나기 전까진 한도에 포함돼요 · 병가·청휴·교육 등은 한도 미적용
-          </div>
-        )}
         {loading && <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0" }}>불러오는 중...</div>}
         {!loading && list.length === 0 && (
           <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0" }}>예정된 휴가가 없어요</div>
@@ -2348,111 +2284,6 @@ function ManagerAdminPanel({ branch, onClose }) {
                 <div style={modal.typeRow}>{m.branch}</div>
               </div>
               <button style={adminStyles.rejectBtn} onClick={() => handleRemove(m)}>삭제</button>
-            </div>
-          ))}
-        <button style={modal.closeBtn} onClick={onClose}>닫기</button>
-      </div>
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/* 휴가 한도 조정 패널 (관리자 전용) - 해외여행 등 예외적으로 10개를 넘게    */
-/* 신청해야 할 때, 특정 인원에게 추가 한도를 부여해요                      */
-/* ------------------------------------------------------------------ */
-function QuotaAdminPanel({ employees, onClose }) {
-  const [list, setList] = useState([]); // 추가 한도가 설정된 사람들
-  const [loading, setLoading] = useState(true);
-  const [selectedEmpId, setSelectedEmpId] = useState("");
-  const [extraInput, setExtraInput] = useState("");
-  const [saving, setSaving] = useState(false);
-
-  const load = () => {
-    setLoading(true);
-    waitForFirestore()
-      .then(() => window.QuotaAPI.list())
-      .then((data) => setList(data.filter((d) => (d.extra || 0) > 0)))
-      .catch((err) => alert("불러오기 실패: " + (err && err.message ? err.message : err)))
-      .finally(() => setLoading(false));
-  };
-
-  useEffect(() => {
-    load();
-  }, []);
-
-  const sortedEmployees = [...(employees || [])].sort((a, b) => a.name.localeCompare(b.name, "ko"));
-
-  const handleSave = () => {
-    const emp = sortedEmployees.find((e) => e.id === selectedEmpId);
-    if (!emp) {
-      alert("이름을 선택해주세요");
-      return;
-    }
-    const extra = parseInt(extraInput, 10);
-    if (Number.isNaN(extra) || extra < 0) {
-      alert("0 이상의 숫자를 입력해주세요");
-      return;
-    }
-    setSaving(true);
-    window.QuotaAPI.setExtra(emp.id, emp.name, emp.branch, extra)
-      .then(() => {
-        setSelectedEmpId("");
-        setExtraInput("");
-        load();
-      })
-      .catch((err) => alert("저장 실패: " + (err && err.message ? err.message : err)))
-      .finally(() => setSaving(false));
-  };
-
-  const handleClear = (item) => {
-    if (!confirm(`${item.name}님의 추가 한도를 0으로 되돌릴까요? (기본 ${DEFAULT_VACATION_QUOTA}개로 돌아가요)`)) return;
-    window.QuotaAPI.setExtra(item.id, item.name, item.branch, 0).then(load);
-  };
-
-  return (
-    <div style={modal.overlay} onClick={onClose}>
-      <div style={modal.sheet} onClick={(e) => e.stopPropagation()}>
-        <div style={modal.dateTitle}>휴가 한도 조정</div>
-        <div style={{ ...modal.countText, marginBottom: "14px" }}>
-          보장휴가는 기본 {DEFAULT_VACATION_QUOTA}개까지만 신청돼요. 해외여행 등으로 더 필요한 분에게 추가 한도를 부여해주세요.
-        </div>
-
-        <div style={{ display: "flex", gap: "6px", marginBottom: "16px" }}>
-          <select
-            style={{ ...styles.select, flex: 1.4, marginBottom: 0 }}
-            value={selectedEmpId}
-            onChange={(e) => setSelectedEmpId(e.target.value)}
-          >
-            <option value="">이름 선택</option>
-            {sortedEmployees.map((e) => (
-              <option key={e.id} value={e.id}>{e.name} ({e.branch})</option>
-            ))}
-          </select>
-          <input
-            style={{ ...styles.select, flex: "0 0 64px", marginBottom: 0 }}
-            type="number"
-            min="0"
-            placeholder="개수"
-            value={extraInput}
-            onChange={(e) => setExtraInput(e.target.value)}
-          />
-          <button style={adminStyles.approveBtn} disabled={saving} onClick={handleSave}>저장</button>
-        </div>
-
-        {loading && <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0" }}>불러오는 중...</div>}
-        {!loading && list.length === 0 && (
-          <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0" }}>추가 한도가 부여된 사람이 없어요</div>
-        )}
-        {!loading &&
-          list.map((item) => (
-            <div key={item.id} style={modal.card}>
-              <div>
-                <div style={modal.name}>{item.name}</div>
-                <div style={modal.typeRow}>
-                  {item.branch} · 기본 {DEFAULT_VACATION_QUOTA}개 + {item.extra}개 = 총 {DEFAULT_VACATION_QUOTA + item.extra}개
-                </div>
-              </div>
-              <button style={adminStyles.rejectBtn} onClick={() => handleClear(item)}>초기화</button>
             </div>
           ))}
         <button style={modal.closeBtn} onClick={onClose}>닫기</button>
