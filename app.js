@@ -12,6 +12,13 @@ const { useState, useEffect, useCallback, useRef } = React;
 const GAS_URL =
   "https://script.google.com/macros/s/AKfycbw8NMVjH3J_Mt7SBymWOg44zvD4gd4GXkQB3r95QTl63M3aWqtf-OglLrG2rQPH7J6UjA/exec";
 
+// 경산 "2026년 하반기 휴가기록부" 스프레드시트 - 기존 기록 가져오기(마이그레이션) 테스트용
+const IMPORT_SHEET_URL =
+  "https://script.google.com/macros/s/AKfycbxQH5XeMvE9xXWQqWuwxmrXsn0LC3u8X_QrkAUApE27vww31c-Hnv4KqKDacQ40_FYgDg/exec";
+// 경산 "2026년 상반기 휴가기록부" 스프레드시트
+const IMPORT_SHEET_URL_H1 =
+  "https://script.google.com/macros/s/AKfycbyPum5D2CcjwC6rjJZYi-gMx0wUeq9o_zZQMQ7lhRaE-4MR2_aw71bDCMRjVJPc1vi98Q/exec";
+
 const TEAM_MAP = { ks: "경산", my: "문양" }; // 안심(as)/월배(wb)는 이 앱 대상 아님
 // ⚠️ 테스트 모드: true면 누구나 교번확인/승인 없이 바로 들어갈 수 있어요.
 // 실제 운영 시작하면 반드시 false로 바꿔주세요!
@@ -1310,6 +1317,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
   const isMidManager = isMidManagerUser(currentUser, managers);
   const [showAdmin, setShowAdmin] = useState(false);
   const [showManagerAdmin, setShowManagerAdmin] = useState(false);
+  const [showImportTest, setShowImportTest] = useState(false);
   const [showMyVacations, setShowMyVacations] = useState(false);
   const [showEtiquetteNotice, setShowEtiquetteNotice] = useState(true); // 로그인할 때마다 한 번 안내
   const myCode = (employees || []).find((e) => e.id === currentUser.id)?.code || "";
@@ -1723,6 +1731,11 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
                 운용 인원
               </button>
             )}
+            {isAdmin && TEST_MODE && (
+              <button style={adminStyles.adminBtn} onClick={() => setShowImportTest(true)}>
+                가져오기 테스트
+              </button>
+            )}
           </div>
         </div>
         <div style={cal.navRow}>
@@ -2052,6 +2065,9 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
       {showAdmin && <AdminPanel onClose={() => setShowAdmin(false)} employees={employees} managers={managers} />}
       {showManagerAdmin && (
         <ManagerAdminPanel branch={currentUser.branch} onClose={() => setShowManagerAdmin(false)} />
+      )}
+      {showImportTest && (
+        <ImportTestPanel onClose={() => setShowImportTest(false)} employees={employees} managers={managers} />
       )}
       {showMyVacations && (
         <MyVacationsPanel currentUser={currentUser} onClose={() => setShowMyVacations(false)} />
@@ -2585,6 +2601,235 @@ function ManagerAdminPanel({ branch, onClose }) {
               <button style={adminStyles.rejectBtn} onClick={() => handleRemove(m)}>삭제</button>
             </div>
           ))}
+        <button style={modal.closeBtn} onClick={onClose}>닫기</button>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* 가져오기 테스트 패널 (관리자 전용, TEST_MODE에서만 노출)                */
+/* 경산 "2026년 하반기 휴가기록부" 스프레드시트에서 데이터를 받아와         */
+/* 화면에서만 미리보기 - Firestore엔 아직 아무것도 쓰지 않아요             */
+/* ------------------------------------------------------------------ */
+function ImportTestPanel({ onClose, employees, managers }) {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [rows, setRows] = useState([]); // 변환된 미리보기 행들
+  const [tab, setTab] = useState("raw"); // "raw" | "tally" | "convert"
+
+  useEffect(() => {
+    setLoading(true);
+    setError("");
+
+    const fetchOne = (url) =>
+      fetch(url).then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      });
+
+    Promise.allSettled([fetchOne(IMPORT_SHEET_URL_H1), fetchOne(IMPORT_SHEET_URL)])
+      .then(([h1Result, h2Result]) => {
+        const flat = [];
+        const failMsgs = [];
+        [
+          { label: "상반기", result: h1Result },
+          { label: "하반기", result: h2Result },
+        ].forEach(({ label, result }) => {
+          if (result.status === "rejected") {
+            failMsgs.push(`${label} 불러오기 실패: ${result.reason && result.reason.message ? result.reason.message : result.reason}`);
+            return;
+          }
+          const entries = (result.value && result.value.entries) || {};
+          Object.keys(entries).forEach((key) => {
+            // key 예시: "7-23" (월-일, 연도 없음) -> "2026-07-23"
+            const [mo, dd] = key.split("-");
+            const dateStr = `2026-${String(mo).padStart(2, "0")}-${String(dd).padStart(2, "0")}`;
+            (entries[key] || []).forEach((item) => {
+              flat.push({ date: dateStr, ...item });
+            });
+          });
+        });
+        flat.sort((a, b) => a.date.localeCompare(b.date));
+        setRows(flat);
+        if (failMsgs.length > 0) setError(failMsgs.join("\n") + "\n(성공한 쪽 데이터는 아래에 표시돼요)");
+      })
+      .finally(() => setLoading(false));
+  }, []);
+
+  const total = rows.length;
+  const cancelledCount = rows.filter((r) => r.cancelled).length;
+  const confirmedCount = rows.filter((r) => !r.cancelled && r.confirmer).length;
+  const pendingCount = rows.filter((r) => !r.cancelled && !r.confirmer).length;
+
+  // 이름 -> employeeId 매칭 (직원목록 우선, 없으면 운용 명단에서 확인)
+  const matchEmployeeId = (name) => {
+    const emp = (employees || []).find((e) => e.name === name && e.branch === "경산");
+    if (emp) return emp.id;
+    const mgr = (managers || []).find((m) => m.name === name && m.branch === "경산");
+    if (mgr) return mgr.id;
+    return null;
+  };
+
+  // 종류별 집계 미리보기 - 사람별로, 취소 제외 + 연차비/분지비/장재비는 야간근무 짝꿍이라 제외 (실제 앱 집계 로직과 동일)
+  const NIGHT_COMPANION_TYPES = ["연차비", "분지비", "장재비"];
+  const tallyByPerson = {};
+  rows.forEach((r) => {
+    if (r.cancelled) return;
+    if (!isCapacityType(r.type)) return;
+    if (NIGHT_COMPANION_TYPES.includes(r.type)) return;
+    if (!tallyByPerson[r.name]) tallyByPerson[r.name] = {};
+    tallyByPerson[r.name][r.type] = (tallyByPerson[r.name][r.type] || 0) + 1;
+  });
+  const tallyList = Object.keys(tallyByPerson)
+    .sort((a, b) => a.localeCompare(b, "ko"))
+    .map((name) => ({
+      name,
+      summary: Object.entries(tallyByPerson[name])
+        .map(([t, c]) => `${t} ${c}`)
+        .join(" · "),
+    }));
+
+  // 오늘 이후 기록 - 실제 앱에서 쓰는 Firestore 레코드 형태로 변환
+  const today = todayStr();
+  const converted = rows
+    .filter((r) => r.date >= today)
+    .map((r) => ({
+      date: r.date,
+      name: r.name,
+      branch: "경산",
+      employeeId: matchEmployeeId(r.name),
+      vacationType: r.type,
+      dia: r.dia,
+      status: r.cancelled ? "취소됨" : "정상",
+      confirmedBy: r.confirmer || null,
+    }));
+  const unmatchedCount = converted.filter((c) => !c.employeeId).length;
+
+  return (
+    <div style={modal.overlay} onClick={onClose}>
+      <div style={modal.sheet} onClick={(e) => e.stopPropagation()}>
+        <div style={modal.dateTitle}>가져오기 테스트 (미리보기 전용)</div>
+        <div style={{ ...modal.countText, marginBottom: "14px" }}>
+          아직 Firestore에는 아무것도 저장하지 않아요. 데이터가 잘 읽히는지만 확인하는 용도예요.
+        </div>
+
+        {loading && <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0" }}>불러오는 중...</div>}
+        {!loading && error && (
+          <div style={{ color: "#e02020", fontSize: "13px", padding: "10px 0", whiteSpace: "pre-wrap" }}>
+            {error}
+          </div>
+        )}
+
+        {!loading && (
+          <React.Fragment>
+            <div style={{ display: "flex", gap: "5px", marginBottom: "14px" }}>
+              <button style={tab === "raw" ? adminStyles.tabBtnActive : adminStyles.tabBtn} onClick={() => setTab("raw")}>
+                전체 ({total})
+              </button>
+              <button style={tab === "tally" ? adminStyles.tabBtnActive : adminStyles.tabBtn} onClick={() => setTab("tally")}>
+                종류별 집계
+              </button>
+              <button
+                style={tab === "convert" ? adminStyles.tabBtnActive : adminStyles.tabBtn}
+                onClick={() => setTab("convert")}
+              >
+                오늘 이후 변환
+              </button>
+            </div>
+
+            {tab === "raw" && (
+              <React.Fragment>
+                <div
+                  style={{
+                    background: "#f8f9fb",
+                    borderRadius: "10px",
+                    padding: "10px 14px",
+                    marginBottom: "16px",
+                    fontSize: "13px",
+                    fontWeight: 700,
+                    color: "#1b3a5c",
+                  }}
+                >
+                  전체 {total}건 · 확인완료 {confirmedCount} · 확인대기 {pendingCount} · 취소 {cancelledCount}
+                </div>
+                {rows.length === 0 && (
+                  <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0" }}>불러온 데이터가 없어요</div>
+                )}
+                {rows.map((r, idx) => (
+                  <div key={idx} style={{ ...modal.card, flexDirection: "column", alignItems: "stretch" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                      <div style={modal.name}>{r.date} · {r.name}</div>
+                      <div style={modal.dia}>{r.dia}</div>
+                    </div>
+                    <div style={modal.typeRow}>
+                      {r.type || "(종류 없음)"}
+                      {r.cancelled
+                        ? " · 취소됨"
+                        : r.confirmer
+                        ? ` · ✅${r.confirmer} 확인`
+                        : " · 확인 대기중"}
+                    </div>
+                  </div>
+                ))}
+              </React.Fragment>
+            )}
+
+            {tab === "tally" && (
+              <React.Fragment>
+                <div style={{ ...modal.countText, marginBottom: "10px" }}>
+                  취소된 기록 제외, 연차비·분지비·장재비는 야간근무 짝꿍이라 집계에서 제외 (실제 앱과 동일한 규칙)
+                </div>
+                {tallyList.length === 0 && (
+                  <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0" }}>집계할 기록이 없어요</div>
+                )}
+                {tallyList.map((t) => (
+                  <div key={t.name} style={modal.card}>
+                    <div>
+                      <div style={modal.name}>{t.name}</div>
+                      <div style={modal.typeRow}>{t.summary}</div>
+                    </div>
+                  </div>
+                ))}
+              </React.Fragment>
+            )}
+
+            {tab === "convert" && (
+              <React.Fragment>
+                <div style={{ ...modal.countText, marginBottom: "10px" }}>
+                  {today} 이후 날짜만 - 실제 Firestore에 들어갈 형태로 변환한 미리보기예요
+                  {unmatchedCount > 0 && (
+                    <span style={{ color: "#e02020", fontWeight: 700 }}>
+                      {" "}
+                      (⚠️ 이름 매칭 실패 {unmatchedCount}건 - 직원목록/운용명단에서 이름을 못 찾았어요)
+                    </span>
+                  )}
+                </div>
+                {converted.length === 0 && (
+                  <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0" }}>
+                    {today} 이후 기록이 없어요
+                  </div>
+                )}
+                {converted.map((c, idx) => (
+                  <div key={idx} style={{ ...modal.card, flexDirection: "column", alignItems: "stretch" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                      <div style={modal.name}>{c.date} · {c.name}</div>
+                      <div style={modal.dia}>{c.dia}</div>
+                    </div>
+                    <div style={modal.typeRow}>
+                      {c.vacationType} · {c.status}
+                      {c.confirmedBy ? ` · ✅${c.confirmedBy} 확인` : " · 확인 대기중"}
+                    </div>
+                    <div style={{ fontSize: "11px", color: c.employeeId ? "#999" : "#e02020", marginTop: "2px" }}>
+                      employeeId: {c.employeeId || "❌ 매칭 실패"}
+                    </div>
+                  </div>
+                ))}
+              </React.Fragment>
+            )}
+          </React.Fragment>
+        )}
+
         <button style={modal.closeBtn} onClick={onClose}>닫기</button>
       </div>
     </div>
