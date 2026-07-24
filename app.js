@@ -1347,6 +1347,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
   const [showImportTest, setShowImportTest] = useState(false);
   const [showMyVacations, setShowMyVacations] = useState(false);
   const [showEtiquetteNotice, setShowEtiquetteNotice] = useState(true); // 로그인할 때마다 한 번 안내
+  const [upcomingUnconfirmed, setUpcomingUnconfirmed] = useState([]); // 5일 이내 & 아직 미확인인 내 신청 건
   const myCode = (employees || []).find((e) => e.id === currentUser.id)?.code || "";
   const myBaseCode = (employees || []).find((e) => e.id === currentUser.id)?.baseCode || "";
   const myTeamKey = REVERSE_TEAM_MAP[currentUser.branch];
@@ -1397,6 +1398,24 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
     });
     return () => { cancelled = true; };
   }, [viewYear]);
+
+  // 앱 접속(로그인) 시 한 번 - 본인이 신청한 것 중 5일 이내인데 아직 운용 확인 전인 건 알림
+  useEffect(() => {
+    if (isMidManager) return; // 운용은 본인이 확인 주체라 대상 아님
+    waitForFirestore()
+      .then(() => window.VacationAPI.getMine(currentUser.id))
+      .then((records) => {
+        const today = todayStr();
+        const d = new Date(today + "T00:00:00");
+        d.setDate(d.getDate() + 5);
+        const limit = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+        const upcoming = (records || [])
+          .filter((v) => v.date >= today && v.date <= limit && v.status !== "취소됨" && !v.confirmedBy)
+          .sort((a, b) => a.date.localeCompare(b.date));
+        setUpcomingUnconfirmed(upcoming);
+      })
+      .catch((err) => console.error("확인 대기 알림 조회 실패:", err));
+  }, [currentUser.id]);
 
   // 수동 새로고침용 (저장/취소/확인 등 액션 직후 즉시 반영하고 싶을 때 호출)
   const loadMonth = useCallback((y, m) => {
@@ -2344,6 +2363,27 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
             <div style={{ fontSize: "15px", fontWeight: 600, lineHeight: 1.5, marginBottom: "18px" }}>
               휴가 자리는 여러 사람이 함께 쓰는 만큼, 서로 배려하는 마음으로 신청·취소는 신중하게 부탁드려요^^
             </div>
+            {upcomingUnconfirmed.length > 0 && (
+              <div
+                style={{
+                  background: "#fff7e6",
+                  border: "1px solid #f5cf7a",
+                  borderRadius: "10px",
+                  padding: "12px",
+                  marginBottom: "14px",
+                  textAlign: "left",
+                }}
+              >
+                <div style={{ fontSize: "13px", fontWeight: 700, color: "#e08a20", marginBottom: "6px" }}>
+                  ⏰ 5일 이내 확인 대기중인 신청이 있어요
+                </div>
+                {upcomingUnconfirmed.map((v) => (
+                  <div key={v.id} style={{ fontSize: "13px", color: "#333", marginTop: "2px" }}>
+                    {v.date} ({weekdayShort(v.date)}) · {v.vacationType}
+                  </div>
+                ))}
+              </div>
+            )}
             <button style={modal.closeBtn} onClick={() => setShowEtiquetteNotice(false)}>확인</button>
           </div>
         </div>
