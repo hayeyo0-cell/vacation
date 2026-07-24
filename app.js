@@ -1309,7 +1309,6 @@ const tbl = {
 function pad2(n) {
   return String(n).padStart(2, "0");
 }
-
 function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
   const isAdmin = ADMIN_NAMES.includes(currentUser.name);
   const isMidManager = isMidManagerUser(currentUser, managers);
@@ -2151,13 +2150,13 @@ const adminStyles = {
     fontSize: "13px",
   },
 };
-
 function MyVacationsPanel({ currentUser, onClose }) {
   const [list, setList] = useState([]);
   const [yearStats, setYearStats] = useState([]); // 올해 종류별 보장휴가 사용 개수
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState(null); // 휴가종류 수정 중인 기록 id
   const [editType, setEditType] = useState("");
+  const [editDia, setEditDia] = useState("");
   const [editSaving, setEditSaving] = useState(false);
 
   const load = () => {
@@ -2208,17 +2207,20 @@ function MyVacationsPanel({ currentUser, onClose }) {
   const handleStartEdit = (record) => {
     setEditingId(record.id);
     setEditType(record.vacationType);
+    setEditDia(record.dia || "");
   };
 
   const handleSaveTypeEdit = (record) => {
-    if (editType === record.vacationType) {
+    if (editType === record.vacationType && editDia === (record.dia || "")) {
       setEditingId(null);
       return;
     }
     setEditSaving(true);
-    window.VacationAPI.update(record.id, { vacationType: editType })
+    window.VacationAPI.update(record.id, { vacationType: editType, dia: editDia.trim() })
       .then(() => {
-        setList((prev) => prev.map((v) => (v.id === record.id ? { ...v, vacationType: editType } : v)));
+        setList((prev) =>
+          prev.map((v) => (v.id === record.id ? { ...v, vacationType: editType, dia: editDia.trim() } : v))
+        );
         setEditingId(null);
       })
       .catch((err) => alert("수정 실패: " + (err && err.message ? err.message : err)))
@@ -2285,34 +2287,44 @@ function MyVacationsPanel({ currentUser, onClose }) {
                   </div>
                 </div>
                 {editingId === v.id ? (
-                  <div style={{ display: "flex", gap: "6px", marginTop: "8px", alignItems: "center" }}>
-                    <select
-                      style={{ ...styles.select, flex: 1, marginBottom: 0 }}
-                      value={editType}
-                      onChange={(e) => setEditType(e.target.value)}
-                    >
-                      <optgroup label="🟢 보장인원 포함">
-                        {CAPACITY_TYPES.map((t) => (
-                          <option key={t} value={t}>{t}</option>
-                        ))}
-                      </optgroup>
-                      <optgroup label="⚪ 보장인원 미포함">
-                        <option value="청휴">청휴</option>
-                      </optgroup>
-                    </select>
-                    <button
-                      style={adminStyles.approveBtn}
-                      disabled={editSaving}
-                      onClick={() => handleSaveTypeEdit(v)}
-                    >
-                      저장
-                    </button>
-                    <button
-                      style={{ ...modal.smallCancelBtn, margin: 0 }}
-                      onClick={() => setEditingId(null)}
-                    >
-                      취소
-                    </button>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginTop: "8px" }}>
+                    <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                      <select
+                        style={{ ...styles.select, flex: 1.4, marginBottom: 0 }}
+                        value={editType}
+                        onChange={(e) => setEditType(e.target.value)}
+                      >
+                        <optgroup label="🟢 보장인원 포함">
+                          {CAPACITY_TYPES.map((t) => (
+                            <option key={t} value={t}>{t}</option>
+                          ))}
+                        </optgroup>
+                        <optgroup label="⚪ 보장인원 미포함">
+                          <option value="청휴">청휴</option>
+                        </optgroup>
+                      </select>
+                      <input
+                        style={{ ...styles.select, flex: 1, marginBottom: 0 }}
+                        value={editDia}
+                        onChange={(e) => setEditDia(e.target.value)}
+                        placeholder="교번(DIA)"
+                      />
+                    </div>
+                    <div style={{ display: "flex", gap: "6px", justifyContent: "flex-end" }}>
+                      <button
+                        style={adminStyles.approveBtn}
+                        disabled={editSaving}
+                        onClick={() => handleSaveTypeEdit(v)}
+                      >
+                        저장
+                      </button>
+                      <button
+                        style={{ ...modal.smallCancelBtn, margin: 0 }}
+                        onClick={() => setEditingId(null)}
+                      >
+                        취소
+                      </button>
+                    </div>
                   </div>
                 ) : (
                   <div style={modal.typeRow}>
