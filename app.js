@@ -469,6 +469,18 @@ function App() {
       .then(() => window.ManagerAPI.list())
       .then((list) => setManagers(list))
       .catch((err) => console.error("운용 명단 로드 실패:", err));
+
+    // 보관 기한(1년) 지난 오래된 휴가 기록 자동 삭제 - 예: 2027년이 되면 2025년 데이터부터 삭제
+    // (연 1회만 실제로 지우도록, 이 기기에서 올해 이미 정리했는지 localStorage로 확인)
+    const CLEANUP_KEY = "vacation_cleanup_year";
+    const currentYear = new Date().getFullYear();
+    const lastCleanupYear = parseInt(localStorage.getItem(CLEANUP_KEY) || "0", 10);
+    if (lastCleanupYear < currentYear) {
+      waitForFirestore()
+        .then(() => window.VacationAPI.deleteOlderThan(`${currentYear - 1}-01-01`))
+        .then(() => localStorage.setItem(CLEANUP_KEY, String(currentYear)))
+        .catch((err) => console.error("오래된 휴가 기록 정리 실패:", err));
+    }
   }, []);
 
   const branchEmployees = employees.filter(
@@ -1307,8 +1319,7 @@ const tbl = {
 
 function pad2(n) {
   return String(n).padStart(2, "0");
-}
-function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
+}function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
   const isAdmin = ADMIN_NAMES.includes(currentUser.name);
   const isMidManager = isMidManagerUser(currentUser, managers);
   const [showAdmin, setShowAdmin] = useState(false);
@@ -3001,3 +3012,4 @@ function ImportTestPanel({ onClose, employees, managers }) {
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+
