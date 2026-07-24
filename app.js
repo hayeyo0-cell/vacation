@@ -12,10 +12,9 @@ const { useState, useEffect, useCallback, useRef } = React;
 const GAS_URL =
   "https://script.google.com/macros/s/AKfycbw8NMVjH3J_Mt7SBymWOg44zvD4gd4GXkQB3r95QTl63M3aWqtf-OglLrG2rQPH7J6UjA/exec";
 
-// 경산 "2026년 하반기 휴가기록부" 스프레드시트 - 기존 기록 가져오기(마이그레이션) 테스트용
-// (상반기는 날짜 형식이 달라 제외 - 하반기만 가져오고, 내년부터는 앱 자체 데이터로 연간 집계)
-const IMPORT_SHEET_URL =
-  "https://script.google.com/macros/s/AKfycbxQH5XeMvE9xXWQqWuwxmrXsn0LC3u8X_QrkAUApE27vww31c-Hnv4KqKDacQ40_FYgDg/exec";
+// 경산 휴가 데이터 - 교번앱이 이미 안정적으로 쓰고 있는 검증된 API (날짜가 완성된 형태로 옴)
+const VACATION_API_URL =
+  "https://script.google.com/macros/s/AKfycby_p9K5jW7LTxAGy_uTTV88KcEGtnFQAEy7UctYq4Xkv2lpTj5RtR-mOACfic_BmE29kQ/exec";
 
 const TEAM_MAP = { ks: "경산", my: "문양" }; // 안심(as)/월배(wb)는 이 앱 대상 아님
 // ⚠️ 테스트 모드: true면 누구나 교번확인/승인 없이 바로 들어갈 수 있어요.
@@ -2636,13 +2635,13 @@ function ManagerAdminPanel({ branch, onClose }) {
 
 /* ------------------------------------------------------------------ */
 /* 가져오기 테스트 패널 (관리자 전용, TEST_MODE에서만 노출)                */
-/* 경산 "2026년 하반기 휴가기록부" 스프레드시트에서 데이터를 받아와         */
-/* 화면에서만 미리보기 - Firestore엔 아직 아무것도 쓰지 않아요             */
+/* 교번앱이 쓰는 검증된 VACATION_API_URL로 경산 휴가 데이터를 가져와        */
+/* 확인·집계 후 실제로 저장까지 할 수 있어요                              */
 /* ------------------------------------------------------------------ */
 function ImportTestPanel({ onClose, employees, managers }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [rows, setRows] = useState([]); // 변환된 미리보기 행들
+  const [rows, setRows] = useState([]); // 검증된 VACATION_API_URL에서 받아온 원본 기록들
   const [tab, setTab] = useState("raw"); // "raw" | "tally" | "convert"
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null); // { success, fail }
@@ -2652,42 +2651,38 @@ function ImportTestPanel({ onClose, employees, managers }) {
     setLoading(true);
     setError("");
 
-    fetch(IMPORT_SHEET_URL)
-      .then((res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return res.json();
-      })
-      .then((data) => {
-        const entries = (data && data.entries) || {};
-        const flat = [];
-        Object.keys(entries).forEach((key) => {
-          // key 예시: "7-23" (월-일, 연도 없음) -> "2026-07-23"
-          const [mo, dd] = key.split("-");
-          const dateStr = `2026-${String(mo).padStart(2, "0")}-${String(dd).padStart(2, "0")}`;
-          (entries[key] || []).forEach((item) => {
-            flat.push({ date: dateStr, ...item });
-          });
-        });
+    // 교번앱이 이미 안정적으로 쓰고 있는 검증된 API - 날짜가 이미 완성된 형태("YYYY-MM-DD")로 와서
+    // 지난번 같은 날짜 조합 버그가 원천적으로 없어요. 확인란 데이터는 없고, 그건 운용이 앱에서 직접 확인해요.
+    jsonpRequest(VACATION_API_URL, {})
+      .then((json) => {
+        if (!json || !json.ok || !Array.isArray(json.vacations)) {
+          throw new Error((json && json.error) || "응답 형식이 예상과 달라요");
+        }
+        const flat = json.vacations
+          .filter((v) => v && v.date && v.name)
+          .map((v) => ({
+            date: v.date,
+            name: String(v.name).trim(),
+            type: v.type ? String(v.type).trim() : "",
+            dia: v.dia == null ? "" : v.dia,
+            cancelled: !!v.cancelled,
+            seq: v.seq || 0,
+          }));
         flat.sort((a, b) => a.date.localeCompare(b.date));
         setRows(flat);
       })
       .catch((err) => {
         console.error(err);
-        setError(
-          "불러오기 실패: " +
-            (err && err.message ? err.message : err) +
-            " (CORS 문제일 수도 있어요 - 브라우저 콘솔에서 자세한 오류를 확인해주세요)"
-        );
+        setError("불러오기 실패: " + (err && err.message ? err.message : err));
       })
       .finally(() => setLoading(false));
   }, []);
 
   const total = rows.length;
   const cancelledCount = rows.filter((r) => r.cancelled).length;
-  const confirmedCount = rows.filter((r) => !r.cancelled && r.confirmer).length;
-  const pendingCount = rows.filter((r) => !r.cancelled && !r.confirmer).length;
+  const activeCount = total - cancelledCount;
 
-  // 이름 -> employeeId 매칭 (직원목록 우선, 없으면 운용 명단에서 확인)
+  // 이름 -> employeeId 매칭 (직원목록 우선, 없으면 운용 명단에서 확인). 인사이동으로 명단에 없으면 null.
   const matchEmployeeId = (name) => {
     const emp = (employees || []).find((e) => e.name === name && e.branch === "경산");
     if (emp) return emp.id;
@@ -2696,13 +2691,14 @@ function ImportTestPanel({ onClose, employees, managers }) {
     return null;
   };
 
-  // 종류별 집계 미리보기 - 사람별로, 취소 제외 + 연차비/분지비/장재비는 야간근무 짝꿍이라 제외 (실제 앱 집계 로직과 동일)
+  // 종류별 집계 미리보기 - 현재 명단에 있는 사람만 집계 (인사이동으로 빠진 사람은 기록은 가져오되 집계에서 제외)
   const NIGHT_COMPANION_TYPES = ["연차비", "분지비", "장재비"];
   const tallyByPerson = {};
   rows.forEach((r) => {
     if (r.cancelled) return;
     if (!isCapacityType(r.type)) return;
     if (NIGHT_COMPANION_TYPES.includes(r.type)) return;
+    if (!matchEmployeeId(r.name)) return; // 현재 명단에 없는 사람은 집계 제외
     if (!tallyByPerson[r.name]) tallyByPerson[r.name] = {};
     tallyByPerson[r.name][r.type] = (tallyByPerson[r.name][r.type] || 0) + 1;
   });
@@ -2715,32 +2711,46 @@ function ImportTestPanel({ onClose, employees, managers }) {
         .join(" · "),
     }));
 
-  // 오늘 이후 기록 - 실제 앱에서 쓰는 Firestore 레코드 형태로 변환
+  // 전체 기간(과거+미래) - 실제 앱에서 쓰는 Firestore 레코드 형태로 변환
+  // 과거 ~ 오늘+2일까지는 이미 확정된 거나 마찬가지라 "확인됨"으로 자동 처리하고,
+  // 그보다 먼 미래 날짜만 운용이 앱에서 직접 확인하도록 "대기중"으로 남겨둬요.
+  // 인사이동으로 명단에 없는 사람도 기록 자체는 그대로 가져와서 달력에 보이게 해요(집계에서만 제외).
   const today = todayStr();
-  const converted = rows
-    .filter((r) => r.date >= today)
-    .map((r) => ({
+  const cutoffDate = (() => {
+    const d = new Date(today + "T00:00:00");
+    d.setDate(d.getDate() + 2);
+    const y = d.getFullYear();
+    const mo = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${y}-${mo}-${dd}`;
+  })();
+  const converted = rows.map((r) => {
+    const matchedId = matchEmployeeId(r.name);
+    const autoConfirmed = r.date <= cutoffDate;
+    return {
       date: r.date,
       name: r.name,
       branch: "경산",
-      employeeId: matchEmployeeId(r.name),
+      employeeId: matchedId || `departed-${r.name}`,
+      isDeparted: !matchedId,
       vacationType: r.type,
       dia: r.dia,
       status: r.cancelled ? "취소됨" : "정상",
-      confirmedBy: r.confirmer || null,
-    }));
-  const unmatchedCount = converted.filter((c) => !c.employeeId).length;
-  const matchedConverted = converted.filter((c) => c.employeeId);
+      confirmedBy: autoConfirmed ? "가져오기(자동확인)" : null,
+    };
+  });
+  const departedCount = converted.filter((c) => c.isDeparted).length;
 
   const handleRealImport = () => {
-    if (matchedConverted.length === 0) {
-      alert("저장할 수 있는(이름 매칭된) 기록이 없어요");
+    if (converted.length === 0) {
+      alert("가져올 기록이 없어요");
       return;
     }
     if (
       !confirm(
-        `${today} 이후 기록 중 이름이 매칭된 ${matchedConverted.length}건을 실제로 저장할까요?\n` +
-          `(달력에 바로 나타나요. 확인 후 문제 있으면 "방금 저장한 것 되돌리기"로 지울 수 있어요)`
+        `전체 ${converted.length}건을 실제로 저장할까요?\n` +
+          `(과거 날짜는 이미 사용한 기록으로, 미래 날짜는 확인 대기중으로 들어가요.\n` +
+          `달력에 바로 나타나요. 문제 있으면 "방금 저장한 것 되돌리기"로 지울 수 있어요)`
       )
     )
       return;
@@ -2771,7 +2781,7 @@ function ImportTestPanel({ onClose, employees, managers }) {
           failCount += 1;
         });
 
-    matchedConverted
+    converted
       .reduce((chain, c) => chain.then(() => importOne(c)), Promise.resolve())
       .then(() => {
         setImportedIds((prev) => [...prev, ...newIds]);
@@ -2797,9 +2807,9 @@ function ImportTestPanel({ onClose, employees, managers }) {
   return (
     <div style={modal.overlay} onClick={onClose}>
       <div style={modal.sheet} onClick={(e) => e.stopPropagation()}>
-        <div style={modal.dateTitle}>가져오기 테스트 (미리보기 전용)</div>
+        <div style={modal.dateTitle}>가져오기 테스트 (검증된 API 사용)</div>
         <div style={{ ...modal.countText, marginBottom: "14px" }}>
-          아직 Firestore에는 아무것도 저장하지 않아요. 데이터가 잘 읽히는지만 확인하는 용도예요.
+          교번앱이 쓰는 안정적인 API예요. 아직 Firestore엔 저장 안 해요 - 확인용이에요.
         </div>
 
         {loading && <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0" }}>불러오는 중...</div>}
@@ -2822,7 +2832,7 @@ function ImportTestPanel({ onClose, employees, managers }) {
                 style={tab === "convert" ? adminStyles.tabBtnActive : adminStyles.tabBtn}
                 onClick={() => setTab("convert")}
               >
-                오늘 이후 변환
+                가져오기
               </button>
             </div>
 
@@ -2839,7 +2849,7 @@ function ImportTestPanel({ onClose, employees, managers }) {
                     color: "#1b3a5c",
                   }}
                 >
-                  전체 {total}건 · 확인완료 {confirmedCount} · 확인대기 {pendingCount} · 취소 {cancelledCount}
+                  전체 {total}건 · 정상 {activeCount} · 취소 {cancelledCount}
                 </div>
                 {rows.length === 0 && (
                   <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0" }}>불러온 데이터가 없어요</div>
@@ -2852,11 +2862,7 @@ function ImportTestPanel({ onClose, employees, managers }) {
                     </div>
                     <div style={modal.typeRow}>
                       {r.type || "(종류 없음)"}
-                      {r.cancelled
-                        ? " · 취소됨"
-                        : r.confirmer
-                        ? ` · ✅${r.confirmer} 확인`
-                        : " · 확인 대기중"}
+                      {r.cancelled ? " · 취소됨" : ""}
                     </div>
                   </div>
                 ))}
@@ -2866,7 +2872,7 @@ function ImportTestPanel({ onClose, employees, managers }) {
             {tab === "tally" && (
               <React.Fragment>
                 <div style={{ ...modal.countText, marginBottom: "10px" }}>
-                  취소된 기록 제외, 연차비·분지비·장재비는 야간근무 짝꿍이라 집계에서 제외 (실제 앱과 동일한 규칙)
+                  현재 직원목록/운용명단에 있는 사람만 집계 (인사이동으로 빠진 사람 제외) · 취소·연차비류 제외
                 </div>
                 {tallyList.length === 0 && (
                   <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0" }}>집계할 기록이 없어요</div>
@@ -2885,21 +2891,21 @@ function ImportTestPanel({ onClose, employees, managers }) {
             {tab === "convert" && (
               <React.Fragment>
                 <div style={{ ...modal.countText, marginBottom: "10px" }}>
-                  {today} 이후 날짜만 - 실제 Firestore에 들어갈 형태로 변환한 미리보기예요
-                  {unmatchedCount > 0 && (
-                    <span style={{ color: "#e02020", fontWeight: 700 }}>
+                  전체 기간을 Firestore 형태로 변환한 미리보기예요 (오늘: {today}, {cutoffDate}까지는 자동 확인 처리)
+                  {departedCount > 0 && (
+                    <span style={{ color: "#e08a20", fontWeight: 700 }}>
                       {" "}
-                      (⚠️ 이름 매칭 실패 {unmatchedCount}건 - 직원목록/운용명단에서 이름을 못 찾았어요)
+                      (⚠️ 인사이동 등으로 명단에 없는 사람 {departedCount}건 - 기록은 그대로 가져오되 집계엔 안 잡혀요)
                     </span>
                   )}
                 </div>
 
                 <button
                   style={{ ...adminStyles.approveBtn, width: "100%", padding: "12px", marginBottom: "8px" }}
-                  disabled={importing || matchedConverted.length === 0}
+                  disabled={importing || converted.length === 0}
                   onClick={handleRealImport}
                 >
-                  {importing ? "저장 중..." : `실제로 저장하기 (${matchedConverted.length}건)`}
+                  {importing ? "저장 중..." : `실제로 저장하기 (${converted.length}건)`}
                 </button>
 
                 {importResult && (
@@ -2929,9 +2935,7 @@ function ImportTestPanel({ onClose, employees, managers }) {
                 )}
 
                 {converted.length === 0 && (
-                  <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0" }}>
-                    {today} 이후 기록이 없어요
-                  </div>
+                  <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0" }}>가져올 기록이 없어요</div>
                 )}
                 {converted.map((c, idx) => (
                   <div key={idx} style={{ ...modal.card, flexDirection: "column", alignItems: "stretch" }}>
@@ -2941,11 +2945,13 @@ function ImportTestPanel({ onClose, employees, managers }) {
                     </div>
                     <div style={modal.typeRow}>
                       {c.vacationType} · {c.status}
-                      {c.confirmedBy ? ` · ✅${c.confirmedBy} 확인` : " · 확인 대기중"}
+                      {c.confirmedBy ? " · ✅확인됨" : " · 확인 대기중"}
                     </div>
-                    <div style={{ fontSize: "11px", color: c.employeeId ? "#999" : "#e02020", marginTop: "2px" }}>
-                      employeeId: {c.employeeId || "❌ 매칭 실패"}
-                    </div>
+                    {c.isDeparted && (
+                      <div style={{ fontSize: "11px", color: "#e08a20", marginTop: "2px" }}>
+                        ⚠️ 현재 명단에 없는 사람 (집계 제외)
+                      </div>
+                    )}
                   </div>
                 ))}
               </React.Fragment>
