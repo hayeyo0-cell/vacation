@@ -2067,7 +2067,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
         <ImportTestPanel onClose={() => setShowImportTest(false)} employees={employees} managers={managers} />
       )}
       {showMyVacations && (
-        <MyVacationsPanel currentUser={currentUser} onClose={() => setShowMyVacations(false)} />
+        <MyVacationsPanel currentUser={currentUser} onClose={() => setShowMyVacations(false)} employees={employees} />
       )}
       {showEtiquetteNotice && (
         <div style={{ ...modal.overlay, alignItems: "center", justifyContent: "center" }}>
@@ -2150,7 +2150,7 @@ const adminStyles = {
     fontSize: "13px",
   },
 };
-function MyVacationsPanel({ currentUser, onClose }) {
+function MyVacationsPanel({ currentUser, onClose, employees }) {
   const [list, setList] = useState([]);
   const [yearStats, setYearStats] = useState([]); // 올해 종류별 보장휴가 사용 개수
   const [loading, setLoading] = useState(true);
@@ -2158,6 +2158,16 @@ function MyVacationsPanel({ currentUser, onClose }) {
   const [editType, setEditType] = useState("");
   const [editDia, setEditDia] = useState("");
   const [editSaving, setEditSaving] = useState(false);
+
+  // 교번틀 드롭다운용 - 본인 소속의 교번 코드 목록 (오타 방지)
+  const myTeamKey = REVERSE_TEAM_MAP[currentUser.branch];
+  const myOrder = GYOBUN_ORDER[myTeamKey] || [];
+  const branchEmployees = (employees || []).filter((e) => e.branch === currentUser.branch);
+  const templateCodes = myOrder.filter((c) => branchEmployees.some((e) => e.code === c));
+  const otherCodes = [...new Set(branchEmployees.map((e) => e.code))].filter(
+    (c) => !templateCodes.includes(c)
+  );
+  const branchCodes = [...templateCodes, ...otherCodes];
 
   const load = () => {
     setLoading(true);
@@ -2303,12 +2313,19 @@ function MyVacationsPanel({ currentUser, onClose }) {
                           <option value="청휴">청휴</option>
                         </optgroup>
                       </select>
-                      <input
+                      <select
                         style={{ ...styles.select, flex: 1, marginBottom: 0 }}
                         value={editDia}
                         onChange={(e) => setEditDia(e.target.value)}
-                        placeholder="교번(DIA)"
-                      />
+                      >
+                        <option value="">교번 선택</option>
+                        {editDia && !branchCodes.includes(editDia) && (
+                          <option value={editDia}>{editDia} (기존값)</option>
+                        )}
+                        {branchCodes.map((c) => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                      </select>
                     </div>
                     <div style={{ display: "flex", gap: "6px", justifyContent: "flex-end" }}>
                       <button
