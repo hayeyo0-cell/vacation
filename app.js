@@ -1176,6 +1176,16 @@ function getDayType(dateStr, holidaySet) {
   return "평일";
 }
 
+// 경산 전용: "3왕복"에 해당하는 교번(DIA) - 평일은 3d·6d, 토요일은 3d.
+// 부담이 큰 근무라 기관사들끼리 가급적 휴가를 안 내기로 한 약속이 있어요 (강제는 아니고 안내만).
+const THREE_ROUND_TRIP_CODES = { 평일: ["3d", "6d"], 토요일: ["3d"] };
+function isThreeRoundTripCode(dateStr, dia, holidaySet) {
+  const dayType = getDayType(dateStr, holidaySet);
+  const codes = THREE_ROUND_TRIP_CODES[dayType];
+  if (!codes) return false;
+  return codes.includes(String(dia || "").trim());
+}
+
 const GUARANTEE_BY_BRANCH = {
   경산: { 평일: 4, 토요일: 5, 휴일: 7 },
   문양: { 평일: 5, 토요일: 7, 휴일: 8 },
@@ -1954,6 +1964,12 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
                     onChange={(e) => setFormDia(e.target.value)}
                     placeholder="예: 22, 대1, 27~"
                   />
+                  {currentUser.branch === "경산" &&
+                    isThreeRoundTripCode(selectedDate, formDia, holidaySet) && (
+                      <div style={{ fontSize: "12px", marginTop: "6px", color: "#e08a20", fontWeight: 600 }}>
+                        ⚠️ 이 교번은 3왕복이에요 - 가급적 휴가를 피해달라는 약속이 있어요 (부득이하면 그대로 신청하셔도 돼요)
+                      </div>
+                    )}
                 </div>
 
                 <button style={modal.addBtn} onClick={handleSubmitRegister} disabled={saving}>
@@ -2017,7 +2033,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
                                       borderBottom: "1px solid #ddd",
                                     }}
                                   >
-                                    {cap ? "🟢 보장휴가" : "⚪ 보장휴가 미포함"}
+                                    {cap ? "🟢 보장인원 포함" : "⚪ 보장인원 미포함"}
                                   </td>
                                 </tr>
                               )}
