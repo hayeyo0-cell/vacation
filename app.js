@@ -3148,20 +3148,22 @@ function ImportTestPanel({ onClose, employees, managers }) {
   };
 
   // 경산 휴가 기록 전체 삭제 - 중복 저장 등으로 꼬였을 때, 완전히 비우고 처음부터 다시 가져오기 위한 기능
-  const handleResetAllBranchData = () => {
+  const handleResetAllBranchData = (branch) => {
     if (
       !confirm(
-        "⚠️ 경산 소속의 휴가 기록을 전부 삭제할까요?\n\n" +
-          "지금까지 신청/저장된 기록이 전부 사라져요 (되돌릴 수 없어요).\n" +
-          "삭제 후 위쪽 '가져오기' 탭에서 다시 '실제로 저장하기'를 누르면 깨끗하게 다시 채울 수 있어요."
+        `⚠️ ${branch} 소속의 휴가 기록을 전부 삭제할까요?\n\n` +
+          `지금까지 신청/저장된 기록이 전부 사라져요 (되돌릴 수 없어요). 다른 소속 데이터는 전혀 안 건드려요.\n` +
+          (branch === "경산"
+            ? "삭제 후 위쪽 '가져오기' 탭에서 다시 '실제로 저장하기'를 누르면 깨끗하게 다시 채울 수 있어요."
+            : "")
       )
     )
       return;
     if (!confirm("정말로 진행할까요? 한 번 더 확인할게요.")) return;
     setImporting(true);
-    window.VacationAPI.removeAllForBranch("경산")
+    window.VacationAPI.removeAllForBranch(branch)
       .then((count) => {
-        alert(`경산 휴가 기록 ${count}건을 전부 삭제했어요. 이제 다시 가져오기를 눌러주세요.`);
+        alert(`${branch} 휴가 기록 ${count}건을 전부 삭제했어요.`);
         setImportedIds([]);
         setImportResult(null);
       })
@@ -3325,11 +3327,19 @@ function ImportTestPanel({ onClose, employees, managers }) {
                 </button>
 
                 <button
-                  style={{ ...styles.button, border: "1px dashed #e02020", color: "#e02020", marginBottom: "14px", padding: "10px" }}
+                  style={{ ...styles.button, border: "1px dashed #e02020", color: "#e02020", marginBottom: "8px", padding: "10px" }}
                   disabled={importing}
-                  onClick={handleResetAllBranchData}
+                  onClick={() => handleResetAllBranchData("경산")}
                 >
                   🗑️ 경산 전체 초기화 (모든 휴가 기록 삭제)
+                </button>
+
+                <button
+                  style={{ ...styles.button, border: "1px dashed #e02020", color: "#e02020", marginBottom: "14px", padding: "10px" }}
+                  disabled={importing}
+                  onClick={() => handleResetAllBranchData("문양")}
+                >
+                  🗑️ 문양 전체 초기화 (모든 휴가 기록 삭제)
                 </button>
 
                 {converted.length === 0 && (
