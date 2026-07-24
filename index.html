@@ -170,6 +170,13 @@
       await Promise.all(snap.docs.map((d) => deleteDoc(doc(db, COLLECTION, d.id))));
       return snap.docs.length;
     },
+    // 특정 소속의 휴가 기록 전체 삭제 (초기화 후 다시 가져오기용, 관리자 전용, 되돌릴 수 없음)
+    async removeAllForBranch(branch) {
+      const q = query(collection(db, COLLECTION), where("branch", "==", branch));
+      const snap = await getDocs(q);
+      await Promise.all(snap.docs.map((d) => deleteDoc(doc(db, COLLECTION, d.id))));
+      return snap.docs.length;
+    },
   };
 
   // 사용자 승인 관련 API
