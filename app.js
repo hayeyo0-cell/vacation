@@ -16,6 +16,9 @@ const GAS_URL =
 const VACATION_API_URL =
   "https://script.google.com/macros/s/AKfycby_p9K5jW7LTxAGy_uTTV88KcEGtnFQAEy7UctYq4Xkv2lpTj5RtR-mOACfic_BmE29kQ/exec";
 
+// 가져오기 테스트에서 이 날짜 이전 기록은 제외 (필요하면 이 값만 바꾸면 돼요)
+const IMPORT_FROM_DATE = "2026-07-01";
+
 const TEAM_MAP = { ks: "경산", my: "문양" }; // 안심(as)/월배(wb)는 이 앱 대상 아님
 // ⚠️ 테스트 모드: true면 누구나 교번확인/승인 없이 바로 들어갈 수 있어요.
 // 실제 운영 시작하면 반드시 false로 바꿔주세요!
@@ -2782,6 +2785,7 @@ function ImportTestPanel({ onClose, employees, managers }) {
         }
         const flat = json.vacations
           .filter((v) => v && v.date && v.name)
+          .filter((v) => v.date >= IMPORT_FROM_DATE) // 이 날짜 이전 데이터는 제외
           .map((v) => ({
             date: v.date,
             name: String(v.name).trim(),
@@ -2979,7 +2983,7 @@ function ImportTestPanel({ onClose, employees, managers }) {
       <div style={modal.sheet} onClick={(e) => e.stopPropagation()}>
         <div style={modal.dateTitle}>가져오기 테스트 (검증된 API 사용)</div>
         <div style={{ ...modal.countText, marginBottom: "14px" }}>
-          교번앱이 쓰는 안정적인 API예요. 아직 Firestore엔 저장 안 해요 - 확인용이에요.
+          교번앱이 쓰는 안정적인 API예요. {IMPORT_FROM_DATE} 이후 기록만 가져와요. 아직 Firestore엔 저장 안 해요 - 확인용이에요.
         </div>
 
         {loading && <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0" }}>불러오는 중...</div>}
