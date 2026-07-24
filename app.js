@@ -1450,18 +1450,30 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
     window.history.pushState({ modal: true }, "");
   };
 
+  // 날짜 모달/사이드 패널(내 휴가현황·승인 관리·운용 인원·가져오기 테스트) 공통으로 쓰는 닫기 함수.
+  // 뒤로가기 버튼을 눌러도 popstate 핸들러가 똑같이 처리해서, 항상 달력 화면으로 돌아가요.
   const closeModal = () => {
-    if (selectedDate) {
-      window.history.back(); // popstate 핸들러가 실제 상태 초기화를 처리
+    if (selectedDate || showAdmin || showManagerAdmin || showImportTest || showMyVacations) {
+      window.history.back();
     }
   };
 
-  // 안드로이드/브라우저 뒤로가기 버튼을 누르면 앱을 나가는 대신 모달만 닫히도록 처리
+  // 사이드 패널을 열 때 히스토리를 하나 쌓아서, 뒤로가기 시 popstate로 자동 닫히게 함
+  const openPanel = (setter) => {
+    window.history.pushState({ modal: true }, "");
+    setter(true);
+  };
+
+  // 안드로이드/브라우저 뒤로가기 버튼을 누르면 앱을 나가는 대신 모달/패널만 닫히도록 처리
   useEffect(() => {
     const handlePopState = () => {
       setSelectedDate(null);
       setShowRegisterForm(false);
       setShowManagerForm(false);
+      setShowAdmin(false);
+      setShowManagerAdmin(false);
+      setShowImportTest(false);
+      setShowMyVacations(false);
     };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
@@ -1717,20 +1729,20 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
           </div>
           <div style={cal.headerBtnRow}>
             {!isMidManager && (
-              <button style={adminStyles.adminBtn} onClick={() => setShowMyVacations(true)}>
+              <button style={adminStyles.adminBtn} onClick={() => openPanel(setShowMyVacations)}>
                 내 휴가현황
               </button>
             )}
             {isAdmin && (
-              <button style={adminStyles.adminBtn} onClick={() => setShowAdmin(true)}>승인 관리</button>
+              <button style={adminStyles.adminBtn} onClick={() => openPanel(setShowAdmin)}>승인 관리</button>
             )}
             {isAdmin && (
-              <button style={adminStyles.adminBtn} onClick={() => setShowManagerAdmin(true)}>
+              <button style={adminStyles.adminBtn} onClick={() => openPanel(setShowManagerAdmin)}>
                 운용 인원
               </button>
             )}
             {isAdmin && TEST_MODE && (
-              <button style={adminStyles.adminBtn} onClick={() => setShowImportTest(true)}>
+              <button style={adminStyles.adminBtn} onClick={() => openPanel(setShowImportTest)}>
                 가져오기 테스트
               </button>
             )}
@@ -2060,15 +2072,15 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
         </div>
       )}
 
-      {showAdmin && <AdminPanel onClose={() => setShowAdmin(false)} employees={employees} managers={managers} />}
+      {showAdmin && <AdminPanel onClose={closeModal} employees={employees} managers={managers} />}
       {showManagerAdmin && (
-        <ManagerAdminPanel branch={currentUser.branch} onClose={() => setShowManagerAdmin(false)} />
+        <ManagerAdminPanel branch={currentUser.branch} onClose={closeModal} />
       )}
       {showImportTest && (
-        <ImportTestPanel onClose={() => setShowImportTest(false)} employees={employees} managers={managers} />
+        <ImportTestPanel onClose={closeModal} employees={employees} managers={managers} />
       )}
       {showMyVacations && (
-        <MyVacationsPanel currentUser={currentUser} onClose={() => setShowMyVacations(false)} />
+        <MyVacationsPanel currentUser={currentUser} onClose={closeModal} />
       )}
       {showEtiquetteNotice && (
         <div style={{ ...modal.overlay, alignItems: "center", justifyContent: "center" }}>
@@ -2878,56 +2890,4 @@ function ImportTestPanel({ onClose, employees, managers }) {
                     style={{
                       background: "#f8f9fb",
                       borderRadius: "10px",
-                      padding: "10px 14px",
-                      marginBottom: "8px",
-                      fontSize: "13px",
-                      fontWeight: 700,
-                      color: "#1b3a5c",
-                    }}
-                  >
-                    저장 완료: 성공 {importResult.success}건 · 실패 {importResult.fail}건 — 달력에서 확인해보세요!
-                  </div>
-                )}
-
-                {importedIds.length > 0 && (
-                  <button
-                    style={{ ...styles.button, border: "1px dashed #e02020", color: "#e02020", marginBottom: "14px", padding: "10px" }}
-                    disabled={importing}
-                    onClick={handleUndoImport}
-                  >
-                    🔄 방금 저장한 {importedIds.length}건 되돌리기(삭제)
-                  </button>
-                )}
-
-                {converted.length === 0 && (
-                  <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0" }}>
-                    {today} 이후 기록이 없어요
-                  </div>
-                )}
-                {converted.map((c, idx) => (
-                  <div key={idx} style={{ ...modal.card, flexDirection: "column", alignItems: "stretch" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between" }}>
-                      <div style={modal.name}>{c.date} · {c.name}</div>
-                      <div style={modal.dia}>{c.dia}</div>
-                    </div>
-                    <div style={modal.typeRow}>
-                      {c.vacationType} · {c.status}
-                      {c.confirmedBy ? ` · ✅${c.confirmedBy} 확인` : " · 확인 대기중"}
-                    </div>
-                    <div style={{ fontSize: "11px", color: c.employeeId ? "#999" : "#e02020", marginTop: "2px" }}>
-                      employeeId: {c.employeeId || "❌ 매칭 실패"}
-                    </div>
-                  </div>
-                ))}
-              </React.Fragment>
-            )}
-          </React.Fragment>
-        )}
-
-        <button style={modal.closeBtn} onClick={onClose}>닫기</button>
-      </div>
-    </div>
-  );
-}
-
-ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+              
