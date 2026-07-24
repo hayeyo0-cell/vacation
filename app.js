@@ -1969,10 +1969,11 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
                                   <td
                                     colSpan={6}
                                     style={{
-                                      padding: "8px 3px 4px",
-                                      fontSize: "12px",
-                                      fontWeight: 700,
-                                      color: cap ? "#1b3a5c" : "#888",
+                                      padding: "10px 4px 6px",
+                                      fontSize: "15px",
+                                      fontWeight: 800,
+                                      color: cap ? "#1b3a5c" : "#666",
+                                      background: cap ? "#eaf1ff" : "#f2f2f2",
                                       borderBottom: "1px solid #ddd",
                                     }}
                                   >
