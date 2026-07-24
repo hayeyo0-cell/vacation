@@ -1309,7 +1309,6 @@ const tbl = {
 function pad2(n) {
   return String(n).padStart(2, "0");
 }
-
 function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
   const isAdmin = ADMIN_NAMES.includes(currentUser.name);
   const isMidManager = isMidManagerUser(currentUser, managers);
@@ -2890,4 +2889,57 @@ function ImportTestPanel({ onClose, employees, managers }) {
                     style={{
                       background: "#f8f9fb",
                       borderRadius: "10px",
-              
+                      padding: "10px 14px",
+                      marginBottom: "8px",
+                      fontSize: "13px",
+                      fontWeight: 700,
+                      color: "#1b3a5c",
+                    }}
+                  >
+                    저장 완료: 성공 {importResult.success}건 · 실패 {importResult.fail}건 — 달력에서 확인해보세요!
+                  </div>
+                )}
+
+                {importedIds.length > 0 && (
+                  <button
+                    style={{ ...styles.button, border: "1px dashed #e02020", color: "#e02020", marginBottom: "14px", padding: "10px" }}
+                    disabled={importing}
+                    onClick={handleUndoImport}
+                  >
+                    🔄 방금 저장한 {importedIds.length}건 되돌리기(삭제)
+                  </button>
+                )}
+
+                {converted.length === 0 && (
+                  <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0" }}>
+                    {today} 이후 기록이 없어요
+                  </div>
+                )}
+                {converted.map((c, idx) => (
+                  <div key={idx} style={{ ...modal.card, flexDirection: "column", alignItems: "stretch" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                      <div style={modal.name}>{c.date} · {c.name}</div>
+                      <div style={modal.dia}>{c.dia}</div>
+                    </div>
+                    <div style={modal.typeRow}>
+                      {c.vacationType} · {c.status}
+                      {c.confirmedBy ? ` · ✅${c.confirmedBy} 확인` : " · 확인 대기중"}
+                    </div>
+                    <div style={{ fontSize: "11px", color: c.employeeId ? "#999" : "#e02020", marginTop: "2px" }}>
+                      employeeId: {c.employeeId || "❌ 매칭 실패"}
+                    </div>
+                  </div>
+                ))}
+              </React.Fragment>
+            )}
+          </React.Fragment>
+        )}
+
+        <button style={modal.closeBtn} onClick={onClose}>닫기</button>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+
