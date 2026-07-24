@@ -2062,37 +2062,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
                                 )}
                               </td>
                               <td style={{ ...tbl.td, textAlign: "left" }}>
-                                <div>{v.vacationType}</div>
-                                {editingNoteId === v.id ? (
-                                  <div style={{ display: "flex", gap: "2px", alignItems: "center", marginTop: "2px" }}>
-                                    <input
-                                      value={noteInput}
-                                      onChange={(e) => setNoteInput(e.target.value)}
-                                      placeholder="메모"
-                                      style={{ width: "80px", fontSize: "11px", padding: "2px" }}
-                                    />
-                                    <button
-                                      style={{ ...modal.smallCancelBtn, margin: 0, color: "#1b3a5c" }}
-                                      onClick={() => handleSaveNoteEdit(v)}
-                                    >
-                                      ✓
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <React.Fragment>
-                                    {v.note && (
-                                      <div style={{ fontSize: "11px", color: "#999" }}>{v.note}</div>
-                                    )}
-                                    {isMidManager && !cancelled && (
-                                      <span
-                                        style={{ fontSize: "11px", color: "#1b3a5c", textDecoration: "underline", cursor: "pointer" }}
-                                        onClick={() => handleStartNoteEdit(v)}
-                                      >
-                                        {v.note ? "메모수정" : "+메모"}
-                                      </span>
-                                    )}
-                                  </React.Fragment>
-                                )}
+                                {v.vacationType}
                               </td>
                               <td style={{ ...tbl.td, fontWeight: 700, color: "#1b3a5c" }}>{v.dia}</td>
                               <td style={{ ...tbl.td, textAlign: "left" }}>
@@ -2140,6 +2110,41 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
                                 )}
                               </td>
                             </tr>
+                            {!cap && (v.note || editingNoteId === v.id || (isMidManager && !cancelled)) && (
+                              <tr style={{ borderBottom: "1px solid #eee" }}>
+                                <td></td>
+                                <td colSpan={5} style={{ padding: "0 3px 6px", fontSize: "11px" }}>
+                                  {editingNoteId === v.id ? (
+                                    <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
+                                      <input
+                                        value={noteInput}
+                                        onChange={(e) => setNoteInput(e.target.value)}
+                                        placeholder="비고 메모"
+                                        style={{ flex: 1, fontSize: "12px", padding: "3px 6px" }}
+                                      />
+                                      <button
+                                        style={{ ...modal.smallCancelBtn, margin: 0, color: "#1b3a5c" }}
+                                        onClick={() => handleSaveNoteEdit(v)}
+                                      >
+                                        ✓
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                      {v.note && <span style={{ color: "#999" }}>📝 {v.note}</span>}
+                                      {isMidManager && !cancelled && (
+                                        <span
+                                          style={{ color: "#1b3a5c", textDecoration: "underline", cursor: "pointer" }}
+                                          onClick={() => handleStartNoteEdit(v)}
+                                        >
+                                          {v.note ? "메모수정" : "+메모"}
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
+                                </td>
+                              </tr>
+                            )}
                             </React.Fragment>
                           );
                         })}
