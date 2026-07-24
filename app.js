@@ -1360,6 +1360,8 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
   const [saving, setSaving] = useState(false);
   const [editingPriorityId, setEditingPriorityId] = useState(null); // 순번 수정 중인 기록 id
   const [priorityInput, setPriorityInput] = useState("");
+  const [editingNoteId, setEditingNoteId] = useState(null); // 비고 수정 중인 기록 id
+  const [noteInput, setNoteInput] = useState("");
 
   // 중간관리자 - 대신 기록 폼 상태
   const [showManagerForm, setShowManagerForm] = useState(false);
@@ -1461,18 +1463,30 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
     window.history.pushState({ modal: true }, "");
   };
 
+  // 날짜 모달/사이드 패널(내 휴가현황·승인 관리·운용 인원·가져오기 테스트) 공통으로 쓰는 닫기 함수.
+  // 뒤로가기 버튼을 눌러도 popstate 핸들러가 똑같이 처리해서, 항상 달력 화면으로 돌아가요.
   const closeModal = () => {
-    if (selectedDate) {
-      window.history.back(); // popstate 핸들러가 실제 상태 초기화를 처리
+    if (selectedDate || showAdmin || showManagerAdmin || showImportTest || showMyVacations) {
+      window.history.back();
     }
   };
 
-  // 안드로이드/브라우저 뒤로가기 버튼을 누르면 앱을 나가는 대신 모달만 닫히도록 처리
+  // 사이드 패널을 열 때 히스토리를 하나 쌓아서, 뒤로가기 시 popstate로 자동 닫히게 함
+  const openPanel = (setter) => {
+    window.history.pushState({ modal: true }, "");
+    setter(true);
+  };
+
+  // 안드로이드/브라우저 뒤로가기 버튼을 누르면 앱을 나가는 대신 모달/패널만 닫히도록 처리
   useEffect(() => {
     const handlePopState = () => {
       setSelectedDate(null);
       setShowRegisterForm(false);
       setShowManagerForm(false);
+      setShowAdmin(false);
+      setShowManagerAdmin(false);
+      setShowImportTest(false);
+      setShowMyVacations(false);
     };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
@@ -1541,6 +1555,28 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
         setEditingPriorityId(null);
       })
       .catch((err) => alert("수정 실패: " + (err && err.message ? err.message : err)));
+  };
+
+  // 이미 등록된 기록에 나중에 비고(메모)를 추가/수정 - 운용(중간관리자)만
+  const handleStartNoteEdit = (record) => {
+    setEditingNoteId(record.id);
+    setNoteInput(record.note || "");
+  };
+
+  const handleSaveNoteEdit = (record) => {
+    const trimmed = noteInput.trim();
+    window.VacationAPI.update(record.id, { note: trimmed })
+      .then(() => {
+        setMonthMap((prev) => {
+          const next = { ...prev };
+          next[selectedDate] = (next[selectedDate] || []).map((v) =>
+            v.id === record.id ? { ...v, note: trimmed } : v
+          );
+          return next;
+        });
+        setEditingNoteId(null);
+      })
+      .catch((err) => alert("메모 저장 실패: " + (err && err.message ? err.message : err)));
   };
 
   const handleAdminDelete = (record) => {
@@ -1733,20 +1769,20 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
           </div>
           <div style={cal.headerBtnRow}>
             {!isMidManager && (
-              <button style={adminStyles.adminBtn} onClick={() => setShowMyVacations(true)}>
+              <button style={adminStyles.adminBtn} onClick={() => openPanel(setShowMyVacations)}>
                 내 휴가현황
               </button>
             )}
             {isAdmin && (
-              <button style={adminStyles.adminBtn} onClick={() => setShowAdmin(true)}>승인 관리</button>
+              <button style={adminStyles.adminBtn} onClick={() => openPanel(setShowAdmin)}>승인 관리</button>
             )}
             {isAdmin && (
-              <button style={adminStyles.adminBtn} onClick={() => setShowManagerAdmin(true)}>
+              <button style={adminStyles.adminBtn} onClick={() => openPanel(setShowManagerAdmin)}>
                 운용 인원
               </button>
             )}
             {isAdmin && TEST_MODE && (
-              <button style={adminStyles.adminBtn} onClick={() => setShowImportTest(true)}>
+              <button style={adminStyles.adminBtn} onClick={() => openPanel(setShowImportTest)}>
                 가져오기 테스트
               </button>
             )}
@@ -2027,8 +2063,35 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
                               </td>
                               <td style={{ ...tbl.td, textAlign: "left" }}>
                                 <div>{v.vacationType}</div>
-                                {v.note && (
-                                  <div style={{ fontSize: "11px", color: "#999" }}>{v.note}</div>
+                                {editingNoteId === v.id ? (
+                                  <div style={{ display: "flex", gap: "2px", alignItems: "center", marginTop: "2px" }}>
+                                    <input
+                                      value={noteInput}
+                                      onChange={(e) => setNoteInput(e.target.value)}
+                                      placeholder="메모"
+                                      style={{ width: "80px", fontSize: "11px", padding: "2px" }}
+                                    />
+                                    <button
+                                      style={{ ...modal.smallCancelBtn, margin: 0, color: "#1b3a5c" }}
+                                      onClick={() => handleSaveNoteEdit(v)}
+                                    >
+                                      ✓
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <React.Fragment>
+                                    {v.note && (
+                                      <div style={{ fontSize: "11px", color: "#999" }}>{v.note}</div>
+                                    )}
+                                    {isMidManager && !cancelled && (
+                                      <span
+                                        style={{ fontSize: "11px", color: "#1b3a5c", textDecoration: "underline", cursor: "pointer" }}
+                                        onClick={() => handleStartNoteEdit(v)}
+                                      >
+                                        {v.note ? "메모수정" : "+메모"}
+                                      </span>
+                                    )}
+                                  </React.Fragment>
                                 )}
                               </td>
                               <td style={{ ...tbl.td, fontWeight: 700, color: "#1b3a5c" }}>{v.dia}</td>
@@ -2112,15 +2175,15 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
         </div>
       )}
 
-      {showAdmin && <AdminPanel onClose={() => setShowAdmin(false)} employees={employees} managers={managers} />}
+      {showAdmin && <AdminPanel onClose={closeModal} employees={employees} managers={managers} />}
       {showManagerAdmin && (
-        <ManagerAdminPanel branch={currentUser.branch} onClose={() => setShowManagerAdmin(false)} />
+        <ManagerAdminPanel branch={currentUser.branch} onClose={closeModal} />
       )}
       {showImportTest && (
-        <ImportTestPanel onClose={() => setShowImportTest(false)} employees={employees} managers={managers} />
+        <ImportTestPanel onClose={closeModal} employees={employees} managers={managers} />
       )}
       {showMyVacations && (
-        <MyVacationsPanel currentUser={currentUser} onClose={() => setShowMyVacations(false)} employees={employees} />
+        <MyVacationsPanel currentUser={currentUser} onClose={closeModal} employees={employees} />
       )}
       {showEtiquetteNotice && (
         <div style={{ ...modal.overlay, alignItems: "center", justifyContent: "center" }}>
