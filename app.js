@@ -1366,6 +1366,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
   const [managerTargetId, setManagerTargetId] = useState("");
   const [managerFormType, setManagerFormType] = useState(NON_CAPACITY_TYPES[0]);
   const [managerFormDia, setManagerFormDia] = useState("");
+  const [managerFormNote, setManagerFormNote] = useState("");
   const [managerSaving, setManagerSaving] = useState(false);
 
   useEffect(() => {
@@ -1642,6 +1643,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
     setManagerTargetId("");
     setManagerFormType(NON_CAPACITY_TYPES[0]);
     setManagerFormDia("");
+    setManagerFormNote("");
     setShowManagerForm(true);
   };
 
@@ -1666,6 +1668,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
       dia: managerFormDia.trim(),
       date: selectedDate,
       recordedBy: currentUser.name,
+      ...(managerFormNote.trim() ? { note: managerFormNote.trim() } : {}),
     })
       .then(() => {
         setShowManagerForm(false);
@@ -1862,6 +1865,16 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
                   </select>
                 </div>
 
+                <div style={modal.formRow}>
+                  <label style={modal.label}>비고 (선택)</label>
+                  <input
+                    style={modal.input}
+                    value={managerFormNote}
+                    onChange={(e) => setManagerFormNote(e.target.value)}
+                    placeholder="예: 제8차 재직자 보수교육(7.20~7.22)"
+                  />
+                </div>
+
                 <button style={modal.addBtn} onClick={handleSubmitManagerRecord} disabled={managerSaving}>
                   {managerSaving ? "저장 중..." : "저장"}
                 </button>
@@ -1938,6 +1951,9 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
                       <tbody>
                         {sortedDayRecords.map((v, idx) => {
                           const cancelled = v.status === "취소됨";
+                          const cap = isCapacityType(v.vacationType);
+                          const prevCap = idx > 0 ? isCapacityType(sortedDayRecords[idx - 1].vacationType) : null;
+                          const showGroupHeader = idx === 0 || cap !== prevCap;
                           const canEditPriority =
                             currentUser.branch === "경산" &&
                             !cancelled &&
@@ -1947,14 +1963,30 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
                             formatEntryDateOnly(v.createdAt) === koreaTodayStr() &&
                             isEvenMonthFirstDay();
                           return (
-                            <tr
-                              key={v.id}
-                              style={{
-                                borderBottom: "1px solid #eee",
-                                opacity: cancelled ? 0.45 : 1,
-                                textDecoration: cancelled ? "line-through" : "none",
-                              }}
-                            >
+                            <React.Fragment key={v.id}>
+                              {showGroupHeader && (
+                                <tr>
+                                  <td
+                                    colSpan={6}
+                                    style={{
+                                      padding: "8px 3px 4px",
+                                      fontSize: "12px",
+                                      fontWeight: 700,
+                                      color: cap ? "#1b3a5c" : "#888",
+                                      borderBottom: "1px solid #ddd",
+                                    }}
+                                  >
+                                    {cap ? "🟢 보장휴가" : "⚪ 보장휴가 미포함"}
+                                  </td>
+                                </tr>
+                              )}
+                              <tr
+                                style={{
+                                  borderBottom: "1px solid #eee",
+                                  opacity: cancelled ? 0.45 : 1,
+                                  textDecoration: cancelled ? "line-through" : "none",
+                                }}
+                              >
                               <td style={tbl.td}>
                                 {editingPriorityId === v.id ? (
                                   <div style={{ display: "flex", gap: "2px", alignItems: "center" }}>
@@ -1992,7 +2024,12 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
                                   </div>
                                 )}
                               </td>
-                              <td style={{ ...tbl.td, textAlign: "left" }}>{v.vacationType}</td>
+                              <td style={{ ...tbl.td, textAlign: "left" }}>
+                                <div>{v.vacationType}</div>
+                                {v.note && (
+                                  <div style={{ fontSize: "11px", color: "#999" }}>{v.note}</div>
+                                )}
+                              </td>
                               <td style={{ ...tbl.td, fontWeight: 700, color: "#1b3a5c" }}>{v.dia}</td>
                               <td style={{ ...tbl.td, textAlign: "left" }}>
                                 {cancelled ? (
@@ -2039,6 +2076,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
                                 )}
                               </td>
                             </tr>
+                            </React.Fragment>
                           );
                         })}
                       </tbody>
@@ -2756,8 +2794,17 @@ function ImportTestPanel({ onClose, employees, managers }) {
         dia: r.dia,
         status: r.cancelled ? "취소됨" : "정상",
         confirmedBy: autoConfirmed ? "확인" : null,
-        priority: isCapacityType(r.type) ? r.seq || null : null, // 보장휴가는 원본 순번을 그대로 가져와요
+        priority: isCapacityType(r.type) ? r.seq || 0 : null, // 일단 원본 순번(임시), 아래에서 날짜별로 다시 매김
       };
+    });
+  // 제외된 사람 때문에 순번에 구멍이 생기지 않도록, 날짜별로 보장휴가 순번을 1번부터 다시 매겨요
+  const priorityCounters = {};
+  converted
+    .filter((c) => c.priority != null)
+    .sort((a, b) => a.date.localeCompare(b.date) || a.priority - b.priority)
+    .forEach((c) => {
+      priorityCounters[c.date] = (priorityCounters[c.date] || 0) + 1;
+      c.priority = priorityCounters[c.date];
     });
   const departedCount = converted.filter((c) => c.isDeparted).length;
 
