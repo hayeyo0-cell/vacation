@@ -131,6 +131,17 @@
       });
       return ref.id;
     },
+    // 본인 셀프 신청 전용 - "직원ID_날짜"를 고정 ID로 써서, 느린 기기에서 저장을 여러 번 눌러도
+    // 같은 문서 하나에만 덮어써져서 물리적으로 중복 생성이 불가능해요.
+    async addOnce(id, record) {
+      await setDoc(doc(db, COLLECTION, id), {
+        ...record,
+        status: "정상",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+      return id;
+    },
     // 기존 기록 수정 (본인 것만 - 화면단에서 제한)
     async update(id, patch) {
       await updateDoc(doc(db, COLLECTION, id), {
@@ -182,6 +193,15 @@
       const q = query(collection(db, COLLECTION), where("date", "<", cutoffDate));
       const snap = await getDocs(q);
       await Promise.all(snap.docs.map((d) => deleteDoc(doc(db, COLLECTION, d.id))));
+      return snap.docs.length;
+    },
+    // (일회성) 예전에 저장된 "가져오기(자동확인)" 문구를 "확인"으로 일괄 정리
+    async fixAutoConfirmLabel() {
+      const q = query(collection(db, COLLECTION), where("confirmedBy", "==", "가져오기(자동확인)"));
+      const snap = await getDocs(q);
+      await Promise.all(
+        snap.docs.map((d) => updateDoc(doc(db, COLLECTION, d.id), { confirmedBy: "확인" }))
+      );
       return snap.docs.length;
     },
   };
