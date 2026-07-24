@@ -1319,7 +1319,8 @@ const tbl = {
 
 function pad2(n) {
   return String(n).padStart(2, "0");
-}function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
+}
+function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
   const isAdmin = ADMIN_NAMES.includes(currentUser.name);
   const isMidManager = isMidManagerUser(currentUser, managers);
   const [showAdmin, setShowAdmin] = useState(false);
@@ -2728,7 +2729,8 @@ function ImportTestPanel({ onClose, employees, managers }) {
   // 전체 기간(과거+미래) - 실제 앱에서 쓰는 Firestore 레코드 형태로 변환
   // 과거 ~ 오늘+2일까지는 이미 확정된 거나 마찬가지라 "확인됨"으로 자동 처리하고,
   // 그보다 먼 미래 날짜만 운용이 앱에서 직접 확인하도록 "대기중"으로 남겨둬요.
-  // 인사이동으로 명단에 없는 사람도 기록 자체는 그대로 가져와서 달력에 보이게 해요(집계에서만 제외).
+  // 인사이동으로 명단에 없는 사람: 과거 기록은 그대로 가져오되(이미 지난 사실이니까),
+  // 오늘 이후(미래) 기록은 혼란 방지를 위해 아예 제외해요.
   const today = todayStr();
   const cutoffDate = (() => {
     const d = new Date(today + "T00:00:00");
@@ -2738,22 +2740,25 @@ function ImportTestPanel({ onClose, employees, managers }) {
     const dd = String(d.getDate()).padStart(2, "0");
     return `${y}-${mo}-${dd}`;
   })();
-  const converted = rows.map((r) => {
-    const matchedId = matchEmployeeId(r.name);
-    const autoConfirmed = r.date <= cutoffDate;
-    return {
-      date: r.date,
-      name: r.name,
-      branch: "경산",
-      employeeId: matchedId || `departed-${r.name}`,
-      isDeparted: !matchedId,
-      vacationType: r.type,
-      dia: r.dia,
-      status: r.cancelled ? "취소됨" : "정상",
-      confirmedBy: autoConfirmed ? "확인" : null,
-      priority: isCapacityType(r.type) ? r.seq || null : null, // 보장휴가는 원본 순번을 그대로 가져와요
-    };
-  });
+  const excludedFutureCount = rows.filter((r) => r.date >= today && !matchEmployeeId(r.name)).length;
+  const converted = rows
+    .filter((r) => matchEmployeeId(r.name) || r.date < today) // 미래+명단에 없는 사람은 제외
+    .map((r) => {
+      const matchedId = matchEmployeeId(r.name);
+      const autoConfirmed = r.date <= cutoffDate;
+      return {
+        date: r.date,
+        name: r.name,
+        branch: "경산",
+        employeeId: matchedId || `departed-${r.name}`,
+        isDeparted: !matchedId,
+        vacationType: r.type,
+        dia: r.dia,
+        status: r.cancelled ? "취소됨" : "정상",
+        confirmedBy: autoConfirmed ? "확인" : null,
+        priority: isCapacityType(r.type) ? r.seq || null : null, // 보장휴가는 원본 순번을 그대로 가져와요
+      };
+    });
   const departedCount = converted.filter((c) => c.isDeparted).length;
 
   const handleRealImport = () => {
@@ -2839,6 +2844,17 @@ function ImportTestPanel({ onClose, employees, managers }) {
         setImportResult(null);
       })
       .catch((err) => alert("삭제 중 오류: " + (err && err.message ? err.message : err)))
+      .finally(() => setImporting(false));
+  };
+
+  // 예전 코드로 저장된 "가져오기(자동확인)" 문구만 "확인"으로 바꿔주는 일회성 정리 (기존 기록은 그대로 유지)
+  const handleFixAutoConfirmLabel = () => {
+    setImporting(true);
+    window.VacationAPI.fixAutoConfirmLabel()
+      .then((count) => {
+        alert(`"가져오기(자동확인)" 문구 ${count}건을 "확인"으로 정리했어요.`);
+      })
+      .catch((err) => alert("정리 중 오류: " + (err && err.message ? err.message : err)))
       .finally(() => setImporting(false));
   };
 
@@ -2933,7 +2949,13 @@ function ImportTestPanel({ onClose, employees, managers }) {
                   {departedCount > 0 && (
                     <span style={{ color: "#e08a20", fontWeight: 700 }}>
                       {" "}
-                      (⚠️ 인사이동 등으로 명단에 없는 사람 {departedCount}건 - 기록은 그대로 가져오되 집계엔 안 잡혀요)
+                      (⚠️ 과거 기록 중 인사이동 등으로 명단에 없는 사람 {departedCount}건 - 기록은 그대로 가져오되 집계엔 안 잡혀요)
+                    </span>
+                  )}
+                  {excludedFutureCount > 0 && (
+                    <span style={{ color: "#e02020", fontWeight: 700 }}>
+                      {" "}
+                      (🚫 오늘 이후 날짜 중 명단에 없는 사람 {excludedFutureCount}건은 혼란 방지를 위해 아예 제외했어요)
                     </span>
                   )}
                 </div>
@@ -2971,6 +2993,14 @@ function ImportTestPanel({ onClose, employees, managers }) {
                     🔄 방금 저장한 {importedIds.length}건 되돌리기(삭제)
                   </button>
                 )}
+
+                <button
+                  style={{ ...styles.button, border: "1px dashed #1b3a5c", color: "#1b3a5c", marginBottom: "8px", padding: "10px" }}
+                  disabled={importing}
+                  onClick={handleFixAutoConfirmLabel}
+                >
+                  ✏️ "가져오기(자동확인)" → "확인"으로 문구만 정리
+                </button>
 
                 <button
                   style={{ ...styles.button, border: "1px dashed #e02020", color: "#e02020", marginBottom: "14px", padding: "10px" }}
@@ -3012,4 +3042,3 @@ function ImportTestPanel({ onClose, employees, managers }) {
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(<App />);
-
