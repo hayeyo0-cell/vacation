@@ -1309,6 +1309,7 @@ const tbl = {
 function pad2(n) {
   return String(n).padStart(2, "0");
 }
+
 function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
   const isAdmin = ADMIN_NAMES.includes(currentUser.name);
   const isMidManager = isMidManagerUser(currentUser, managers);
@@ -1449,30 +1450,18 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
     window.history.pushState({ modal: true }, "");
   };
 
-  // 날짜 모달/사이드 패널(내 휴가현황·승인 관리·운용 인원·가져오기 테스트) 공통으로 쓰는 닫기 함수.
-  // 뒤로가기 버튼을 눌러도 popstate 핸들러가 똑같이 처리해서, 항상 달력 화면으로 돌아가요.
   const closeModal = () => {
-    if (selectedDate || showAdmin || showManagerAdmin || showImportTest || showMyVacations) {
-      window.history.back();
+    if (selectedDate) {
+      window.history.back(); // popstate 핸들러가 실제 상태 초기화를 처리
     }
   };
 
-  // 사이드 패널을 열 때 히스토리를 하나 쌓아서, 뒤로가기 시 popstate로 자동 닫히게 함
-  const openPanel = (setter) => {
-    window.history.pushState({ modal: true }, "");
-    setter(true);
-  };
-
-  // 안드로이드/브라우저 뒤로가기 버튼을 누르면 앱을 나가는 대신 모달/패널만 닫히도록 처리
+  // 안드로이드/브라우저 뒤로가기 버튼을 누르면 앱을 나가는 대신 모달만 닫히도록 처리
   useEffect(() => {
     const handlePopState = () => {
       setSelectedDate(null);
       setShowRegisterForm(false);
       setShowManagerForm(false);
-      setShowAdmin(false);
-      setShowManagerAdmin(false);
-      setShowImportTest(false);
-      setShowMyVacations(false);
     };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
@@ -1728,20 +1717,20 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
           </div>
           <div style={cal.headerBtnRow}>
             {!isMidManager && (
-              <button style={adminStyles.adminBtn} onClick={() => openPanel(setShowMyVacations)}>
+              <button style={adminStyles.adminBtn} onClick={() => setShowMyVacations(true)}>
                 내 휴가현황
               </button>
             )}
             {isAdmin && (
-              <button style={adminStyles.adminBtn} onClick={() => openPanel(setShowAdmin)}>승인 관리</button>
+              <button style={adminStyles.adminBtn} onClick={() => setShowAdmin(true)}>승인 관리</button>
             )}
             {isAdmin && (
-              <button style={adminStyles.adminBtn} onClick={() => openPanel(setShowManagerAdmin)}>
+              <button style={adminStyles.adminBtn} onClick={() => setShowManagerAdmin(true)}>
                 운용 인원
               </button>
             )}
             {isAdmin && TEST_MODE && (
-              <button style={adminStyles.adminBtn} onClick={() => openPanel(setShowImportTest)}>
+              <button style={adminStyles.adminBtn} onClick={() => setShowImportTest(true)}>
                 가져오기 테스트
               </button>
             )}
@@ -2071,15 +2060,15 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
         </div>
       )}
 
-      {showAdmin && <AdminPanel onClose={closeModal} employees={employees} managers={managers} />}
+      {showAdmin && <AdminPanel onClose={() => setShowAdmin(false)} employees={employees} managers={managers} />}
       {showManagerAdmin && (
-        <ManagerAdminPanel branch={currentUser.branch} onClose={closeModal} />
+        <ManagerAdminPanel branch={currentUser.branch} onClose={() => setShowManagerAdmin(false)} />
       )}
       {showImportTest && (
-        <ImportTestPanel onClose={closeModal} employees={employees} managers={managers} />
+        <ImportTestPanel onClose={() => setShowImportTest(false)} employees={employees} managers={managers} />
       )}
       {showMyVacations && (
-        <MyVacationsPanel currentUser={currentUser} onClose={closeModal} />
+        <MyVacationsPanel currentUser={currentUser} onClose={() => setShowMyVacations(false)} />
       )}
       {showEtiquetteNotice && (
         <div style={{ ...modal.overlay, alignItems: "center", justifyContent: "center" }}>
@@ -2942,4 +2931,3 @@ function ImportTestPanel({ onClose, employees, managers }) {
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(<App />);
-
