@@ -72,7 +72,10 @@ function koreaTodayStr() {
 }
 
 // 오늘이 "짝수달 1일"인지 확인 (경산 - 다음 두 달 휴가를 선착순으로 신청받는 날, 순번 조정 가능일)
+// ⚠️ TEST_MODE일 때는 실제 날짜와 무관하게 항상 "짝수달 1일"로 간주해서 순번 수정 기능을 바로 테스트할 수 있어요.
+// 실제 운영 전환 시 TEST_MODE를 false로 바꾸면 이 우회도 자동으로 꺼져요.
 function isEvenMonthFirstDay() {
+  if (TEST_MODE) return true;
   const today = koreaTodayStr(); // "YYYY-MM-DD"
   const month = parseInt(today.slice(5, 7), 10);
   const day = parseInt(today.slice(8, 10), 10);
@@ -1805,11 +1808,13 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
             )}
           </div>
           <div style={cal.headerBtnRow}>
-            <a href={BAND_URL} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none" }}>
-              <button style={adminStyles.bandBtn} type="button">
-                💬 밴드
-              </button>
-            </a>
+            {currentUser.branch === "경산" && (
+              <a href={BAND_URL} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none" }}>
+                <button style={adminStyles.bandBtn} type="button">
+                  💬 밴드
+                </button>
+              </a>
+            )}
             {!isMidManager && (
               <button style={adminStyles.adminBtn} onClick={() => openPanel(setShowMyVacations)}>
                 내 휴가현황
