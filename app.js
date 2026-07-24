@@ -1594,7 +1594,8 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
   };
 
   const submitVacationRecord = (priority) => {
-    window.VacationAPI.add({
+    const docId = `${currentUser.id}_${selectedDate}`; // 직원ID_날짜 고정 ID - 중복 신청 원천 차단
+    window.VacationAPI.addOnce(docId, {
       name: currentUser.name,
       branch: currentUser.branch,
       employeeId: currentUser.id,
