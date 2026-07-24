@@ -1758,6 +1758,9 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
 
   const touchStartX = useRef(null);
   const dayTouchStartX = useRef(null); // 날짜 상세 모달 스와이프용
+  const dayGridRef = useRef(null);
+  const [daySlideX, setDaySlideX] = useState(0);
+  const [daySlideTransition, setDaySlideTransition] = useState(false);
   const gridRef = useRef(null);
   const [slideX, setSlideX] = useState(0);
   const [slideTransition, setSlideTransition] = useState(false);
@@ -1797,6 +1800,47 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
     }
   };
 
+  // 날짜 상세 모달 스와이프 - 월 달력과 같은 방식의 슬라이드 애니메이션
+  const handleDayTouchStart = (e) => {
+    dayTouchStartX.current = e.touches[0].clientX;
+    setDaySlideTransition(false);
+  };
+  const handleDayTouchMove = (e) => {
+    if (dayTouchStartX.current == null) return;
+    if (showManagerForm || showRegisterForm) return; // 폼 작성 중엔 드래그 무시
+    setDaySlideX(e.touches[0].clientX - dayTouchStartX.current);
+  };
+  const handleDayTouchEnd = () => {
+    if (dayTouchStartX.current == null) return;
+    dayTouchStartX.current = null;
+    if (showManagerForm || showRegisterForm) {
+      setDaySlideX(0);
+      return;
+    }
+    const dx = daySlideX;
+    const width = dayGridRef.current ? dayGridRef.current.offsetWidth : 320;
+
+    if (Math.abs(dx) > 60) {
+      const dir = dx < 0 ? 1 : -1; // dir 1 = 다음날(왼쪽으로 스와이프), -1 = 이전날
+      setDaySlideTransition(true);
+      setDaySlideX(-dir * width);
+      setTimeout(() => {
+        changeDay(dir);
+        setDaySlideTransition(false);
+        setDaySlideX(dir * width);
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            setDaySlideTransition(true);
+            setDaySlideX(0);
+          });
+        });
+      }, 220);
+    } else {
+      setDaySlideTransition(true);
+      setDaySlideX(0);
+    }
+  };
+
   return (
     <div style={cal.wrap}>
       <div style={cal.header}>
@@ -1808,7 +1852,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
             )}
           </div>
           <div style={cal.headerBtnRow}>
-            {currentUser.branch === "경산" && (
+            {currentUser.branch === "경산" && !isMidManager && (
               <a href={BAND_URL} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none" }}>
                 <button style={adminStyles.bandBtn} type="button">
                   💬 밴드
@@ -1892,23 +1936,20 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
 
       {selectedDate && (
         <div style={modal.overlay} onClick={closeModal}>
-          <div
-            style={modal.sheet}
-            onClick={(e) => e.stopPropagation()}
-            onTouchStart={(e) => {
-              dayTouchStartX.current = e.touches[0].clientX;
-            }}
-            onTouchEnd={(e) => {
-              if (dayTouchStartX.current == null) return;
-              if (showManagerForm || showRegisterForm) {
-                dayTouchStartX.current = null;
-                return;
-              }
-              const dx = e.changedTouches[0].clientX - dayTouchStartX.current;
-              dayTouchStartX.current = null;
-              if (Math.abs(dx) > 60) changeDay(dx < 0 ? 1 : -1); // 왼쪽으로 스와이프 = 다음날
-            }}
-          >
+          <div style={modal.sheet} onClick={(e) => e.stopPropagation()}>
+            <div
+              style={{ overflowX: "hidden" }}
+              onTouchStart={handleDayTouchStart}
+              onTouchMove={handleDayTouchMove}
+              onTouchEnd={handleDayTouchEnd}
+            >
+              <div
+                ref={dayGridRef}
+                style={{
+                  transform: `translateX(${daySlideX}px)`,
+                  transition: daySlideTransition ? "transform 220ms ease" : "none",
+                }}
+              >
             {showManagerForm ? (
               <React.Fragment>
                 <div style={modal.dateTitle}>{formatDateHeader(selectedDate)} 대신 기록</div>
@@ -2259,6 +2300,8 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
                 <button style={modal.closeBtn} onClick={closeModal}>닫기</button>
               </React.Fragment>
             )}
+              </div>
+            </div>
           </div>
         </div>
       )}
