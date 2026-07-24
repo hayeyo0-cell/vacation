@@ -1468,8 +1468,11 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
   const dayRecords = selectedDate
     ? (monthMap[selectedDate] || []).filter((v) => v.branch === currentUser.branch)
     : [];
-  // 순번(priority)이 있으면 그 순서대로, 없으면 이름순 뒤에 붙임 - 짝수달 1일 선착순 신청 순서 확인용
+  // 보장휴가(연차·분지 등)를 순번(priority) 순서로 먼저 보여주고, 미보장(청휴·병가·노조 등)은 그 아래로
   const sortedDayRecords = [...dayRecords].sort((a, b) => {
+    const groupA = isCapacityType(a.vacationType) ? 0 : 1;
+    const groupB = isCapacityType(b.vacationType) ? 0 : 1;
+    if (groupA !== groupB) return groupA - groupB;
     const pa = a.priority != null ? a.priority : Infinity;
     const pb = b.priority != null ? b.priority : Infinity;
     if (pa !== pb) return pa - pb;
@@ -2736,7 +2739,8 @@ function ImportTestPanel({ onClose, employees, managers }) {
       vacationType: r.type,
       dia: r.dia,
       status: r.cancelled ? "취소됨" : "정상",
-      confirmedBy: autoConfirmed ? "가져오기(자동확인)" : null,
+      confirmedBy: autoConfirmed ? "확인" : null,
+      priority: isCapacityType(r.type) ? r.seq || null : null, // 보장휴가는 원본 순번을 그대로 가져와요
     };
   });
   const departedCount = converted.filter((c) => c.isDeparted).length;
@@ -2769,6 +2773,7 @@ function ImportTestPanel({ onClose, employees, managers }) {
         vacationType: c.vacationType,
         dia: c.dia,
         date: c.date,
+        ...(c.priority != null ? { priority: c.priority } : {}),
       })
         .then((id) => {
           newIds.push(id);
@@ -2799,6 +2804,28 @@ function ImportTestPanel({ onClose, employees, managers }) {
         setImportedIds([]);
         setImportResult(null);
         alert("삭제했어요");
+      })
+      .catch((err) => alert("삭제 중 오류: " + (err && err.message ? err.message : err)))
+      .finally(() => setImporting(false));
+  };
+
+  // 경산 휴가 기록 전체 삭제 - 중복 저장 등으로 꼬였을 때, 완전히 비우고 처음부터 다시 가져오기 위한 기능
+  const handleResetAllBranchData = () => {
+    if (
+      !confirm(
+        "⚠️ 경산 소속의 휴가 기록을 전부 삭제할까요?\n\n" +
+          "지금까지 신청/저장된 기록이 전부 사라져요 (되돌릴 수 없어요).\n" +
+          "삭제 후 위쪽 '가져오기' 탭에서 다시 '실제로 저장하기'를 누르면 깨끗하게 다시 채울 수 있어요."
+      )
+    )
+      return;
+    if (!confirm("정말로 진행할까요? 한 번 더 확인할게요.")) return;
+    setImporting(true);
+    window.VacationAPI.removeAllForBranch("경산")
+      .then((count) => {
+        alert(`경산 휴가 기록 ${count}건을 전부 삭제했어요. 이제 다시 가져오기를 눌러주세요.`);
+        setImportedIds([]);
+        setImportResult(null);
       })
       .catch((err) => alert("삭제 중 오류: " + (err && err.message ? err.message : err)))
       .finally(() => setImporting(false));
@@ -2926,13 +2953,21 @@ function ImportTestPanel({ onClose, employees, managers }) {
 
                 {importedIds.length > 0 && (
                   <button
-                    style={{ ...styles.button, border: "1px dashed #e02020", color: "#e02020", marginBottom: "14px", padding: "10px" }}
+                    style={{ ...styles.button, border: "1px dashed #e02020", color: "#e02020", marginBottom: "8px", padding: "10px" }}
                     disabled={importing}
                     onClick={handleUndoImport}
                   >
                     🔄 방금 저장한 {importedIds.length}건 되돌리기(삭제)
                   </button>
                 )}
+
+                <button
+                  style={{ ...styles.button, border: "1px dashed #e02020", color: "#e02020", marginBottom: "14px", padding: "10px" }}
+                  disabled={importing}
+                  onClick={handleResetAllBranchData}
+                >
+                  🗑️ 경산 전체 초기화 (모든 휴가 기록 삭제)
+                </button>
 
                 {converted.length === 0 && (
                   <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0" }}>가져올 기록이 없어요</div>
