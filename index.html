@@ -177,6 +177,13 @@
       await Promise.all(snap.docs.map((d) => deleteDoc(doc(db, COLLECTION, d.id))));
       return snap.docs.length;
     },
+    // 보관 기한(1년) 지난 오래된 기록 자동 삭제 - date < cutoffDate 인 것 전부 삭제 (저장공간 관리용)
+    async deleteOlderThan(cutoffDate) {
+      const q = query(collection(db, COLLECTION), where("date", "<", cutoffDate));
+      const snap = await getDocs(q);
+      await Promise.all(snap.docs.map((d) => deleteDoc(doc(db, COLLECTION, d.id))));
+      return snap.docs.length;
+    },
   };
 
   // 사용자 승인 관련 API
