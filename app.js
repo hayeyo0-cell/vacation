@@ -2817,6 +2817,10 @@ function ImportTestPanel({ onClose, employees, managers }) {
     return null;
   };
 
+  // 지금 "기관사 직원목록"에 실제로 있는 사람인지만 확인 (운용으로 넘어간 사람은 제외) - 미래 날짜 필터링용
+  const isCurrentLineEmployee = (name) =>
+    (employees || []).some((e) => e.name === name && e.branch === "경산");
+
   // 종류별 집계 미리보기 - 현재 명단에 있는 사람만 집계 (인사이동으로 빠진 사람은 기록은 가져오되 집계에서 제외)
   const NIGHT_COMPANION_TYPES = ["연차비", "분지비", "장재비"];
   const tallyByPerson = {};
@@ -2824,7 +2828,7 @@ function ImportTestPanel({ onClose, employees, managers }) {
     if (r.cancelled) return;
     if (!isCapacityType(r.type)) return;
     if (NIGHT_COMPANION_TYPES.includes(r.type)) return;
-    if (!matchEmployeeId(r.name)) return; // 현재 명단에 없는 사람은 집계 제외
+    if (!isCurrentLineEmployee(r.name)) return; // 지금 기관사가 아니면 집계 제외
     if (!tallyByPerson[r.name]) tallyByPerson[r.name] = {};
     tallyByPerson[r.name][r.type] = (tallyByPerson[r.name][r.type] || 0) + 1;
   });
@@ -2851,9 +2855,9 @@ function ImportTestPanel({ onClose, employees, managers }) {
     const dd = String(d.getDate()).padStart(2, "0");
     return `${y}-${mo}-${dd}`;
   })();
-  const excludedFutureCount = rows.filter((r) => r.date >= today && !matchEmployeeId(r.name)).length;
+  const excludedFutureCount = rows.filter((r) => r.date >= today && !isCurrentLineEmployee(r.name)).length;
   const converted = rows
-    .filter((r) => matchEmployeeId(r.name) || r.date < today) // 미래+명단에 없는 사람은 제외
+    .filter((r) => isCurrentLineEmployee(r.name) || r.date < today) // 미래+지금 기관사 아닌 사람은 제외
     .map((r) => {
       const matchedId = matchEmployeeId(r.name);
       const autoConfirmed = r.date <= cutoffDate;
@@ -2862,7 +2866,7 @@ function ImportTestPanel({ onClose, employees, managers }) {
         name: r.name,
         branch: "경산",
         employeeId: matchedId || `departed-${r.name}`,
-        isDeparted: !matchedId,
+        isDeparted: !isCurrentLineEmployee(r.name),
         vacationType: r.type,
         dia: r.dia,
         status: r.cancelled ? "취소됨" : "정상",
