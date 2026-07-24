@@ -1881,7 +1881,28 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
         </div>
         <div style={cal.navRow}>
           <button style={cal.navBtn} onClick={() => changeMonth(-1)}>‹</button>
-          <div style={cal.monthTitle}>{viewYear}년 {viewMonth + 1}월</div>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "2px" }}>
+            <div style={cal.monthTitle}>{viewYear}년 {viewMonth + 1}월</div>
+            {(viewYear !== now.getFullYear() || viewMonth !== now.getMonth()) && (
+              <button
+                style={{
+                  border: "1px solid rgba(255,255,255,0.4)",
+                  background: "transparent",
+                  color: "#cfe0ff",
+                  fontSize: "11px",
+                  fontWeight: 700,
+                  padding: "2px 8px",
+                  borderRadius: "6px",
+                }}
+                onClick={() => {
+                  setViewYear(now.getFullYear());
+                  setViewMonth(now.getMonth());
+                }}
+              >
+                오늘로
+              </button>
+            )}
+          </div>
           <button style={cal.navBtn} onClick={() => changeMonth(1)}>›</button>
         </div>
         <div style={cal.weekRow}>
