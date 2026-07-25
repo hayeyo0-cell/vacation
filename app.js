@@ -1411,6 +1411,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
   const [editingPriorityId, setEditingPriorityId] = useState(null); // 순번 수정 중인 기록 id
   const [priorityInput, setPriorityInput] = useState("");
   const [editingNoteId, setEditingNoteId] = useState(null); // 비고 수정 중인 기록 id
+  const [editingConfirmId, setEditingConfirmId] = useState(null); // 확인자 수정 중인 기록 id
   const [noteInput, setNoteInput] = useState("");
 
   // 중간관리자 - 대신 기록 폼 상태
@@ -2400,7 +2401,30 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
                                 {cancelled ? (
                                   "-"
                                 ) : v.confirmedBy ? (
-                                  <span style={{ color: "#1caa5c" }}>✅{v.confirmedBy}</span>
+                                  isMidManager && editingConfirmId === v.id ? (
+                                    <select
+                                      value={v.confirmedBy}
+                                      onChange={(e) => {
+                                        if (e.target.value) handleConfirmStamp(v, e.target.value);
+                                        setEditingConfirmId(null);
+                                      }}
+                                      onBlur={() => setEditingConfirmId(null)}
+                                      style={{ fontSize: "11px", padding: "2px", maxWidth: "80px" }}
+                                      autoFocus
+                                    >
+                                      {branchManagerNames.map((name) => (
+                                        <option key={name} value={name}>{name}</option>
+                                      ))}
+                                    </select>
+                                  ) : (
+                                    <span
+                                      style={{ color: "#1caa5c", cursor: isMidManager ? "pointer" : "default" }}
+                                      onClick={() => isMidManager && setEditingConfirmId(v.id)}
+                                    >
+                                      ✅{v.confirmedBy}
+                                      {isMidManager && " ✏️"}
+                                    </span>
+                                  )
                                 ) : isMidManager ? (
                                   <select
                                     value=""
