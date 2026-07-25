@@ -1120,6 +1120,19 @@ function isCapacityType(type) {
   return CAPACITY_TYPES.includes(type);
 }
 
+// 보장휴가(연차·분지 등)를 순번(priority) 순서로 먼저, 미보장(청휴·병가·노조 등)은 그 아래로 정렬 - 여러 곳에서 재사용
+function sortRecordsForDisplay(records) {
+  return [...records].sort((a, b) => {
+    const groupA = isCapacityType(a.vacationType) ? 0 : 1;
+    const groupB = isCapacityType(b.vacationType) ? 0 : 1;
+    if (groupA !== groupB) return groupA - groupB;
+    const pa = a.priority != null ? a.priority : Infinity;
+    const pb = b.priority != null ? b.priority : Infinity;
+    if (pa !== pb) return pa - pb;
+    return (a.name || "").localeCompare(b.name || "");
+  });
+}
+
 // 2026년 공휴일 폴백 목록 (API 호출 실패/오프라인 시에만 사용)
 const FALLBACK_HOLIDAYS_2026 = new Set([
   "2026-01-01", "2026-02-16", "2026-02-17", "2026-02-18",
@@ -1348,6 +1361,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
   const [showMyVacations, setShowMyVacations] = useState(false);
   const [showEtiquetteNotice, setShowEtiquetteNotice] = useState(true); // 로그인할 때마다 한 번 안내
   const [upcomingUnconfirmed, setUpcomingUnconfirmed] = useState([]); // 5일 이내 & 아직 미확인인 내 신청 건
+  const [adjacentRecords, setAdjacentRecords] = useState({ prev: [], next: [] }); // 운용용 - 전날/다음날 요약
   const myCode = (employees || []).find((e) => e.id === currentUser.id)?.code || "";
   const myBaseCode = (employees || []).find((e) => e.id === currentUser.id)?.baseCode || "";
   const myTeamKey = REVERSE_TEAM_MAP[currentUser.branch];
@@ -1549,19 +1563,48 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
 
+  // 전날/다음날 날짜 문자열 계산
+  const prevDateStr = selectedDate
+    ? (() => {
+        const d = new Date(selectedDate + "T00:00:00");
+        d.setDate(d.getDate() - 1);
+        return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+      })()
+    : null;
+  const nextDateStr = selectedDate
+    ? (() => {
+        const d = new Date(selectedDate + "T00:00:00");
+        d.setDate(d.getDate() + 1);
+        return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+      })()
+    : null;
+
+  // 운용(중간관리자)만 - 전날/다음날 기록을 따로 불러와서 옆에 같이 보여줌 (월 경계 걱정 없이 직접 조회)
+  useEffect(() => {
+    if (!isMidManager || !selectedDate) {
+      setAdjacentRecords({ prev: [], next: [] });
+      return;
+    }
+    let cancelled = false;
+    waitForFirestore()
+      .then(() =>
+        Promise.all([window.VacationAPI.getByDate(prevDateStr), window.VacationAPI.getByDate(nextDateStr)])
+      )
+      .then(([prevList, nextList]) => {
+        if (cancelled) return;
+        setAdjacentRecords({
+          prev: (prevList || []).filter((v) => v.branch === currentUser.branch),
+          next: (nextList || []).filter((v) => v.branch === currentUser.branch),
+        });
+      })
+      .catch((err) => console.error("전날/다음날 조회 실패:", err));
+    return () => { cancelled = true; };
+  }, [selectedDate, isMidManager]);
+
   const dayRecords = selectedDate
     ? (monthMap[selectedDate] || []).filter((v) => v.branch === currentUser.branch)
     : [];
-  // 보장휴가(연차·분지 등)를 순번(priority) 순서로 먼저 보여주고, 미보장(청휴·병가·노조 등)은 그 아래로
-  const sortedDayRecords = [...dayRecords].sort((a, b) => {
-    const groupA = isCapacityType(a.vacationType) ? 0 : 1;
-    const groupB = isCapacityType(b.vacationType) ? 0 : 1;
-    if (groupA !== groupB) return groupA - groupB;
-    const pa = a.priority != null ? a.priority : Infinity;
-    const pb = b.priority != null ? b.priority : Infinity;
-    if (pa !== pb) return pa - pb;
-    return (a.name || "").localeCompare(b.name || "");
-  });
+  const sortedDayRecords = sortRecordsForDisplay(dayRecords);
   const activeRecordsForCapacity = dayRecords.filter((v) => v.status !== "취소됨");
   const activeCount = activeRecordsForCapacity.length;
   const capacityCount = activeRecordsForCapacity.filter((v) => isCapacityType(v.vacationType)).length;
@@ -1860,6 +1903,60 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
     }
   };
 
+  // 운용 전용 - 전날/다음날 요약 칸 (읽기 전용, 간략하게)
+  const renderCompactDayColumn = (dateStr, records, label) => {
+    const branchRecords = sortRecordsForDisplay(records);
+    const activeRecs = branchRecords.filter((v) => v.status !== "취소됨");
+    const dayType = getDayType(dateStr, holidaySet);
+    const capacityActive = activeRecs.filter((v) => isCapacityType(v.vacationType));
+    const capacity = gyeongsanCapacity(currentUser.branch, dateStr, activeRecs, holidaySet);
+    return (
+      <div
+        style={{
+          flex: "0 0 130px",
+          background: "#f8f9fb",
+          borderRadius: "10px",
+          padding: "8px",
+          maxHeight: "70vh",
+          overflowY: "auto",
+        }}
+      >
+        <div style={{ fontSize: "11px", fontWeight: 700, color: "#888", marginBottom: "2px" }}>{label}</div>
+        <div style={{ fontSize: "12px", fontWeight: 700, marginBottom: "2px" }}>
+          {dateStr.slice(5)} ({weekdayShort(dateStr)})
+        </div>
+        <div style={{ fontSize: "11px", color: "#666", marginBottom: "6px" }}>
+          {activeRecs.length}명 · {capacityActive.length}/{capacity}
+        </div>
+        {branchRecords.length === 0 && (
+          <div style={{ fontSize: "11px", color: "#bbb" }}>없음</div>
+        )}
+        {branchRecords.map((v) => {
+          const cancelled = v.status === "취소됨";
+          return (
+            <div
+              key={v.id}
+              style={{
+                fontSize: "11px",
+                marginBottom: "5px",
+                opacity: cancelled ? 0.4 : 1,
+                textDecoration: cancelled ? "line-through" : "none",
+              }}
+            >
+              <div style={{ fontWeight: 700 }}>{v.name}</div>
+              <div style={{ color: "#666" }}>
+                {v.vacationType} · {v.dia}
+              </div>
+              <div style={{ color: v.confirmedBy ? "#1caa5c" : "#ccc" }}>
+                {cancelled ? "-" : v.confirmedBy ? `✅${v.confirmedBy}` : "대기중"}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
   return (
     <div style={cal.wrap}>
       <div style={cal.header}>
@@ -1976,7 +2073,17 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
 
       {selectedDate && (
         <div style={modal.overlay} onClick={closeModal}>
-          <div style={modal.sheet} onClick={(e) => e.stopPropagation()}>
+          <div
+            style={{
+              ...modal.sheet,
+              ...(isMidManager
+                ? { maxWidth: "760px", display: "flex", gap: "8px", alignItems: "flex-start" }
+                : {}),
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {isMidManager && prevDateStr && renderCompactDayColumn(prevDateStr, adjacentRecords.prev, "전날")}
+            <div style={{ flex: isMidManager ? "1 1 auto" : undefined, minWidth: 0, width: "100%" }}>
             <div
               style={{ overflowX: "hidden" }}
               onTouchStart={handleDayTouchStart}
@@ -2342,6 +2449,8 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
             )}
               </div>
             </div>
+            </div>
+            {isMidManager && nextDateStr && renderCompactDayColumn(nextDateStr, adjacentRecords.next, "다음날")}
           </div>
         </div>
       )}
