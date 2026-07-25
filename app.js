@@ -1072,12 +1072,12 @@ const cal = {
     fontWeight: 800,
     color: type === "휴일" ? "#e02020" : type === "토요일" ? "#1a73e8" : "#222",
   }),
-  dayCode: {
+  dayCode: (type) => ({
     fontSize: "14px",
     lineHeight: "16px",
     height: "16px",
     fontWeight: 700,
-    color: "#1a1a1a",
+    color: type === "휴일" ? "#e02020" : type === "토요일" ? "#1a73e8" : "#1a1a1a",
     width: "100%",
     alignSelf: "stretch",
     overflow: "hidden",
@@ -1086,7 +1086,7 @@ const cal = {
     textAlign: "center",
     boxSizing: "border-box",
     padding: "0 2px",
-  },
+  }),
   dayBadge: (color) => ({
     marginTop: "auto",
     width: "24px",
@@ -1964,7 +1964,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
             <div key={i} style={cal.dayCell(key === todayKey)} onClick={() => openDate(d)}>
               <div style={cal.dayNum(dayType)}>{d}</div>
               <div style={cal.dayDivider} />
-              <div style={cal.dayCode}>{codeForDate(key)}</div>
+              <div style={cal.dayCode(dayType)}>{codeForDate(key)}</div>
               {badge}
             </div>
           );
