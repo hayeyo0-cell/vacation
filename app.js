@@ -1263,8 +1263,9 @@ const modal = {
     inset: 0,
     background: "rgba(0,0,0,0.4)",
     display: "flex",
-    alignItems: "flex-end",
+    alignItems: "safe flex-end", // 내용이 화면보다 커도(PC 확대 등) 위쪽이 안 잘리고 스크롤로 볼 수 있게
     zIndex: 100,
+    overflowY: "auto",
   },
   sheet: {
     background: "#fff",
@@ -2477,7 +2478,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
         <MyVacationsPanel currentUser={currentUser} onClose={closeModal} employees={employees} />
       )}
       {showEtiquetteNotice && (
-        <div style={{ ...modal.overlay, alignItems: "center", justifyContent: "center" }}>
+        <div style={{ ...modal.overlay, alignItems: "safe center", justifyContent: "center" }}>
           <div style={{ ...modal.sheet, maxWidth: "340px", borderRadius: "16px", textAlign: "center" }}>
             <div style={{ fontSize: "26px", marginBottom: "10px" }}>🙏</div>
             <div style={{ fontSize: "15px", fontWeight: 600, lineHeight: 1.5, marginBottom: "18px" }}>
