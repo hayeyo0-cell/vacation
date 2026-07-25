@@ -1362,6 +1362,15 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
   const [showEtiquetteNotice, setShowEtiquetteNotice] = useState(true); // 로그인할 때마다 한 번 안내
   const [upcomingUnconfirmed, setUpcomingUnconfirmed] = useState([]); // 5일 이내 & 아직 미확인인 내 신청 건
   const [adjacentRecords, setAdjacentRecords] = useState({ prev: [], next: [] }); // 운용용 - 전날/다음날 요약
+  // PC(넓은 화면)인지 감지 - index.html의 PC용 zoom 미디어쿼리와 같은 640px 기준
+  const [isWideScreen, setIsWideScreen] = useState(
+    typeof window !== "undefined" && window.innerWidth >= 640
+  );
+  useEffect(() => {
+    const onResize = () => setIsWideScreen(window.innerWidth >= 640);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
   const myCode = (employees || []).find((e) => e.id === currentUser.id)?.code || "";
   const myBaseCode = (employees || []).find((e) => e.id === currentUser.id)?.baseCode || "";
   const myTeamKey = REVERSE_TEAM_MAP[currentUser.branch];
@@ -1581,7 +1590,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
 
   // 운용(중간관리자)만 - 전날/다음날 기록을 따로 불러와서 옆에 같이 보여줌 (월 경계 걱정 없이 직접 조회)
   useEffect(() => {
-    if (!isMidManager || !selectedDate) {
+    if (!isMidManager || !isWideScreen || !selectedDate) {
       setAdjacentRecords({ prev: [], next: [] });
       return;
     }
@@ -1599,7 +1608,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
       })
       .catch((err) => console.error("전날/다음날 조회 실패:", err));
     return () => { cancelled = true; };
-  }, [selectedDate, isMidManager]);
+  }, [selectedDate, isMidManager, isWideScreen]);
 
   const dayRecords = selectedDate
     ? (monthMap[selectedDate] || []).filter((v) => v.branch === currentUser.branch)
@@ -2076,14 +2085,15 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
           <div
             style={{
               ...modal.sheet,
-              ...(isMidManager
+              ...(isMidManager && isWideScreen
                 ? { maxWidth: "760px", display: "flex", gap: "8px", alignItems: "flex-start" }
                 : {}),
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            {isMidManager && prevDateStr && renderCompactDayColumn(prevDateStr, adjacentRecords.prev, "전날")}
-            <div style={{ flex: isMidManager ? "1 1 auto" : undefined, minWidth: 0, width: "100%" }}>
+            {isMidManager && isWideScreen && prevDateStr &&
+              renderCompactDayColumn(prevDateStr, adjacentRecords.prev, "전날")}
+            <div style={{ flex: isMidManager && isWideScreen ? "1 1 auto" : undefined, minWidth: 0, width: "100%" }}>
             <div
               style={{ overflowX: "hidden" }}
               onTouchStart={handleDayTouchStart}
@@ -2450,7 +2460,8 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
               </div>
             </div>
             </div>
-            {isMidManager && nextDateStr && renderCompactDayColumn(nextDateStr, adjacentRecords.next, "다음날")}
+            {isMidManager && isWideScreen && nextDateStr &&
+              renderCompactDayColumn(nextDateStr, adjacentRecords.next, "다음날")}
           </div>
         </div>
       )}
