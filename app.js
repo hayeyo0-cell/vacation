@@ -1385,6 +1385,12 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
   );
   const managerBranchCodes = [...managerTemplateCodes, ...managerOtherCodes];
 
+  // 확인란 드롭다운용 - 본인 소속 운용 명단 (이름순)
+  const branchManagerNames = (managers || [])
+    .filter((m) => m.branch === currentUser.branch)
+    .map((m) => m.name)
+    .sort((a, b) => a.localeCompare(b, "ko"));
+
   // 특정 날짜의 본인 교번을 계산 (기준일 대비 날짜차이만큼 교번틀을 밀어서)
   const codeForDate = (dateStr) => {
     if (!BASE_DATE || !myBaseCode || !myOrder.length) return "";
@@ -1773,12 +1779,12 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
   };
 
   // 중간관리자 확인 도장
-  const handleConfirmStamp = (record) => {
-    window.VacationAPI.confirm(record.id, currentUser.name).then(() => {
+  const handleConfirmStamp = (record, managerName) => {
+    window.VacationAPI.confirm(record.id, managerName).then(() => {
       setMonthMap((prev) => {
         const next = { ...prev };
         next[selectedDate] = (next[selectedDate] || []).map((v) =>
-          v.id === record.id ? { ...v, confirmedBy: currentUser.name } : v
+          v.id === record.id ? { ...v, confirmedBy: managerName } : v
         );
         return next;
       });
@@ -1917,52 +1923,95 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
   const renderCompactDayColumn = (dateStr, records, label) => {
     const branchRecords = sortRecordsForDisplay(records);
     const activeRecs = branchRecords.filter((v) => v.status !== "취소됨");
-    const dayType = getDayType(dateStr, holidaySet);
     const capacityActive = activeRecs.filter((v) => isCapacityType(v.vacationType));
     const capacity = gyeongsanCapacity(currentUser.branch, dateStr, activeRecs, holidaySet);
     return (
       <div
         style={{
-          flex: "0 0 130px",
-          background: "#f8f9fb",
+          flex: "0 0 280px",
+          background: "#fff",
+          border: "1px solid #eee",
           borderRadius: "10px",
-          padding: "8px",
-          maxHeight: "70vh",
+          padding: "10px",
+          maxHeight: "75vh",
           overflowY: "auto",
         }}
       >
         <div style={{ fontSize: "11px", fontWeight: 700, color: "#888", marginBottom: "2px" }}>{label}</div>
-        <div style={{ fontSize: "12px", fontWeight: 700, marginBottom: "2px" }}>
-          {dateStr.slice(5)} ({weekdayShort(dateStr)})
+        <div style={{ fontSize: "15px", fontWeight: 700, marginBottom: "2px" }}>
+          {dateStr} ({weekdayShort(dateStr)})
         </div>
-        <div style={{ fontSize: "11px", color: "#666", marginBottom: "6px" }}>
-          {activeRecs.length}명 · {capacityActive.length}/{capacity}
+        <div style={{ fontSize: "12px", color: "#666", marginBottom: "10px" }}>
+          휴가자 {activeRecs.length}명 · 보장대상 {capacityActive.length}/{capacity}명
         </div>
-        {branchRecords.length === 0 && (
-          <div style={{ fontSize: "11px", color: "#bbb" }}>없음</div>
+        {branchRecords.length === 0 ? (
+          <div style={{ textAlign: "center", color: "#aaa", padding: "16px 0", fontSize: "12px" }}>
+            등록된 휴가가 없어요
+          </div>
+        ) : (
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
+            <thead>
+              <tr style={{ borderBottom: "2px solid #333" }}>
+                <th style={tbl.th}>#</th>
+                <th style={{ ...tbl.th, textAlign: "left" }}>이름</th>
+                <th style={{ ...tbl.th, textAlign: "left" }}>휴가명</th>
+                <th style={tbl.th}>DIA</th>
+                <th style={{ ...tbl.th, textAlign: "left" }}>확인</th>
+              </tr>
+            </thead>
+            <tbody>
+              {branchRecords.map((v, idx) => {
+                const cancelled = v.status === "취소됨";
+                const cap = isCapacityType(v.vacationType);
+                const prevCap = idx > 0 ? isCapacityType(branchRecords[idx - 1].vacationType) : null;
+                const showGroupHeader = idx === 0 || cap !== prevCap;
+                return (
+                  <React.Fragment key={v.id}>
+                    {showGroupHeader && (
+                      <tr>
+                        <td
+                          colSpan={5}
+                          style={{
+                            padding: "6px 3px 4px",
+                            fontSize: "12px",
+                            fontWeight: 800,
+                            color: cap ? "#1b3a5c" : "#666",
+                            background: cap ? "#eaf1ff" : "#f2f2f2",
+                          }}
+                        >
+                          {cap ? "🟢 보장인원 포함" : "⚪ 보장인원 미포함"}
+                        </td>
+                      </tr>
+                    )}
+                    <tr
+                      style={{
+                        borderBottom: "1px solid #eee",
+                        opacity: cancelled ? 0.45 : 1,
+                        textDecoration: cancelled ? "line-through" : "none",
+                      }}
+                    >
+                      <td style={tbl.td}>{v.priority != null ? v.priority : idx + 1}</td>
+                      <td style={{ ...tbl.td, textAlign: "left" }}>
+                        {TYPE_ICON[v.vacationType] || "📌"} {v.name}
+                      </td>
+                      <td style={{ ...tbl.td, textAlign: "left" }}>{v.vacationType}</td>
+                      <td style={{ ...tbl.td, fontWeight: 700, color: "#1b3a5c" }}>{v.dia}</td>
+                      <td style={{ ...tbl.td, textAlign: "left" }}>
+                        {cancelled ? (
+                          "-"
+                        ) : v.confirmedBy ? (
+                          <span style={{ color: "#1caa5c" }}>✅{v.confirmedBy}</span>
+                        ) : (
+                          <span style={{ color: "#ccc" }}>대기중</span>
+                        )}
+                      </td>
+                    </tr>
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+          </table>
         )}
-        {branchRecords.map((v) => {
-          const cancelled = v.status === "취소됨";
-          return (
-            <div
-              key={v.id}
-              style={{
-                fontSize: "11px",
-                marginBottom: "5px",
-                opacity: cancelled ? 0.4 : 1,
-                textDecoration: cancelled ? "line-through" : "none",
-              }}
-            >
-              <div style={{ fontWeight: 700 }}>{v.name}</div>
-              <div style={{ color: "#666" }}>
-                {v.vacationType} · {v.dia}
-              </div>
-              <div style={{ color: v.confirmedBy ? "#1caa5c" : "#ccc" }}>
-                {cancelled ? "-" : v.confirmedBy ? `✅${v.confirmedBy}` : "대기중"}
-              </div>
-            </div>
-          );
-        })}
       </div>
     );
   };
@@ -2087,7 +2136,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
             style={{
               ...modal.sheet,
               ...(isMidManager && isWideScreen
-                ? { maxWidth: "760px", display: "flex", gap: "8px", alignItems: "flex-start" }
+                ? { maxWidth: "1100px", display: "flex", gap: "10px", alignItems: "flex-start" }
                 : {}),
             }}
             onClick={(e) => e.stopPropagation()}
@@ -2353,12 +2402,18 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
                                 ) : v.confirmedBy ? (
                                   <span style={{ color: "#1caa5c" }}>✅{v.confirmedBy}</span>
                                 ) : isMidManager ? (
-                                  <button
-                                    style={{ ...modal.smallCancelBtn, color: "#1b3a5c", margin: 0 }}
-                                    onClick={() => handleConfirmStamp(v)}
+                                  <select
+                                    value=""
+                                    onChange={(e) => {
+                                      if (e.target.value) handleConfirmStamp(v, e.target.value);
+                                    }}
+                                    style={{ fontSize: "11px", padding: "2px", maxWidth: "80px" }}
                                   >
-                                    확인
-                                  </button>
+                                    <option value="">확인</option>
+                                    {branchManagerNames.map((name) => (
+                                      <option key={name} value={name}>{name}</option>
+                                    ))}
+                                  </select>
                                 ) : (
                                   <span style={{ color: "#ccc" }}>대기중</span>
                                 )}
