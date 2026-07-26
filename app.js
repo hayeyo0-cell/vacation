@@ -1715,6 +1715,34 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
       .catch((err) => alert("메모 저장 실패: " + (err && err.message ? err.message : err)));
   };
 
+  // 삭제 등으로 생긴 순번 구멍을 없애기 위해, 특정 날짜의 남은 보장휴가 순번을 1번부터 다시 매김
+  const renumberDayPriorities = (dateStr, branch) => {
+    window.VacationAPI.getByDate(dateStr)
+      .then((records) => {
+        const capacityActive = (records || [])
+          .filter((v) => v.branch === branch && v.status !== "취소됨" && isCapacityType(v.vacationType))
+          .sort((a, b) => {
+            const pa = a.priority != null ? a.priority : Infinity;
+            const pb = b.priority != null ? b.priority : Infinity;
+            if (pa !== pb) return pa - pb;
+            return (a.name || "").localeCompare(b.name || "");
+          });
+        const updates = [];
+        capacityActive.forEach((v, idx) => {
+          const newPriority = idx + 1;
+          if (v.priority !== newPriority) {
+            updates.push(window.VacationAPI.update(v.id, { priority: newPriority }));
+          }
+        });
+        return Promise.all(updates).then(() => window.VacationAPI.getByDate(dateStr));
+      })
+      .then((freshRecords) => {
+        if (!freshRecords) return;
+        setMonthMap((prev) => ({ ...prev, [dateStr]: freshRecords }));
+      })
+      .catch((err) => console.error("순번 재정렬 실패:", err));
+  };
+
   const handleAdminDelete = (record) => {
     if (!confirm(`[관리자] ${record.name}님의 ${record.vacationType} 기록을 완전히 삭제할까요?\n되돌릴 수 없어요.`)) return;
     window.VacationAPI.remove(record.id).then(() => {
@@ -1723,6 +1751,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
         next[selectedDate] = (next[selectedDate] || []).filter((v) => v.id !== record.id);
         return next;
       });
+      renumberDayPriorities(selectedDate, record.branch);
     });
   };
 
