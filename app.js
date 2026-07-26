@@ -1362,6 +1362,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
   const [showMyVacations, setShowMyVacations] = useState(false);
   const [showEtiquetteNotice, setShowEtiquetteNotice] = useState(true); // 로그인할 때마다 한 번 안내
   const [upcomingUnconfirmed, setUpcomingUnconfirmed] = useState([]); // 5일 이내 & 아직 미확인인 내 신청 건
+  const [branchUpcomingUnconfirmed, setBranchUpcomingUnconfirmed] = useState([]); // 운용용 - 소속 전체의 5일 이내 미확인 신청
   const [adjacentRecords, setAdjacentRecords] = useState({ prev: [], next: [] }); // 운용용 - 전날/다음날 요약
   // PC(넓은 화면)인지 감지 - index.html의 PC용 zoom 미디어쿼리와 같은 640px 기준
   const [isWideScreen, setIsWideScreen] = useState(
@@ -1447,6 +1448,24 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
       })
       .catch((err) => console.error("확인 대기 알림 조회 실패:", err));
   }, [currentUser.id]);
+
+  // 앱 접속(로그인) 시 한 번 - 운용용, 소속 전체에서 5일 이내인데 아직 미확인인 신청 알림
+  useEffect(() => {
+    if (!isMidManager) return;
+    const today = todayStr();
+    const d = new Date(today + "T00:00:00");
+    d.setDate(d.getDate() + 5);
+    const limit = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+    waitForFirestore()
+      .then(() => window.VacationAPI.getByRange(today, limit))
+      .then((records) => {
+        const upcoming = (records || [])
+          .filter((v) => v.branch === currentUser.branch && v.status !== "취소됨" && !v.confirmedBy)
+          .sort((a, b) => a.date.localeCompare(b.date));
+        setBranchUpcomingUnconfirmed(upcoming);
+      })
+      .catch((err) => console.error("운용 확인 대기 알림 조회 실패:", err));
+  }, [currentUser.id, isMidManager]);
 
   // 수동 새로고침용 (저장/취소/확인 등 액션 직후 즉시 반영하고 싶을 때 호출)
   const loadMonth = useCallback((y, m) => {
@@ -2556,7 +2575,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
       {showMyVacations && (
         <MyVacationsPanel currentUser={currentUser} onClose={closeModal} employees={employees} />
       )}
-      {showEtiquetteNotice && (
+      {showEtiquetteNotice && !isMidManager && (
         <div style={{ ...modal.overlay, alignItems: "safe center", justifyContent: "center" }}>
           <div style={{ ...modal.sheet, maxWidth: "340px", borderRadius: "16px", textAlign: "center" }}>
             <div style={{ fontSize: "26px", marginBottom: "10px" }}>🙏</div>
@@ -2588,6 +2607,36 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
           </div>
         </div>
       )}
+
+      {showEtiquetteNotice && isMidManager && branchUpcomingUnconfirmed.length > 0 && (
+        <div style={{ ...modal.overlay, alignItems: "safe center", justifyContent: "center" }}>
+          <div style={{ ...modal.sheet, maxWidth: "360px", borderRadius: "16px" }}>
+            <div style={{ fontSize: "15px", fontWeight: 700, marginBottom: "12px", textAlign: "center" }}>
+              ⏰ 5일 이내 확인 대기중인 신청 ({branchUpcomingUnconfirmed.length}건)
+            </div>
+            <div style={{ maxHeight: "50vh", overflowY: "auto", marginBottom: "14px" }}>
+              {branchUpcomingUnconfirmed.map((v) => (
+                <div
+                  key={v.id}
+                  style={{
+                    background: "#fff7e6",
+                    border: "1px solid #f5cf7a",
+                    borderRadius: "10px",
+                    padding: "8px 10px",
+                    marginBottom: "6px",
+                    fontSize: "13px",
+                  }}
+                >
+                  <div style={{ fontWeight: 700 }}>{v.date} ({weekdayShort(v.date)}) · {v.name}</div>
+                  <div style={{ color: "#666" }}>{v.vacationType} · {v.dia}</div>
+                </div>
+              ))}
+            </div>
+            <button style={modal.closeBtn} onClick={() => setShowEtiquetteNotice(false)}>확인</button>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
