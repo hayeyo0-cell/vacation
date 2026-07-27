@@ -1378,16 +1378,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
     let openDate = null;
     let isOpeningToday = false;
 
-    if (TEST_MODE) {
-      // ⚠️ 테스트 중엔 시간/날짜와 무관하게 항상 공지를 볼 수 있게 우회 (가장 가까운 미래의 짝수달 1일 기준)
-      const probe = new Date(todayLocal);
-      for (let i = 0; i < 62; i++) {
-        if (isEvenMonthFirst(probe)) break;
-        probe.setDate(probe.getDate() + 1);
-      }
-      openDate = probe;
-      isOpeningToday = probe.getTime() === todayLocal.getTime();
-    } else if (isEvenMonthFirst(todayLocal) && (hour < 8 || (hour === 8 && minute <= 30))) {
+    if (isEvenMonthFirst(todayLocal) && (hour < 8 || (hour === 8 && minute <= 30))) {
       // 오픈 당일 오전 8시30분까지
       openDate = todayLocal;
       isOpeningToday = true;
