@@ -2701,18 +2701,23 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
                   textAlign: "left",
                 }}
               >
-                <div style={{ fontSize: "14px", fontWeight: 800, color: "#1b3a5c", marginBottom: "6px" }}>
+                <div style={{ fontSize: "14px", fontWeight: 800, color: "#1b3a5c", marginBottom: "8px" }}>
                   📢 {evenMonthOpenInfo.next1Year}년 {evenMonthOpenInfo.next1Month}·{evenMonthOpenInfo.next2Month}월
                   휴가 장부 오픈 안내
                 </div>
-                <div style={{ fontSize: "13px", color: "#333", lineHeight: 1.6 }}>
-                  · 오픈 일시: {evenMonthOpenInfo.openMonth}월 1일({evenMonthOpenInfo.isOpeningToday ? "오늘" : "내일"}) 오전 9시<br />
-                  · 작성 방법: 밴드에 휴가작성 → 스프레드시트에 직접 작성 (밴드 작성순서 필히 확인)<br />
-                  · {evenMonthOpenInfo.openMonth}/1 ~ {evenMonthOpenInfo.openMonth}/5 신청 휴가: 취소 불가 (신중하게 신청)<br />
-                  · 휴가 취소는 휴가일 기준 최소 7일 전까지 필수<br />
-                  · 작성 순서 준수: 밴드 순서 확인 후 → 스프레드시트 해당 순번에 맞게 작성
+                <div style={{ fontSize: "13px", color: "#333", lineHeight: 1.7 }}>
+                  -오픈 일시: {evenMonthOpenInfo.openMonth}월1일({evenMonthOpenInfo.isOpeningToday ? "오늘" : "내일"}) 오전 9시<br />
+                  -작성 방법: 밴드에 휴가작성 → D휴가앱에 직접 작성(밴드 작성순서 필히 확인)
                 </div>
-                <div style={{ fontSize: "12px", color: "#666", marginTop: "8px" }}>
+                <div style={{ fontSize: "13px", fontWeight: 700, color: "#e02020", marginTop: "10px", marginBottom: "2px" }}>
+                  ⚠️ 유의사항
+                </div>
+                <div style={{ fontSize: "13px", color: "#333", lineHeight: 1.7 }}>
+                  - {evenMonthOpenInfo.openMonth}/1 ~ {evenMonthOpenInfo.openMonth}/5 신청 휴가 : 취소 불가 (신중하게 신청)<br />
+                  - 휴가 취소 규정 : 휴가일 기준 최소 7일 전까지 취소 필수(예: 휴가일에서 -7일 계산)<br />
+                  - 작성 순서 준수 : 밴드 순서 확인 후 → D휴가앱에 해당 순번에 맞게 작성
+                </div>
+                <div style={{ fontSize: "12px", color: "#666", marginTop: "10px" }}>
                   서로 간의 약속이니, 동료들을 위해 배려와 규정 준수 부탁드립니다.
                 </div>
               </div>
@@ -2762,9 +2767,9 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
                   휴가 장부 오픈 안내
                 </div>
                 <div style={{ fontSize: "13px", color: "#333", lineHeight: 1.6 }}>
-                  · 오픈 일시: {evenMonthOpenInfo.openMonth}월 1일({evenMonthOpenInfo.isOpeningToday ? "오늘" : "내일"}) 오전 9시<br />
-                  · {evenMonthOpenInfo.openMonth}/1 ~ {evenMonthOpenInfo.openMonth}/5 신청 휴가: 취소 불가<br />
-                  · 휴가 취소는 휴가일 기준 최소 7일 전까지 필수
+                  -오픈 일시: {evenMonthOpenInfo.openMonth}월1일({evenMonthOpenInfo.isOpeningToday ? "오늘" : "내일"}) 오전 9시<br />
+                  -{evenMonthOpenInfo.openMonth}/1 ~ {evenMonthOpenInfo.openMonth}/5 신청 휴가 : 취소 불가<br />
+                  -휴가 취소는 휴가일 기준 최소 7일 전까지 필수
                 </div>
               </div>
             )}
