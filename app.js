@@ -1364,6 +1364,59 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
   const [upcomingUnconfirmed, setUpcomingUnconfirmed] = useState([]); // 5일 이내 & 아직 미확인인 내 신청 건
   const [branchUpcomingUnconfirmed, setBranchUpcomingUnconfirmed] = useState([]); // 운용용 - 소속 전체의 5일 이내 미확인 신청
   const [adjacentRecords, setAdjacentRecords] = useState({ prev: [], next: [] }); // 운용용 - 전날/다음날 요약
+
+  // 경산 전용 - "전날 낮12시" ~ "오픈 당일 오전 8시30분"까지만 공지 (오픈은 당일 오전 9시)
+  const evenMonthOpenInfo = (() => {
+    if (currentUser.branch !== "경산") return null;
+    const nowUtcMs = Date.now() + new Date().getTimezoneOffset() * 60000;
+    const nowKst = new Date(nowUtcMs + 9 * 60 * 60000);
+    const hour = nowKst.getHours();
+    const minute = nowKst.getMinutes();
+    const isEvenMonthFirst = (d) => d.getDate() === 1 && (d.getMonth() + 1) % 2 === 0;
+    const todayLocal = new Date(nowKst.getFullYear(), nowKst.getMonth(), nowKst.getDate());
+
+    let openDate = null;
+    let isOpeningToday = false;
+
+    if (TEST_MODE) {
+      // ⚠️ 테스트 중엔 시간/날짜와 무관하게 항상 공지를 볼 수 있게 우회 (가장 가까운 미래의 짝수달 1일 기준)
+      const probe = new Date(todayLocal);
+      for (let i = 0; i < 62; i++) {
+        if (isEvenMonthFirst(probe)) break;
+        probe.setDate(probe.getDate() + 1);
+      }
+      openDate = probe;
+      isOpeningToday = probe.getTime() === todayLocal.getTime();
+    } else if (isEvenMonthFirst(todayLocal) && (hour < 8 || (hour === 8 && minute <= 30))) {
+      // 오픈 당일 오전 8시30분까지
+      openDate = todayLocal;
+      isOpeningToday = true;
+    } else {
+      const tomorrow = new Date(todayLocal);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      if (isEvenMonthFirst(tomorrow) && hour >= 12) {
+        // 오픈 전날 낮12시부터
+        openDate = tomorrow;
+        isOpeningToday = false;
+      }
+    }
+    if (!openDate) return null;
+
+    const openMonth = openDate.getMonth() + 1;
+    const openYear = openDate.getFullYear();
+    const wrap = (m, y) => (m > 12 ? { m: m - 12, y: y + 1 } : { m, y });
+    const next1 = wrap(openMonth + 1, openYear);
+    const next2 = wrap(openMonth + 2, openYear);
+    return {
+      openMonth,
+      openYear,
+      isOpeningToday,
+      next1Month: next1.m,
+      next1Year: next1.y,
+      next2Month: next2.m,
+      next2Year: next2.y,
+    };
+  })();
   // PC(넓은 화면)인지 감지 - index.html의 PC용 zoom 미디어쿼리와 같은 640px 기준
   const [isWideScreen, setIsWideScreen] = useState(
     typeof window !== "undefined" && window.innerWidth >= 640
@@ -2632,9 +2685,38 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
         <div style={{ ...modal.overlay, alignItems: "safe center", justifyContent: "center" }}>
           <div style={{ ...modal.sheet, maxWidth: "340px", borderRadius: "16px", textAlign: "center" }}>
             <div style={{ fontSize: "26px", marginBottom: "10px" }}>🙏</div>
-            <div style={{ fontSize: "15px", fontWeight: 600, lineHeight: 1.5, marginBottom: "18px" }}>
-              휴가 자리는 여러 사람이 함께 쓰는 만큼, 서로 배려하는 마음으로 신청·취소는 신중하게 부탁드려요^^
-            </div>
+            {!evenMonthOpenInfo && (
+              <div style={{ fontSize: "15px", fontWeight: 600, lineHeight: 1.5, marginBottom: "18px" }}>
+                휴가 자리는 여러 사람이 함께 쓰는 만큼, 서로 배려하는 마음으로 신청·취소는 신중하게 부탁드려요^^
+              </div>
+            )}
+            {evenMonthOpenInfo && (
+              <div
+                style={{
+                  background: "#eaf1ff",
+                  border: "1px solid #b8d0f5",
+                  borderRadius: "10px",
+                  padding: "12px",
+                  marginBottom: "14px",
+                  textAlign: "left",
+                }}
+              >
+                <div style={{ fontSize: "14px", fontWeight: 800, color: "#1b3a5c", marginBottom: "6px" }}>
+                  📢 {evenMonthOpenInfo.next1Year}년 {evenMonthOpenInfo.next1Month}·{evenMonthOpenInfo.next2Month}월
+                  휴가 장부 오픈 안내
+                </div>
+                <div style={{ fontSize: "13px", color: "#333", lineHeight: 1.6 }}>
+                  · 오픈 일시: {evenMonthOpenInfo.openMonth}월 1일({evenMonthOpenInfo.isOpeningToday ? "오늘" : "내일"}) 오전 9시<br />
+                  · 작성 방법: 밴드에 휴가작성 → 스프레드시트에 직접 작성 (밴드 작성순서 필히 확인)<br />
+                  · {evenMonthOpenInfo.openMonth}/1 ~ {evenMonthOpenInfo.openMonth}/5 신청 휴가: 취소 불가 (신중하게 신청)<br />
+                  · 휴가 취소는 휴가일 기준 최소 7일 전까지 필수<br />
+                  · 작성 순서 준수: 밴드 순서 확인 후 → 스프레드시트 해당 순번에 맞게 작성
+                </div>
+                <div style={{ fontSize: "12px", color: "#666", marginTop: "8px" }}>
+                  서로 간의 약속이니, 동료들을 위해 배려와 규정 준수 부탁드립니다.
+                </div>
+              </div>
+            )}
             {upcomingUnconfirmed.length > 0 && (
               <div
                 style={{
@@ -2661,30 +2743,56 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
         </div>
       )}
 
-      {showEtiquetteNotice && isMidManager && branchUpcomingUnconfirmed.length > 0 && (
+      {showEtiquetteNotice && isMidManager && (branchUpcomingUnconfirmed.length > 0 || evenMonthOpenInfo) && (
         <div style={{ ...modal.overlay, alignItems: "safe center", justifyContent: "center" }}>
           <div style={{ ...modal.sheet, maxWidth: "360px", borderRadius: "16px" }}>
-            <div style={{ fontSize: "15px", fontWeight: 700, marginBottom: "12px", textAlign: "center" }}>
-              ⏰ 5일 이내 확인 대기중인 신청 ({branchUpcomingUnconfirmed.length}건)
-            </div>
-            <div style={{ maxHeight: "50vh", overflowY: "auto", marginBottom: "14px" }}>
-              {branchUpcomingUnconfirmed.map((v) => (
-                <div
-                  key={v.id}
-                  style={{
-                    background: "#fff7e6",
-                    border: "1px solid #f5cf7a",
-                    borderRadius: "10px",
-                    padding: "8px 10px",
-                    marginBottom: "6px",
-                    fontSize: "13px",
-                  }}
-                >
-                  <div style={{ fontWeight: 700 }}>{v.date} ({weekdayShort(v.date)}) · {v.name}</div>
-                  <div style={{ color: "#666" }}>{v.vacationType} · {v.dia}</div>
+            {evenMonthOpenInfo && (
+              <div
+                style={{
+                  background: "#eaf1ff",
+                  border: "1px solid #b8d0f5",
+                  borderRadius: "10px",
+                  padding: "12px",
+                  marginBottom: "14px",
+                  textAlign: "left",
+                }}
+              >
+                <div style={{ fontSize: "14px", fontWeight: 800, color: "#1b3a5c", marginBottom: "6px" }}>
+                  📢 {evenMonthOpenInfo.next1Year}년 {evenMonthOpenInfo.next1Month}·{evenMonthOpenInfo.next2Month}월
+                  휴가 장부 오픈 안내
                 </div>
-              ))}
-            </div>
+                <div style={{ fontSize: "13px", color: "#333", lineHeight: 1.6 }}>
+                  · 오픈 일시: {evenMonthOpenInfo.openMonth}월 1일({evenMonthOpenInfo.isOpeningToday ? "오늘" : "내일"}) 오전 9시<br />
+                  · {evenMonthOpenInfo.openMonth}/1 ~ {evenMonthOpenInfo.openMonth}/5 신청 휴가: 취소 불가<br />
+                  · 휴가 취소는 휴가일 기준 최소 7일 전까지 필수
+                </div>
+              </div>
+            )}
+            {branchUpcomingUnconfirmed.length > 0 && (
+              <React.Fragment>
+                <div style={{ fontSize: "15px", fontWeight: 700, marginBottom: "12px", textAlign: "center" }}>
+                  ⏰ 5일 이내 확인 대기중인 신청 ({branchUpcomingUnconfirmed.length}건)
+                </div>
+                <div style={{ maxHeight: "50vh", overflowY: "auto", marginBottom: "14px" }}>
+                  {branchUpcomingUnconfirmed.map((v) => (
+                    <div
+                      key={v.id}
+                      style={{
+                        background: "#fff7e6",
+                        border: "1px solid #f5cf7a",
+                        borderRadius: "10px",
+                        padding: "8px 10px",
+                        marginBottom: "6px",
+                        fontSize: "13px",
+                      }}
+                    >
+                      <div style={{ fontWeight: 700 }}>{v.date} ({weekdayShort(v.date)}) · {v.name}</div>
+                      <div style={{ color: "#666" }}>{v.vacationType} · {v.dia}</div>
+                    </div>
+                  ))}
+                </div>
+              </React.Fragment>
+            )}
             <button style={modal.closeBtn} onClick={() => setShowEtiquetteNotice(false)}>확인</button>
           </div>
         </div>
