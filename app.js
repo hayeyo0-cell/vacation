@@ -1584,9 +1584,22 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
     setter(true);
   };
 
+  // 뒤로가기/닫기 시 순번 수정 중이던 값을 자동 저장하기 위한 ref (stale closure 방지)
+  const editingPriorityRef = useRef(null);
+
   // 안드로이드/브라우저 뒤로가기 버튼을 누르면 앱을 나가는 대신 모달/패널만 닫히도록 처리
   useEffect(() => {
     const handlePopState = () => {
+      if (editingPriorityRef.current) {
+        const { record, input } = editingPriorityRef.current;
+        const num = parseInt(input, 10);
+        if (!Number.isNaN(num) && num >= 1 && num !== record.priority) {
+          window.VacationAPI.update(record.id, { priority: num }).catch((err) =>
+            console.error("순번 자동저장 실패:", err)
+          );
+        }
+        editingPriorityRef.current = null;
+      }
       setSelectedDate(null);
       setShowRegisterForm(false);
       setShowManagerForm(false);
@@ -1644,6 +1657,17 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
   const activeRecordsForCapacity = dayRecords.filter((v) => v.status !== "취소됨");
   const activeCount = activeRecordsForCapacity.length;
   const capacityCount = activeRecordsForCapacity.filter((v) => isCapacityType(v.vacationType)).length;
+
+  // 순번 수정 중인 값을 ref에 항상 최신으로 반영 (뒤로가기/닫기 시 자동 저장용)
+  useEffect(() => {
+    if (editingPriorityId) {
+      const rec = dayRecords.find((v) => v.id === editingPriorityId);
+      editingPriorityRef.current = rec ? { record: rec, input: priorityInput } : null;
+    } else {
+      editingPriorityRef.current = null;
+    }
+  });
+
   const gyeongsanInfo = selectedDate
     ? (() => {
         const capacity = gyeongsanCapacity(currentUser.branch, selectedDate, activeRecordsForCapacity, holidaySet);
