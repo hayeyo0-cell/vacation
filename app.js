@@ -3177,7 +3177,10 @@ function LotteryApplyPanel({ currentUser, onClose }) {
 
   const today = todayStr();
   const openEvents = events.filter((e) => e.applyStart <= today && today <= e.applyEnd && e.status === "응모중");
-  const pastEvents = events.filter((e) => !(e.applyStart <= today && today <= e.applyEnd) || e.status !== "응모중");
+  const upcomingEvents = events.filter((e) => e.applyStart > today && e.status === "응모중");
+  const pastEvents = events.filter(
+    (e) => !openEvents.includes(e) && !upcomingEvents.includes(e)
+  );
 
   const entryFor = (eventId, date) => myEntries.find((en) => en.eventId === eventId && en.date === date);
 
@@ -3226,10 +3229,28 @@ function LotteryApplyPanel({ currentUser, onClose }) {
 
         {loading && <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0" }}>불러오는 중...</div>}
 
-        {!loading && openEvents.length === 0 && (
+        {!loading && openEvents.length === 0 && upcomingEvents.length === 0 && (
           <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0" }}>
             지금 응모 가능한 명절 이벤트가 없어요
           </div>
+        )}
+
+        {!loading && upcomingEvents.length > 0 && (
+          <React.Fragment>
+            <div style={{ fontSize: "13px", fontWeight: 700, color: "#888", margin: "4px 0 8px" }}>
+              예정된 이벤트 (아직 응모 시작 전)
+            </div>
+            {upcomingEvents.map((event) => (
+              <div key={event.id} style={{ ...modal.card, background: "#f2f2f2" }}>
+                <div>
+                  <div style={modal.name}>{event.year}년 {event.holidayName}</div>
+                  <div style={modal.typeRow}>
+                    {event.applyStart}부터 응모 가능 (대상: {(event.dates || []).join(", ")})
+                  </div>
+                </div>
+              </div>
+            ))}
+          </React.Fragment>
         )}
 
         {!loading &&
@@ -3616,14 +3637,29 @@ function LotteryAdminPanel({ onClose, employees, managers, holidaySet }) {
             });
             return (
               <div key={event.id} style={{ ...modal.card, flexDirection: "column", alignItems: "stretch" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "8px" }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={modal.name}>{event.year}년 {event.holidayName}</div>
                     <div style={modal.typeRow}>
                       응모 {event.applyStart}~{event.applyEnd} · 상태: {event.status}
                     </div>
                   </div>
-                  <button style={adminStyles.rejectBtn} onClick={() => handleRemoveEvent(event)}>삭제</button>
+                  <button
+                    style={{
+                      padding: "5px 10px",
+                      borderRadius: "7px",
+                      border: "none",
+                      background: "#e02020",
+                      color: "#fff",
+                      fontWeight: 700,
+                      fontSize: "12px",
+                      whiteSpace: "nowrap",
+                      flexShrink: 0,
+                    }}
+                    onClick={() => handleRemoveEvent(event)}
+                  >
+                    삭제
+                  </button>
                 </div>
                 <div style={{ marginTop: "8px" }}>
                   {(event.dates || []).map((d) => (
