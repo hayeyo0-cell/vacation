@@ -1360,6 +1360,9 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
   const [showManagerAdmin, setShowManagerAdmin] = useState(false);
   const [showImportTest, setShowImportTest] = useState(false);
   const [showMyVacations, setShowMyVacations] = useState(false);
+  const [showLotteryAdmin, setShowLotteryAdmin] = useState(false); // 명절 추첨 관리 (관리자)
+  const [showLotteryApply, setShowLotteryApply] = useState(false); // 명절 추첨 응모 (기관사)
+  const [showAdminMenu, setShowAdminMenu] = useState(false); // 관리자 메뉴 모음
   const [showEtiquetteNotice, setShowEtiquetteNotice] = useState(true); // 로그인할 때마다 한 번 안내
   const [upcomingUnconfirmed, setUpcomingUnconfirmed] = useState([]); // 5일 이내 & 아직 미확인인 내 신청 건
   const [branchUpcomingUnconfirmed, setBranchUpcomingUnconfirmed] = useState([]); // 운용용 - 소속 전체의 5일 이내 미확인 신청
@@ -1617,7 +1620,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
   // 날짜 모달/사이드 패널(내 휴가현황·승인 관리·운용 인원·가져오기 테스트) 공통으로 쓰는 닫기 함수.
   // 뒤로가기 버튼을 눌러도 popstate 핸들러가 똑같이 처리해서, 항상 달력 화면으로 돌아가요.
   const closeModal = () => {
-    if (selectedDate || showAdmin || showManagerAdmin || showImportTest || showMyVacations) {
+    if (selectedDate || showAdmin || showManagerAdmin || showImportTest || showMyVacations || showLotteryAdmin || showLotteryApply || showAdminMenu) {
       window.history.back();
     }
   };
@@ -1651,6 +1654,9 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
       setShowManagerAdmin(false);
       setShowImportTest(false);
       setShowMyVacations(false);
+      setShowLotteryAdmin(false);
+      setShowLotteryApply(false);
+      setShowAdminMenu(false);
     };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
@@ -2156,17 +2162,14 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
                 내 휴가현황
               </button>
             )}
-            {isAdmin && (
-              <button style={adminStyles.adminBtn} onClick={() => openPanel(setShowAdmin)}>승인 관리</button>
-            )}
-            {isAdmin && (
-              <button style={adminStyles.adminBtn} onClick={() => openPanel(setShowManagerAdmin)}>
-                운용 인원
+            {currentUser.branch === "경산" && !isMidManager && (
+              <button style={adminStyles.adminBtn} onClick={() => openPanel(setShowLotteryApply)}>
+                🎋 명절 응모
               </button>
             )}
-            {isAdmin && TEST_MODE && (
-              <button style={adminStyles.adminBtn} onClick={() => openPanel(setShowImportTest)}>
-                가져오기 테스트
+            {isAdmin && (
+              <button style={adminStyles.adminBtn} onClick={() => openPanel(setShowAdminMenu)}>
+                ⚙️ 관리자 메뉴
               </button>
             )}
           </div>
@@ -2662,6 +2665,55 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
         </div>
       )}
 
+      {showAdminMenu && (
+        <div style={modal.overlay} onClick={closeModal}>
+          <div style={{ ...modal.sheet, maxWidth: "340px" }} onClick={(e) => e.stopPropagation()}>
+            <div style={modal.dateTitle}>⚙️ 관리자 메뉴</div>
+            <button
+              style={styles.button}
+              onClick={() => {
+                setShowAdminMenu(false);
+                openPanel(setShowAdmin);
+              }}
+            >
+              승인 관리
+            </button>
+            <button
+              style={styles.button}
+              onClick={() => {
+                setShowAdminMenu(false);
+                openPanel(setShowManagerAdmin);
+              }}
+            >
+              운용 인원
+            </button>
+            {currentUser.branch === "경산" && (
+              <button
+                style={styles.button}
+                onClick={() => {
+                  setShowAdminMenu(false);
+                  openPanel(setShowLotteryAdmin);
+                }}
+              >
+                🎋 명절 추첨 관리
+              </button>
+            )}
+            {TEST_MODE && (
+              <button
+                style={styles.button}
+                onClick={() => {
+                  setShowAdminMenu(false);
+                  openPanel(setShowImportTest);
+                }}
+              >
+                가져오기 테스트
+              </button>
+            )}
+            <button style={modal.closeBtn} onClick={closeModal}>닫기</button>
+          </div>
+        </div>
+      )}
+
       {showAdmin && <AdminPanel onClose={closeModal} employees={employees} managers={managers} />}
       {showManagerAdmin && (
         <ManagerAdminPanel branch={currentUser.branch} onClose={closeModal} />
@@ -2671,6 +2723,12 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
       )}
       {showMyVacations && (
         <MyVacationsPanel currentUser={currentUser} onClose={closeModal} employees={employees} />
+      )}
+      {showLotteryAdmin && (
+        <LotteryAdminPanel onClose={closeModal} employees={employees} managers={managers} holidaySet={holidaySet} />
+      )}
+      {showLotteryApply && (
+        <LotteryApplyPanel currentUser={currentUser} onClose={closeModal} />
       )}
       {showEtiquetteNotice && !isMidManager && (
         <div style={{ ...modal.overlay, alignItems: "safe center", justifyContent: "center" }}>
@@ -3085,6 +3143,520 @@ function MyVacationsPanel({ currentUser, onClose, employees }) {
               </div>
             );
           })}
+        <button style={modal.closeBtn} onClick={onClose}>닫기</button>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* 명절 연휴 추첨 - 응모 패널 (경산 기관사 전용)                          */
+/* ------------------------------------------------------------------ */
+function LotteryApplyPanel({ currentUser, onClose }) {
+  const [events, setEvents] = useState([]);
+  const [myEntries, setMyEntries] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [formState, setFormState] = useState({}); // { [date]: { type, dia } }
+  const [saving, setSaving] = useState(false);
+
+  const load = () => {
+    setLoading(true);
+    waitForFirestore()
+      .then(() => Promise.all([window.LotteryAPI.listEvents(), window.LotteryAPI.listMyEntries(currentUser.id)]))
+      .then(([eventList, entryList]) => {
+        setEvents((eventList || []).filter((e) => e.branch === currentUser.branch));
+        setMyEntries(entryList || []);
+      })
+      .catch((err) => alert("불러오기 실패: " + (err && err.message ? err.message : err)))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  const today = todayStr();
+  const openEvents = events.filter((e) => e.applyStart <= today && today <= e.applyEnd && e.status === "응모중");
+  const pastEvents = events.filter((e) => !(e.applyStart <= today && today <= e.applyEnd) || e.status !== "응모중");
+
+  const entryFor = (eventId, date) => myEntries.find((en) => en.eventId === eventId && en.date === date);
+
+  const handleApply = (event, date) => {
+    const state = formState[date] || {};
+    if (!state.type) {
+      alert("휴가 종류를 선택해주세요");
+      return;
+    }
+    if (!state.dia || !state.dia.trim()) {
+      alert("DIA를 입력해주세요");
+      return;
+    }
+    const entryId = `${event.id}_${currentUser.id}_${date}`;
+    setSaving(true);
+    window.LotteryAPI.apply(entryId, {
+      eventId: event.id,
+      employeeId: currentUser.id,
+      name: currentUser.name,
+      branch: currentUser.branch,
+      date,
+      vacationType: state.type,
+      dia: state.dia.trim(),
+    })
+      .then(() => load())
+      .catch((err) => alert("응모 실패: " + (err && err.message ? err.message : err)))
+      .finally(() => setSaving(false));
+  };
+
+  const handleCancelApply = (entry) => {
+    if (!confirm(`${entry.date} 응모를 취소할까요?`)) return;
+    setSaving(true);
+    window.LotteryAPI.cancelApply(entry.id)
+      .then(() => load())
+      .catch((err) => alert("취소 실패: " + (err && err.message ? err.message : err)))
+      .finally(() => setSaving(false));
+  };
+
+  return (
+    <div style={modal.overlay} onClick={onClose}>
+      <div style={modal.sheet} onClick={(e) => e.stopPropagation()}>
+        <div style={modal.dateTitle}>🎋 명절 연휴 추첨 응모</div>
+        <div style={{ ...modal.countText, marginBottom: "16px" }}>
+          날짜별로 원하는 휴가 종류·DIA를 선택해서 응모해주세요. 자리보다 응모자가 많으면 추첨해요.
+        </div>
+
+        {loading && <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0" }}>불러오는 중...</div>}
+
+        {!loading && openEvents.length === 0 && (
+          <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0" }}>
+            지금 응모 가능한 명절 이벤트가 없어요
+          </div>
+        )}
+
+        {!loading &&
+          openEvents.map((event) => (
+            <div key={event.id} style={{ marginBottom: "20px" }}>
+              <div style={{ fontSize: "15px", fontWeight: 700, color: "#1b3a5c", marginBottom: "4px" }}>
+                {event.year}년 {event.holidayName}
+              </div>
+              <div style={{ fontSize: "12px", color: "#888", marginBottom: "10px" }}>
+                응모 기간: {event.applyStart} ~ {event.applyEnd}
+              </div>
+              {(event.dates || []).map((date) => {
+                const entry = entryFor(event.id, date);
+                return (
+                  <div key={date} style={{ ...modal.card, flexDirection: "column", alignItems: "stretch" }}>
+                    <div style={{ fontWeight: 700, marginBottom: "6px" }}>
+                      {date} ({weekdayShort(date)})
+                    </div>
+                    {entry ? (
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <div style={{ fontSize: "13px" }}>
+                          {entry.vacationType} · {entry.dia}
+                          {entry.result === "대기중" && <span style={{ color: "#e08a20" }}> · 응모완료(추첨 대기)</span>}
+                          {entry.result === "당첨" && <span style={{ color: "#1caa5c" }}> · ✅당첨</span>}
+                          {entry.result === "낙첨" && <span style={{ color: "#e02020" }}> · 낙첨</span>}
+                        </div>
+                        {entry.result === "대기중" && (
+                          <button style={modal.smallCancelBtn} disabled={saving} onClick={() => handleCancelApply(entry)}>
+                            응모취소
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                        <select
+                          style={{ ...styles.select, flex: 1, marginBottom: 0 }}
+                          value={(formState[date] && formState[date].type) || ""}
+                          onChange={(e) =>
+                            setFormState((prev) => ({ ...prev, [date]: { ...prev[date], type: e.target.value } }))
+                          }
+                        >
+                          <option value="">휴가종류</option>
+                          {CAPACITY_TYPES.map((t) => (
+                            <option key={t} value={t}>{t}</option>
+                          ))}
+                        </select>
+                        <input
+                          style={{ ...styles.select, flex: "0 0 90px", marginBottom: 0 }}
+                          placeholder="DIA"
+                          value={(formState[date] && formState[date].dia) || ""}
+                          onChange={(e) =>
+                            setFormState((prev) => ({ ...prev, [date]: { ...prev[date], dia: e.target.value } }))
+                          }
+                        />
+                        <button
+                          style={{ ...adminStyles.approveBtn, flexShrink: 0 }}
+                          disabled={saving}
+                          onClick={() => handleApply(event, date)}
+                        >
+                          응모
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+
+        {!loading && myEntries.some((en) => pastEvents.some((e) => e.id === en.eventId)) && (
+          <React.Fragment>
+            <div style={{ fontSize: "13px", fontWeight: 700, color: "#888", margin: "16px 0 8px" }}>
+              지난 응모 결과
+            </div>
+            {pastEvents.map((event) =>
+              myEntries
+                .filter((en) => en.eventId === event.id)
+                .map((en) => (
+                  <div key={en.id} style={modal.card}>
+                    <div>
+                      <div style={modal.name}>{event.year}년 {event.holidayName} · {en.date}</div>
+                      <div style={modal.typeRow}>{en.vacationType} · {en.dia}</div>
+                    </div>
+                    <div
+                      style={{
+                        fontWeight: 700,
+                        color: en.result === "당첨" ? "#1caa5c" : en.result === "낙첨" ? "#e02020" : "#888",
+                      }}
+                    >
+                      {en.result}
+                    </div>
+                  </div>
+                ))
+            )}
+          </React.Fragment>
+        )}
+
+        <button style={modal.closeBtn} onClick={onClose}>닫기</button>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* 명절 연휴 추첨 - 관리자 패널 (경산 전용)                              */
+/* ------------------------------------------------------------------ */
+function LotteryAdminPanel({ onClose, employees, managers, holidaySet }) {
+  const [events, setEvents] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [entriesByEvent, setEntriesByEvent] = useState({}); // { [eventId]: entries[] }
+  const [drawing, setDrawing] = useState(null); // 추첨 진행 중인 eventId
+
+  // 새 이벤트 생성 폼 상태
+  const [showNewForm, setShowNewForm] = useState(false);
+  const [holidayName, setHolidayName] = useState("추석");
+  const [year, setYear] = useState(new Date().getFullYear());
+  const [newDates, setNewDates] = useState([]);
+  const [dateInput, setDateInput] = useState("");
+  const [applyStart, setApplyStart] = useState("");
+  const [applyEnd, setApplyEnd] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const load = () => {
+    setLoading(true);
+    waitForFirestore()
+      .then(() => window.LotteryAPI.listEvents())
+      .then((list) => {
+        const ksList = (list || []).filter((e) => e.branch === "경산");
+        setEvents(ksList);
+        return Promise.all(
+          ksList.map((e) =>
+            window.LotteryAPI.listEntriesForEvent(e.id).then((entries) => [e.id, entries])
+          )
+        );
+      })
+      .then((pairs) => {
+        const map = {};
+        (pairs || []).forEach(([id, entries]) => {
+          map[id] = entries;
+        });
+        setEntriesByEvent(map);
+      })
+      .catch((err) => alert("불러오기 실패: " + (err && err.message ? err.message : err)))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  const handleAddDate = () => {
+    if (!dateInput) return;
+    if (newDates.includes(dateInput)) {
+      alert("이미 추가된 날짜예요");
+      return;
+    }
+    setNewDates((prev) => [...prev, dateInput].sort());
+    setDateInput("");
+  };
+
+  const handleRemoveDate = (d) => {
+    setNewDates((prev) => prev.filter((x) => x !== d));
+  };
+
+  const handleCreateEvent = () => {
+    if (newDates.length === 0) {
+      alert("대상 날짜를 하나 이상 추가해주세요");
+      return;
+    }
+    if (!applyStart || !applyEnd) {
+      alert("응모 시작일/마감일을 입력해주세요");
+      return;
+    }
+    setSaving(true);
+    window.LotteryAPI.createEvent({
+      branch: "경산",
+      holidayName,
+      year: parseInt(year, 10),
+      dates: newDates,
+      applyStart,
+      applyEnd,
+    })
+      .then(() => {
+        setShowNewForm(false);
+        setNewDates([]);
+        setApplyStart("");
+        setApplyEnd("");
+        load();
+      })
+      .catch((err) => alert("생성 실패: " + (err && err.message ? err.message : err)))
+      .finally(() => setSaving(false));
+  };
+
+  const handleCloseApplication = (event) => {
+    if (!confirm(`"${event.year}년 ${event.holidayName}" 응모를 지금 마감할까요?\n마감 후에는 추첨을 실행할 수 있어요.`))
+      return;
+    window.LotteryAPI.updateEvent(event.id, { status: "마감" })
+      .then(() => load())
+      .catch((err) => alert("마감 실패: " + (err && err.message ? err.message : err)));
+  };
+
+  const handleRemoveEvent = (event) => {
+    if (!confirm(`"${event.year}년 ${event.holidayName}" 이벤트를 완전히 삭제할까요?\n응모 기록도 함께 삭제되고, 되돌릴 수 없어요.`))
+      return;
+    const entries = entriesByEvent[event.id] || [];
+    Promise.all(entries.map((en) => window.LotteryAPI.cancelApply(en.id)))
+      .then(() => window.LotteryAPI.removeEvent(event.id))
+      .then(() => load())
+      .catch((err) => alert("삭제 실패: " + (err && err.message ? err.message : err)));
+  };
+
+  // 추첨 실행 - 날짜별로 자리(보장인원 여유) 대비 응모자 수를 비교해서 자리보다 많으면 랜덤 추첨.
+  // 직전 같은 명절(holidayName)에 당첨됐던 사람은 이번 추첨에서 자동 제외 (첫 시행이면 제외 대상 없음).
+  const handleRunDraw = async (event) => {
+    if (!confirm(`"${event.year}년 ${event.holidayName}" 추첨을 실행할까요?\n실행하면 당첨자는 바로 실제 휴가로 등록되고, 되돌리기 어려워요.`))
+      return;
+    setDrawing(event.id);
+    try {
+      const entries = (entriesByEvent[event.id] || []).filter((en) => en.result === "대기중");
+
+      // 직전 같은 명절 당첨자 조회 (이 이벤트보다 먼저 추첨 완료된 것들 중 가장 최근)
+      const pastSameHoliday = events
+        .filter((e) => e.holidayName === event.holidayName && e.id !== event.id && e.status === "추첨완료")
+        .sort((a, b) => (b.year || 0) - (a.year || 0));
+      let excludedIds = new Set();
+      if (pastSameHoliday.length > 0) {
+        const pastEntries = await window.LotteryAPI.listEntriesForEvent(pastSameHoliday[0].id);
+        pastEntries.filter((e) => e.result === "당첨").forEach((e) => excludedIds.add(e.employeeId));
+      }
+
+      let totalWinners = 0;
+      let totalLosers = 0;
+
+      for (const date of event.dates) {
+        const dateEntries = entries.filter((en) => en.date === date);
+        if (dateEntries.length === 0) continue;
+
+        const existing = await window.VacationAPI.getByDate(date);
+        const activeExisting = existing.filter((v) => v.branch === "경산" && v.status !== "취소됨");
+        const activeCapacityCount = activeExisting.filter((v) => isCapacityType(v.vacationType)).length;
+        const yearHolidays = await fetchHolidays(parseInt(date.slice(0, 4), 10));
+        const capacity = gyeongsanCapacity("경산", date, activeExisting, yearHolidays);
+        const remaining = Math.max(0, capacity - activeCapacityCount);
+
+        const eligible = dateEntries.filter((en) => !excludedIds.has(en.employeeId));
+        const preExcluded = dateEntries.filter((en) => excludedIds.has(en.employeeId));
+
+        let winners = [];
+        if (eligible.length <= remaining) {
+          winners = eligible;
+        } else {
+          const shuffled = [...eligible].sort(() => Math.random() - 0.5);
+          winners = shuffled.slice(0, remaining);
+        }
+        const winnerIdSet = new Set(winners.map((w) => w.id));
+
+        for (const en of dateEntries) {
+          if (preExcluded.includes(en)) {
+            await window.LotteryAPI.updateEntry(en.id, { result: "제외(직전당첨)" });
+            totalLosers += 1;
+            continue;
+          }
+          const isWinner = winnerIdSet.has(en.id);
+          await window.LotteryAPI.updateEntry(en.id, { result: isWinner ? "당첨" : "낙첨" });
+          if (isWinner) {
+            totalWinners += 1;
+            const docId = `${en.employeeId}_${en.date}`;
+            await window.VacationAPI.addOnce(docId, {
+              name: en.name,
+              branch: en.branch,
+              employeeId: en.employeeId,
+              vacationType: en.vacationType,
+              dia: en.dia,
+              date: en.date,
+            });
+          } else {
+            totalLosers += 1;
+          }
+        }
+      }
+
+      await window.LotteryAPI.updateEvent(event.id, { status: "추첨완료" });
+      alert(`추첨 완료! 당첨 ${totalWinners}건 · 낙첨/제외 ${totalLosers}건`);
+      load();
+    } catch (err) {
+      console.error(err);
+      alert("추첨 중 오류: " + (err && err.message ? err.message : err));
+    } finally {
+      setDrawing(null);
+    }
+  };
+
+  return (
+    <div style={modal.overlay} onClick={onClose}>
+      <div style={modal.sheet} onClick={(e) => e.stopPropagation()}>
+        <div style={modal.dateTitle}>🎋 명절 연휴 추첨 관리</div>
+        <div style={{ ...modal.countText, marginBottom: "14px" }}>경산 전용 기능이에요</div>
+
+        <button
+          style={{ ...adminStyles.approveBtn, width: "100%", padding: "12px", marginBottom: "16px" }}
+          onClick={() => setShowNewForm((v) => !v)}
+        >
+          {showNewForm ? "새 이벤트 만들기 닫기" : "+ 새 명절 응모 이벤트 만들기"}
+        </button>
+
+        {showNewForm && (
+          <div style={{ background: "#f8f9fb", borderRadius: "12px", padding: "14px", marginBottom: "18px" }}>
+            <div style={modal.formRow}>
+              <label style={modal.label}>명절명</label>
+              <select style={modal.input} value={holidayName} onChange={(e) => setHolidayName(e.target.value)}>
+                <option value="추석">추석</option>
+                <option value="설날">설날</option>
+                <option value="기타">기타</option>
+              </select>
+            </div>
+            <div style={modal.formRow}>
+              <label style={modal.label}>연도</label>
+              <input
+                style={modal.input}
+                type="number"
+                value={year}
+                onChange={(e) => setYear(e.target.value)}
+              />
+            </div>
+            <div style={modal.formRow}>
+              <label style={modal.label}>대상 날짜 추가</label>
+              <div style={{ display: "flex", gap: "6px" }}>
+                <input
+                  style={{ ...modal.input, flex: 1 }}
+                  type="date"
+                  value={dateInput}
+                  onChange={(e) => setDateInput(e.target.value)}
+                />
+                <button style={adminStyles.approveBtn} onClick={handleAddDate}>추가</button>
+              </div>
+              {newDates.length > 0 && (
+                <div style={{ marginTop: "8px", display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                  {newDates.map((d) => (
+                    <span
+                      key={d}
+                      style={{
+                        background: "#eaf1ff",
+                        borderRadius: "999px",
+                        padding: "4px 10px",
+                        fontSize: "12px",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "4px",
+                      }}
+                    >
+                      {d}
+                      <span style={{ cursor: "pointer", color: "#e02020" }} onClick={() => handleRemoveDate(d)}>✕</span>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div style={modal.formRow}>
+              <label style={modal.label}>응모 시작일</label>
+              <input style={modal.input} type="date" value={applyStart} onChange={(e) => setApplyStart(e.target.value)} />
+            </div>
+            <div style={modal.formRow}>
+              <label style={modal.label}>응모 마감일</label>
+              <input style={modal.input} type="date" value={applyEnd} onChange={(e) => setApplyEnd(e.target.value)} />
+            </div>
+            <button style={modal.addBtn} disabled={saving} onClick={handleCreateEvent}>
+              {saving ? "만드는 중..." : "이벤트 만들기"}
+            </button>
+          </div>
+        )}
+
+        {loading && <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0" }}>불러오는 중...</div>}
+        {!loading && events.length === 0 && (
+          <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0" }}>등록된 이벤트가 없어요</div>
+        )}
+
+        {!loading &&
+          events.map((event) => {
+            const entries = entriesByEvent[event.id] || [];
+            const byDate = {};
+            entries.forEach((en) => {
+              if (!byDate[en.date]) byDate[en.date] = [];
+              byDate[en.date].push(en);
+            });
+            return (
+              <div key={event.id} style={{ ...modal.card, flexDirection: "column", alignItems: "stretch" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div>
+                    <div style={modal.name}>{event.year}년 {event.holidayName}</div>
+                    <div style={modal.typeRow}>
+                      응모 {event.applyStart}~{event.applyEnd} · 상태: {event.status}
+                    </div>
+                  </div>
+                  <button style={adminStyles.rejectBtn} onClick={() => handleRemoveEvent(event)}>삭제</button>
+                </div>
+                <div style={{ marginTop: "8px" }}>
+                  {(event.dates || []).map((d) => (
+                    <div key={d} style={{ fontSize: "12px", color: "#666", marginTop: "2px" }}>
+                      {d}: 응모 {(byDate[d] || []).length}명
+                      {(byDate[d] || []).some((en) => en.result !== "대기중") &&
+                        ` (당첨 ${(byDate[d] || []).filter((en) => en.result === "당첨").length}명)`}
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display: "flex", gap: "6px", marginTop: "10px" }}>
+                  {event.status === "응모중" && (
+                    <button style={adminStyles.resetBtn} onClick={() => handleCloseApplication(event)}>
+                      응모 마감
+                    </button>
+                  )}
+                  {event.status === "마감" && (
+                    <button
+                      style={adminStyles.approveBtn}
+                      disabled={drawing === event.id}
+                      onClick={() => handleRunDraw(event)}
+                    >
+                      {drawing === event.id ? "추첨 중..." : "🎲 추첨 실행"}
+                    </button>
+                  )}
+                  {event.status === "추첨완료" && (
+                    <span style={{ fontSize: "12px", color: "#1caa5c", fontWeight: 700 }}>✅ 추첨 완료</span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+
         <button style={modal.closeBtn} onClick={onClose}>닫기</button>
       </div>
     </div>
