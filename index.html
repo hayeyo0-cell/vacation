@@ -83,6 +83,8 @@
   const APPROVAL_COLLECTION = "approvals";
   const MANAGER_COLLECTION = "managers";
   const QUOTA_COLLECTION = "quotas";
+  const LOTTERY_EVENT_COLLECTION = "lottery_events";
+  const LOTTERY_ENTRY_COLLECTION = "lottery_entries";
 
   // app.js(Babel 스크립트)에서 window.VacationAPI.xxx() 형태로 호출
   window.VacationAPI = {
@@ -300,6 +302,66 @@
     async list() {
       const snap = await getDocs(collection(db, QUOTA_COLLECTION));
       return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    },
+  };
+
+  // 명절 연휴 추첨 - 이벤트(응모 기간/대상 날짜) 관리 API (경산 전용, 관리자)
+  window.LotteryAPI = {
+    // 전체 이벤트 목록 (최신순)
+    async listEvents() {
+      const snap = await getDocs(collection(db, LOTTERY_EVENT_COLLECTION));
+      const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      list.sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
+      return list;
+    },
+    // 새 응모 이벤트 생성
+    async createEvent(data) {
+      const ref = await addDoc(collection(db, LOTTERY_EVENT_COLLECTION), {
+        ...data,
+        status: "응모중",
+        createdAt: serverTimestamp(),
+      });
+      return ref.id;
+    },
+    // 이벤트 정보 수정 (추첨 완료 처리 등)
+    async updateEvent(id, patch) {
+      await updateDoc(doc(db, LOTTERY_EVENT_COLLECTION, id), {
+        ...patch,
+        updatedAt: serverTimestamp(),
+      });
+    },
+    // 이벤트 삭제 (관리자 전용, 되돌릴 수 없음)
+    async removeEvent(id) {
+      await deleteDoc(doc(db, LOTTERY_EVENT_COLLECTION, id));
+    },
+    // 특정 이벤트의 응모 기록 전체 조회
+    async listEntriesForEvent(eventId) {
+      const q = query(collection(db, LOTTERY_ENTRY_COLLECTION), where("eventId", "==", eventId));
+      const snap = await getDocs(q);
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    },
+    // 특정 직원의 전체 응모 기록 조회 (본인 결과 확인용)
+    async listMyEntries(employeeId) {
+      const q = query(collection(db, LOTTERY_ENTRY_COLLECTION), where("employeeId", "==", employeeId));
+      const snap = await getDocs(q);
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    },
+    // 응모/재응모 - "이벤트ID_직원ID_날짜"를 고정 ID로 써서 중복 응모 방지
+    async apply(entryId, entry) {
+      await setDoc(doc(db, LOTTERY_ENTRY_COLLECTION, entryId), {
+        ...entry,
+        result: "대기중",
+        appliedAt: serverTimestamp(),
+      });
+      return entryId;
+    },
+    // 응모 취소 (응모 기간 중에만 - 화면단에서 제한)
+    async cancelApply(entryId) {
+      await deleteDoc(doc(db, LOTTERY_ENTRY_COLLECTION, entryId));
+    },
+    // 추첨 결과 반영
+    async updateEntry(entryId, patch) {
+      await updateDoc(doc(db, LOTTERY_ENTRY_COLLECTION, entryId), patch);
     },
   };
 
