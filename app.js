@@ -565,7 +565,7 @@ function App() {
     }
 
     // TEST_MODE에서는 "이미 승인된 기기" 같은 중복 차단만 건너뛰고, 그 외 절차(교번확인·PIN)는 그대로 거쳐요
-    if (TEST_MODE || ADMIN_NAMES.includes(emp.name) || isMidManagerUser(emp, managers)) {
+    if (TEST_MODE || isAdminUser(emp) || isMidManagerUser(emp, managers)) {
       setSelectedEmp(emp);
       setStep("setPin");
       return;
@@ -613,7 +613,7 @@ function App() {
     saveLocalAuth(updated);
     setLocalAuth(updated);
 
-    if (TEST_MODE || ADMIN_NAMES.includes(selectedEmp.name) || isMidManagerUser(selectedEmp, managers)) {
+    if (TEST_MODE || isAdminUser(selectedEmp) || isMidManagerUser(selectedEmp, managers)) {
       // 관리자는 승인 절차 없이 바로 진입 (본인이 승인권자니까)
       setStep("main");
       return;
@@ -642,7 +642,7 @@ function App() {
       return;
     }
 
-    if (TEST_MODE || ADMIN_NAMES.includes(loginTarget.name) || isMidManagerUser(loginTarget, managers)) {
+    if (TEST_MODE || isAdminUser(loginTarget) || isMidManagerUser(loginTarget, managers)) {
       setStep("main");
       return;
     }
@@ -1354,7 +1354,7 @@ function pad2(n) {
   return String(n).padStart(2, "0");
 }
 function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
-  const isAdmin = ADMIN_NAMES.includes(currentUser.name);
+  const isAdmin = isAdminUser(currentUser);
   const isMidManager = isMidManagerUser(currentUser, managers);
   const [showAdmin, setShowAdmin] = useState(false);
   const [showManagerAdmin, setShowManagerAdmin] = useState(false);
@@ -1365,6 +1365,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
   const [showAdminMenu, setShowAdminMenu] = useState(false); // 관리자 메뉴 모음
   const [showEtiquetteNotice, setShowEtiquetteNotice] = useState(true); // 로그인할 때마다 한 번 안내
   const [upcomingUnconfirmed, setUpcomingUnconfirmed] = useState([]); // 5일 이내 & 아직 미확인인 내 신청 건
+  const [lotteryResultsToShow, setLotteryResultsToShow] = useState([]); // 아직 확인 안 한 명절 추첨 결과
   const [branchUpcomingUnconfirmed, setBranchUpcomingUnconfirmed] = useState([]); // 운용용 - 소속 전체의 5일 이내 미확인 신청
   const [adjacentRecords, setAdjacentRecords] = useState({ prev: [], next: [] }); // 운용용 - 전날/다음날 요약
 
@@ -1494,6 +1495,26 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
         setUpcomingUnconfirmed(upcoming);
       })
       .catch((err) => console.error("확인 대기 알림 조회 실패:", err));
+  }, [currentUser.id]);
+
+  // 앱 접속(로그인) 시 한 번 - 경산 기관사, 오늘 추첨된 이벤트의 결과만 하루 동안 알림 (매너팝업 대신 단독으로)
+  useEffect(() => {
+    if (isMidManager || currentUser.branch !== "경산") return;
+    waitForFirestore()
+      .then(() => Promise.all([window.LotteryAPI.listEvents(), window.LotteryAPI.listMyEntries(currentUser.id)]))
+      .then(([events, entries]) => {
+        const today = koreaTodayStr();
+        const drawnTodayEventIds = new Set(
+          (events || [])
+            .filter((e) => e.status === "추첨완료" && e.updatedAt && formatEntryDateOnly(e.updatedAt) === today)
+            .map((e) => e.id)
+        );
+        const results = (entries || []).filter(
+          (en) => en.result !== "대기중" && drawnTodayEventIds.has(en.eventId)
+        );
+        setLotteryResultsToShow(results);
+      })
+      .catch((err) => console.error("명절 추첨 결과 조회 실패:", err));
   }, [currentUser.id]);
 
   // 앱 접속(로그인) 시 한 번 - 운용용, 소속 전체에서 5일 이내인데 아직 미확인인 신청 알림
@@ -2730,7 +2751,39 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
       {showLotteryApply && (
         <LotteryApplyPanel currentUser={currentUser} onClose={closeModal} />
       )}
-      {showEtiquetteNotice && !isMidManager && (
+      {showEtiquetteNotice && !isMidManager && lotteryResultsToShow.length > 0 && (
+        <div style={{ ...modal.overlay, alignItems: "safe center", justifyContent: "center" }}>
+          <div style={{ ...modal.sheet, maxWidth: "340px", borderRadius: "16px", textAlign: "center" }}>
+            <div style={{ fontSize: "26px", marginBottom: "10px" }}>🎋</div>
+            <div style={{ fontSize: "15px", fontWeight: 700, marginBottom: "12px" }}>
+              명절 연휴 추첨 결과가 나왔어요
+            </div>
+            <div style={{ textAlign: "left" }}>
+              {lotteryResultsToShow.map((en) => (
+                <div
+                  key={en.id}
+                  style={{
+                    background: "#f3eaff",
+                    border: "1px solid #d3b8f5",
+                    borderRadius: "10px",
+                    padding: "10px 12px",
+                    marginBottom: "8px",
+                    fontSize: "13px",
+                  }}
+                >
+                  {en.date} ({weekdayShort(en.date)}) · {en.vacationType} ·{" "}
+                  <span style={{ fontWeight: 700, color: en.result === "당첨" ? "#1caa5c" : "#e02020" }}>
+                    {en.result}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <button style={modal.closeBtn} onClick={() => setShowEtiquetteNotice(false)}>확인</button>
+          </div>
+        </div>
+      )}
+
+      {showEtiquetteNotice && !isMidManager && lotteryResultsToShow.length === 0 && (
         <div style={{ ...modal.overlay, alignItems: "safe center", justifyContent: "center" }}>
           <div style={{ ...modal.sheet, maxWidth: "340px", borderRadius: "16px", textAlign: "center" }}>
             <div style={{ fontSize: "26px", marginBottom: "10px" }}>🙏</div>
@@ -2860,7 +2913,16 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
 /* 관리자 승인 패널 (관리자 이름으로 로그인했을 때만 버튼 노출)             */
 /* ------------------------------------------------------------------ */
 // 관리자로 지정할 이름 목록. 나중에 관리자가 바뀌면 여기 이름만 수정/추가하면 돼요.
-const ADMIN_NAMES = ["권재림"];
+const ADMIN_NAMES = [
+  { name: "권재림", branch: "경산" },
+  { name: "권세환", branch: "경산" },
+];
+
+// 이름뿐 아니라 소속까지 같아야 관리자로 인정 (다른 소속 동명이인 방지)
+function isAdminUser(user) {
+  if (!user) return false;
+  return ADMIN_NAMES.some((a) => a.name === user.name && a.branch === user.branch);
+}
 
 const adminStyles = {
   approveBtn: {
@@ -3506,6 +3568,14 @@ function LotteryAdminPanel({ onClose, employees, managers, holidaySet }) {
           winners = shuffled.slice(0, remaining);
         }
         const winnerIdSet = new Set(winners.map((w) => w.id));
+        // 당첨자는 신청순서(먼저 응모한 사람 먼저)대로 순번 부여 - 기존 보장인원 수 다음 번호부터 이어서
+        const winnersSorted = [...winners].sort(
+          (a, b) => (a.appliedAt?.toMillis?.() || 0) - (b.appliedAt?.toMillis?.() || 0)
+        );
+        const priorityByEntryId = {};
+        winnersSorted.forEach((w, idx) => {
+          priorityByEntryId[w.id] = activeCapacityCount + idx + 1;
+        });
 
         for (const en of dateEntries) {
           if (preExcluded.includes(en)) {
@@ -3525,6 +3595,7 @@ function LotteryAdminPanel({ onClose, employees, managers, holidaySet }) {
               vacationType: en.vacationType,
               dia: en.dia,
               date: en.date,
+              priority: priorityByEntryId[en.id],
             });
           } else {
             totalLosers += 1;
