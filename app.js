@@ -2749,7 +2749,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
         <LotteryAdminPanel onClose={closeModal} employees={employees} managers={managers} holidaySet={holidaySet} />
       )}
       {showLotteryApply && (
-        <LotteryApplyPanel currentUser={currentUser} onClose={closeModal} />
+        <LotteryApplyPanel currentUser={currentUser} onClose={closeModal} employees={employees} />
       )}
       {showEtiquetteNotice && !isMidManager && lotteryResultsToShow.length > 0 && (
         <div style={{ ...modal.overlay, alignItems: "safe center", justifyContent: "center" }}>
@@ -3214,12 +3214,23 @@ function MyVacationsPanel({ currentUser, onClose, employees }) {
 /* ------------------------------------------------------------------ */
 /* 명절 연휴 추첨 - 응모 패널 (경산 기관사 전용)                          */
 /* ------------------------------------------------------------------ */
-function LotteryApplyPanel({ currentUser, onClose }) {
+function LotteryApplyPanel({ currentUser, onClose, employees }) {
   const [events, setEvents] = useState([]);
   const [myEntries, setMyEntries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [formState, setFormState] = useState({}); // { [date]: { type, dia } }
   const [saving, setSaving] = useState(false);
+
+  // 본인 교번틀 기준으로 그 날짜의 실제 교번을 계산 (자기 휴가 신청 폼과 동일한 방식)
+  const myEmp = (employees || []).find((e) => e.id === currentUser.id);
+  const myBaseCode = myEmp ? myEmp.baseCode : "";
+  const myTeamKey = REVERSE_TEAM_MAP[currentUser.branch];
+  const myOrder = GYOBUN_ORDER[myTeamKey] || [];
+  const codeForDate = (dateStr) => {
+    if (!BASE_DATE || !myBaseCode || !myOrder.length) return "";
+    const offset = diffDays_(BASE_DATE, dateStr);
+    return shiftCodeByDays_(myOrder, myBaseCode, offset);
+  };
 
   const load = () => {
     setLoading(true);
@@ -3252,7 +3263,8 @@ function LotteryApplyPanel({ currentUser, onClose }) {
       alert("휴가 종류를 선택해주세요");
       return;
     }
-    if (!state.dia || !state.dia.trim()) {
+    const dia = (state.dia && state.dia.trim()) || codeForDate(date);
+    if (!dia) {
       alert("DIA를 입력해주세요");
       return;
     }
@@ -3265,7 +3277,7 @@ function LotteryApplyPanel({ currentUser, onClose }) {
       branch: currentUser.branch,
       date,
       vacationType: state.type,
-      dia: state.dia.trim(),
+      dia,
     })
       .then(() => load())
       .catch((err) => alert("응모 실패: " + (err && err.message ? err.message : err)))
@@ -3363,7 +3375,11 @@ function LotteryApplyPanel({ currentUser, onClose }) {
                         <input
                           style={{ ...styles.select, flex: "0 0 90px", marginBottom: 0 }}
                           placeholder="DIA"
-                          value={(formState[date] && formState[date].dia) || ""}
+                          value={
+                            formState[date] && formState[date].dia !== undefined
+                              ? formState[date].dia
+                              : codeForDate(date)
+                          }
                           onChange={(e) =>
                             setFormState((prev) => ({ ...prev, [date]: { ...prev[date], dia: e.target.value } }))
                           }
