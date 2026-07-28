@@ -3307,7 +3307,7 @@ function LotteryApplyPanel({ currentUser, onClose }) {
                 <div>
                   <div style={modal.name}>{event.year}년 {event.holidayName}</div>
                   <div style={modal.typeRow}>
-                    {event.applyStart}부터 응모 가능 (대상: {(event.dates || []).join(", ")})
+                    {event.applyStart}부터 응모 가능 (대상: {(event.dates || []).map((d) => `${d.date}(${d.capacity}명)`).join(", ")})
                   </div>
                 </div>
               </div>
@@ -3324,12 +3324,13 @@ function LotteryApplyPanel({ currentUser, onClose }) {
               <div style={{ fontSize: "12px", color: "#888", marginBottom: "10px" }}>
                 응모 기간: {event.applyStart} ~ {event.applyEnd}
               </div>
-              {(event.dates || []).map((date) => {
+              {(event.dates || []).map((dateInfo) => {
+                const date = dateInfo.date;
                 const entry = entryFor(event.id, date);
                 return (
                   <div key={date} style={{ ...modal.card, flexDirection: "column", alignItems: "stretch" }}>
                     <div style={{ fontWeight: 700, marginBottom: "6px" }}>
-                      {date} ({weekdayShort(date)})
+                      {date} ({weekdayShort(date)}) · 정원 {dateInfo.capacity}명
                     </div>
                     {entry ? (
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -3429,8 +3430,9 @@ function LotteryAdminPanel({ onClose, employees, managers, holidaySet }) {
   const [showNewForm, setShowNewForm] = useState(false);
   const [holidayName, setHolidayName] = useState("추석");
   const [year, setYear] = useState(new Date().getFullYear());
-  const [newDates, setNewDates] = useState([]);
+  const [newDates, setNewDates] = useState([]); // [{ date, capacity }]
   const [dateInput, setDateInput] = useState("");
+  const [capacityInput, setCapacityInput] = useState("");
   const [applyStart, setApplyStart] = useState("");
   const [applyEnd, setApplyEnd] = useState("");
   const [saving, setSaving] = useState(false);
@@ -3465,16 +3467,22 @@ function LotteryAdminPanel({ onClose, employees, managers, holidaySet }) {
 
   const handleAddDate = () => {
     if (!dateInput) return;
-    if (newDates.includes(dateInput)) {
+    const cap = parseInt(capacityInput, 10);
+    if (Number.isNaN(cap) || cap < 1) {
+      alert("그 날짜에 뽑을 인원 수를 1 이상으로 입력해주세요");
+      return;
+    }
+    if (newDates.some((d) => d.date === dateInput)) {
       alert("이미 추가된 날짜예요");
       return;
     }
-    setNewDates((prev) => [...prev, dateInput].sort());
+    setNewDates((prev) => [...prev, { date: dateInput, capacity: cap }].sort((a, b) => a.date.localeCompare(b.date)));
     setDateInput("");
+    setCapacityInput("");
   };
 
   const handleRemoveDate = (d) => {
-    setNewDates((prev) => prev.filter((x) => x !== d));
+    setNewDates((prev) => prev.filter((x) => x.date !== d));
   };
 
   const handleCreateEvent = () => {
@@ -3546,15 +3554,16 @@ function LotteryAdminPanel({ onClose, employees, managers, holidaySet }) {
       let totalWinners = 0;
       let totalLosers = 0;
 
-      for (const date of event.dates) {
+      for (const dateInfo of event.dates) {
+        const date = dateInfo.date;
         const dateEntries = entries.filter((en) => en.date === date);
         if (dateEntries.length === 0) continue;
 
         const existing = await window.VacationAPI.getByDate(date);
         const activeExisting = existing.filter((v) => v.branch === "경산" && v.status !== "취소됨");
         const activeCapacityCount = activeExisting.filter((v) => isCapacityType(v.vacationType)).length;
-        const yearHolidays = await fetchHolidays(parseInt(date.slice(0, 4), 10));
-        const capacity = gyeongsanCapacity("경산", date, activeExisting, yearHolidays);
+        // 명절은 특수 상황이 많아서, 자동 계산 대신 관리자가 그 날짜에 직접 지정한 인원을 그대로 써요
+        const capacity = dateInfo.capacity;
         const remaining = Math.max(0, capacity - activeCapacityCount);
 
         const eligible = dateEntries.filter((en) => !excludedIds.has(en.employeeId));
@@ -3647,13 +3656,20 @@ function LotteryAdminPanel({ onClose, employees, managers, holidaySet }) {
               />
             </div>
             <div style={modal.formRow}>
-              <label style={modal.label}>대상 날짜 추가</label>
+              <label style={modal.label}>대상 날짜 + 뽑을 인원 추가</label>
               <div style={{ display: "flex", gap: "6px" }}>
                 <input
-                  style={{ ...modal.input, flex: 1 }}
+                  style={{ ...modal.input, flex: 1.4 }}
                   type="date"
                   value={dateInput}
                   onChange={(e) => setDateInput(e.target.value)}
+                />
+                <input
+                  style={{ ...modal.input, flex: "0 0 64px" }}
+                  type="number"
+                  placeholder="인원"
+                  value={capacityInput}
+                  onChange={(e) => setCapacityInput(e.target.value)}
                 />
                 <button style={adminStyles.approveBtn} onClick={handleAddDate}>추가</button>
               </div>
@@ -3661,7 +3677,7 @@ function LotteryAdminPanel({ onClose, employees, managers, holidaySet }) {
                 <div style={{ marginTop: "8px", display: "flex", flexWrap: "wrap", gap: "6px" }}>
                   {newDates.map((d) => (
                     <span
-                      key={d}
+                      key={d.date}
                       style={{
                         background: "#eaf1ff",
                         borderRadius: "999px",
@@ -3672,8 +3688,8 @@ function LotteryAdminPanel({ onClose, employees, managers, holidaySet }) {
                         gap: "4px",
                       }}
                     >
-                      {d}
-                      <span style={{ cursor: "pointer", color: "#e02020" }} onClick={() => handleRemoveDate(d)}>✕</span>
+                      {d.date} · {d.capacity}명
+                      <span style={{ cursor: "pointer", color: "#e02020" }} onClick={() => handleRemoveDate(d.date)}>✕</span>
                     </span>
                   ))}
                 </div>
@@ -3733,13 +3749,16 @@ function LotteryAdminPanel({ onClose, employees, managers, holidaySet }) {
                   </button>
                 </div>
                 <div style={{ marginTop: "8px" }}>
-                  {(event.dates || []).map((d) => (
-                    <div key={d} style={{ fontSize: "12px", color: "#666", marginTop: "2px" }}>
-                      {d}: 응모 {(byDate[d] || []).length}명
-                      {(byDate[d] || []).some((en) => en.result !== "대기중") &&
-                        ` (당첨 ${(byDate[d] || []).filter((en) => en.result === "당첨").length}명)`}
-                    </div>
-                  ))}
+                  {(event.dates || []).map((dateInfo) => {
+                    const d = dateInfo.date;
+                    return (
+                      <div key={d} style={{ fontSize: "12px", color: "#666", marginTop: "2px" }}>
+                        {d} (정원 {dateInfo.capacity}명): 응모 {(byDate[d] || []).length}명
+                        {(byDate[d] || []).some((en) => en.result !== "대기중") &&
+                          ` (당첨 ${(byDate[d] || []).filter((en) => en.result === "당첨").length}명)`}
+                      </div>
+                    );
+                  })}
                 </div>
                 <div style={{ display: "flex", gap: "6px", marginTop: "10px" }}>
                   {event.status === "응모중" && (
