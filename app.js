@@ -3217,6 +3217,7 @@ function MyVacationsPanel({ currentUser, onClose, employees }) {
 function LotteryApplyPanel({ currentUser, onClose, employees }) {
   const [events, setEvents] = useState([]);
   const [myEntries, setMyEntries] = useState([]);
+  const [entryCountByDate, setEntryCountByDate] = useState({}); // "eventId_date" -> 응모자 수
   const [loading, setLoading] = useState(true);
   const [formState, setFormState] = useState({}); // { [date]: { type, dia } }
   const [saving, setSaving] = useState(false);
@@ -3237,8 +3238,20 @@ function LotteryApplyPanel({ currentUser, onClose, employees }) {
     waitForFirestore()
       .then(() => Promise.all([window.LotteryAPI.listEvents(), window.LotteryAPI.listMyEntries(currentUser.id)]))
       .then(([eventList, entryList]) => {
-        setEvents((eventList || []).filter((e) => e.branch === currentUser.branch));
+        const ksEvents = (eventList || []).filter((e) => e.branch === currentUser.branch);
+        setEvents(ksEvents);
         setMyEntries(entryList || []);
+        return Promise.all(ksEvents.map((e) => window.LotteryAPI.listEntriesForEvent(e.id)));
+      })
+      .then((entryLists) => {
+        const counts = {};
+        (entryLists || []).forEach((list) => {
+          (list || []).forEach((en) => {
+            const key = `${en.eventId}_${en.date}`;
+            counts[key] = (counts[key] || 0) + 1;
+          });
+        });
+        setEntryCountByDate(counts);
       })
       .catch((err) => alert("불러오기 실패: " + (err && err.message ? err.message : err)))
       .finally(() => setLoading(false));
@@ -3342,7 +3355,7 @@ function LotteryApplyPanel({ currentUser, onClose, employees }) {
                 return (
                   <div key={date} style={{ ...modal.card, flexDirection: "column", alignItems: "stretch" }}>
                     <div style={{ fontWeight: 700, marginBottom: "6px" }}>
-                      {date} ({weekdayShort(date)}) · 정원 {dateInfo.capacity}명
+                      {date} ({weekdayShort(date)}) · 정원 {dateInfo.capacity}명 · 응모 {entryCountByDate[`${event.id}_${date}`] || 0}명
                     </div>
                     {entry ? (
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -3767,11 +3780,29 @@ function LotteryAdminPanel({ onClose, employees, managers, holidaySet }) {
                 <div style={{ marginTop: "8px" }}>
                   {(event.dates || []).map((dateInfo) => {
                     const d = dateInfo.date;
+                    const dateEntries = byDate[d] || [];
                     return (
-                      <div key={d} style={{ fontSize: "12px", color: "#666", marginTop: "2px" }}>
-                        {d} (정원 {dateInfo.capacity}명): 응모 {(byDate[d] || []).length}명
-                        {(byDate[d] || []).some((en) => en.result !== "대기중") &&
-                          ` (당첨 ${(byDate[d] || []).filter((en) => en.result === "당첨").length}명)`}
+                      <div key={d} style={{ marginTop: "6px" }}>
+                        <div style={{ fontSize: "12px", color: "#666" }}>
+                          {d} (정원 {dateInfo.capacity}명): 응모 {dateEntries.length}명
+                          {dateEntries.some((en) => en.result !== "대기중") &&
+                            ` (당첨 ${dateEntries.filter((en) => en.result === "당첨").length}명)`}
+                        </div>
+                        {dateEntries.length > 0 && (
+                          <div style={{ paddingLeft: "10px", marginTop: "2px" }}>
+                            {dateEntries.map((en) => (
+                              <div key={en.id} style={{ fontSize: "11px", color: "#888" }}>
+                                · {en.name} ({en.vacationType}·{en.dia})
+                                {en.result === "당첨" && <span style={{ color: "#1caa5c", fontWeight: 700 }}> 당첨</span>}
+                                {en.result === "낙첨" && <span style={{ color: "#e02020" }}> 낙첨</span>}
+                                {en.result && en.result.startsWith("제외") && (
+                                  <span style={{ color: "#999" }}> {en.result}</span>
+                                )}
+                                {en.result === "대기중" && <span style={{ color: "#e08a20" }}> 대기중</span>}
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     );
                   })}
