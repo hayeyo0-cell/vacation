@@ -967,6 +967,30 @@ function formatEntryDateOnly(ts) {
   return `${y}-${mo}-${dd}`;
 }
 
+// 경산 팀 자체 규정 - 짝수달 1~5일 사이 신청한 휴가, 휴가일 7일 전부터는 본인 취소 불가 (여러 화면에서 공용으로 사용)
+function checkSelfCancelAllowed(branch, record) {
+  if (branch !== "경산") return { ok: true };
+  if (record.createdAt) {
+    const createdDateStr = formatEntryDateOnly(record.createdAt);
+    if (createdDateStr) {
+      const d = new Date(createdDateStr + "T00:00:00");
+      const day = d.getDate();
+      const month = d.getMonth() + 1;
+      if (day >= 1 && day <= 5 && month % 2 === 0) {
+        return { ok: false, reason: "짝수달 1~5일 사이에 신청한 휴가는 취소할 수 없어요 (경산 팀 규정)" };
+      }
+    }
+  }
+  const today = todayStr();
+  const vacDate = new Date(record.date + "T00:00:00");
+  const todayDate = new Date(today + "T00:00:00");
+  const diffDays = Math.round((vacDate - todayDate) / 86400000);
+  if (diffDays <= 7) {
+    return { ok: false, reason: "휴가일 기준 7일 전부터는 취소할 수 없어요 (경산 팀 규정)" };
+  }
+  return { ok: true };
+}
+
 /* ------------------------------------------------------------------ */
 /* 메인 화면 - 월별 달력                                                 */
 /* ------------------------------------------------------------------ */
@@ -1746,6 +1770,15 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
         return { capacity, remain, capacityCount };
       })()
     : null;
+
+  const handleSelfCancelClick = (record) => {
+    const check = checkSelfCancelAllowed(currentUser.branch, record);
+    if (!check.ok) {
+      alert("⚠️ " + check.reason);
+      return;
+    }
+    handleCancel(record);
+  };
 
   const handleCancel = (record) => {
     if (!confirm(`${record.name}님의 ${record.vacationType} 기록을 취소할까요?`)) return;
@@ -2584,7 +2617,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
                               </td>
                               <td style={tbl.td}>
                                 {!cancelled && v.employeeId === currentUser.id && !v.confirmedBy && (
-                                  <button style={{ ...modal.smallCancelBtn, margin: 0 }} onClick={() => handleCancel(v)}>
+                                  <button style={{ ...modal.smallCancelBtn, margin: 0 }} onClick={() => handleSelfCancelClick(v)}>
                                     취소
                                   </button>
                                 )}
@@ -3056,6 +3089,11 @@ function MyVacationsPanel({ currentUser, onClose, employees }) {
   }, []);
 
   const handleCancelMine = (record) => {
+    const check = checkSelfCancelAllowed(currentUser.branch, record);
+    if (!check.ok) {
+      alert("⚠️ " + check.reason);
+      return;
+    }
     if (!confirm(`${record.date} ${record.vacationType} 기록을 취소할까요?`)) return;
     window.VacationAPI.cancel(record.id).then(() => {
       setList((prev) => prev.map((v) => (v.id === record.id ? { ...v, status: "취소됨" } : v)));
