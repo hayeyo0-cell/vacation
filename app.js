@@ -3599,24 +3599,13 @@ function LotteryAdminPanel({ onClose, employees, managers, holidaySet }) {
       .catch((err) => alert("삭제 실패: " + (err && err.message ? err.message : err)));
   };
 
-  // 추첨 실행 - 날짜별로 자리(보장인원 여유) 대비 응모자 수를 비교해서 자리보다 많으면 랜덤 추첨.
-  // 직전 같은 명절(holidayName)에 당첨됐던 사람은 이번 추첨에서 자동 제외 (첫 시행이면 제외 대상 없음).
+  // 추첨 실행 - 날짜별로 관리자가 지정한 인원(정원) 대비 응모자 수를 비교해서 정원보다 많으면 랜덤 추첨
   const handleRunDraw = async (event) => {
     if (!confirm(`"${event.year}년 ${event.holidayName}" 추첨을 실행할까요?\n실행하면 당첨자는 바로 실제 휴가로 등록되고, 되돌리기 어려워요.`))
       return;
     setDrawing(event.id);
     try {
       const entries = (entriesByEvent[event.id] || []).filter((en) => en.result === "대기중");
-
-      // 직전 같은 명절 당첨자 조회 (이 이벤트보다 먼저 추첨 완료된 것들 중 가장 최근)
-      const pastSameHoliday = events
-        .filter((e) => e.holidayName === event.holidayName && e.id !== event.id && e.status === "추첨완료")
-        .sort((a, b) => (b.year || 0) - (a.year || 0));
-      let excludedIds = new Set();
-      if (pastSameHoliday.length > 0) {
-        const pastEntries = await window.LotteryAPI.listEntriesForEvent(pastSameHoliday[0].id);
-        pastEntries.filter((e) => e.result === "당첨").forEach((e) => excludedIds.add(e.employeeId));
-      }
 
       let totalWinners = 0;
       let totalLosers = 0;
@@ -3633,14 +3622,11 @@ function LotteryAdminPanel({ onClose, employees, managers, holidaySet }) {
         const capacity = dateInfo.capacity;
         const remaining = Math.max(0, capacity - activeCapacityCount);
 
-        const eligible = dateEntries.filter((en) => !excludedIds.has(en.employeeId));
-        const preExcluded = dateEntries.filter((en) => excludedIds.has(en.employeeId));
-
         let winners = [];
-        if (eligible.length <= remaining) {
-          winners = eligible;
+        if (dateEntries.length <= remaining) {
+          winners = dateEntries;
         } else {
-          const shuffled = [...eligible].sort(() => Math.random() - 0.5);
+          const shuffled = [...dateEntries].sort(() => Math.random() - 0.5);
           winners = shuffled.slice(0, remaining);
         }
         const winnerIdSet = new Set(winners.map((w) => w.id));
@@ -3654,11 +3640,6 @@ function LotteryAdminPanel({ onClose, employees, managers, holidaySet }) {
         });
 
         for (const en of dateEntries) {
-          if (preExcluded.includes(en)) {
-            await window.LotteryAPI.updateEntry(en.id, { result: "제외(직전당첨)" });
-            totalLosers += 1;
-            continue;
-          }
           const isWinner = winnerIdSet.has(en.id);
           await window.LotteryAPI.updateEntry(en.id, { result: isWinner ? "당첨" : "낙첨" });
           if (isWinner) {
@@ -3680,7 +3661,7 @@ function LotteryAdminPanel({ onClose, employees, managers, holidaySet }) {
       }
 
       await window.LotteryAPI.updateEvent(event.id, { status: "추첨완료" });
-      alert(`추첨 완료! 당첨 ${totalWinners}건 · 낙첨/제외 ${totalLosers}건`);
+      alert(`추첨 완료! 당첨 ${totalWinners}건 · 낙첨 ${totalLosers}건`);
       load();
     } catch (err) {
       console.error(err);
