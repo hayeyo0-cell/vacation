@@ -2342,7 +2342,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
             style={{
               ...modal.sheet,
               ...(isMidManager && isWideScreen
-                ? { maxWidth: "980px", height: "76vh", display: "flex", gap: "10px", alignItems: "stretch", justifyContent: "center" }
+                ? { maxWidth: "1040px", height: "76vh", display: "flex", gap: "10px", alignItems: "stretch" }
                 : {}),
             }}
             onClick={(e) => e.stopPropagation()}
@@ -2351,7 +2351,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
               renderCompactDayColumn(prevDateStr, adjacentRecords.prev, "전날")}
             <div
               style={{
-                flex: isMidManager && isWideScreen ? "0 0 300px" : undefined,
+                flex: isMidManager && isWideScreen ? "1 1 auto" : undefined,
                 minWidth: 0,
                 width: "100%",
                 boxSizing: "border-box",
