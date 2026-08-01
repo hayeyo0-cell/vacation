@@ -1449,6 +1449,9 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
   // PC 3칸 모드에서 - 마우스로 날짜 모달 창을 드래그해서 옮길 수 있게 (드래그 핸들에서만 시작)
   const [dragPos, setDragPos] = useState({ x: 0, y: 0 });
   const dragStateRef = useRef({ dragging: false, startX: 0, startY: 0, baseX: 0, baseY: 0 });
+  const dayModalSheetRef = useRef(null); // 크기 조절 시 현재 크기를 재는 용도
+  const [sizeOverride, setSizeOverride] = useState(null); // { width, height } - 직접 조절한 크기 (null이면 기본 크기)
+  const resizeStateRef = useRef({ resizing: false, startX: 0, startY: 0, startW: 0, startH: 0 });
 
   const handleDragStart = (e) => {
     dragStateRef.current = {
@@ -1459,14 +1462,33 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
       baseY: dragPos.y,
     };
   };
+  const handleResizeStart = (e) => {
+    e.stopPropagation();
+    const rect = dayModalSheetRef.current ? dayModalSheetRef.current.getBoundingClientRect() : null;
+    resizeStateRef.current = {
+      resizing: true,
+      startX: e.clientX,
+      startY: e.clientY,
+      startW: rect ? rect.width : 960,
+      startH: rect ? rect.height : window.innerHeight * 0.63,
+    };
+  };
   useEffect(() => {
     const onMove = (e) => {
-      const s = dragStateRef.current;
-      if (!s.dragging) return;
-      setDragPos({ x: s.baseX + (e.clientX - s.startX), y: s.baseY + (e.clientY - s.startY) });
+      const d = dragStateRef.current;
+      if (d.dragging) {
+        setDragPos({ x: d.baseX + (e.clientX - d.startX), y: d.baseY + (e.clientY - d.startY) });
+      }
+      const r = resizeStateRef.current;
+      if (r.resizing) {
+        const nextW = Math.max(600, r.startW + (e.clientX - r.startX));
+        const nextH = Math.max(300, r.startH + (e.clientY - r.startY));
+        setSizeOverride({ width: nextW, height: nextH });
+      }
     };
     const onUp = () => {
       dragStateRef.current.dragging = false;
+      resizeStateRef.current.resizing = false;
     };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
@@ -1475,9 +1497,12 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
       window.removeEventListener("mouseup", onUp);
     };
   }, []);
-  // 날짜 모달이 닫힐 때마다 드래그 위치 초기화 (다음에 열 때는 항상 제자리에서 시작)
+  // 날짜 모달이 닫힐 때마다 드래그 위치/크기 초기화 (다음에 열 때는 항상 기본 상태로 시작)
   useEffect(() => {
-    if (!selectedDate) setDragPos({ x: 0, y: 0 });
+    if (!selectedDate) {
+      setDragPos({ x: 0, y: 0 });
+      setSizeOverride(null);
+    }
   }, [selectedDate]);
 
   const myCode = (employees || []).find((e) => e.id === currentUser.id)?.code || "";
@@ -2380,15 +2405,18 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
           onClick={closeModal}
         >
           <div
+            ref={dayModalSheetRef}
             style={{
               ...modal.sheet,
               ...(isMidManager && isWideScreen
                 ? {
-                    maxWidth: "960px",
-                    height: "63vh",
+                    maxWidth: sizeOverride ? "none" : "960px",
+                    width: sizeOverride ? `${sizeOverride.width}px` : undefined,
+                    height: sizeOverride ? `${sizeOverride.height}px` : "63vh",
                     display: "flex",
                     flexDirection: "column",
                     gap: 0,
+                    position: "relative",
                     transform: `translate(${dragPos.x}px, ${dragPos.y}px)`,
                   }
                 : {}),
@@ -2412,6 +2440,26 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
               >
                 ⋯⋯⋯
               </div>
+            )}
+            {isMidManager && isWideScreen && (
+              <button
+                onClick={closeModal}
+                style={{
+                  position: "absolute",
+                  top: "8px",
+                  right: "10px",
+                  border: "none",
+                  background: "transparent",
+                  color: "#999",
+                  fontSize: "20px",
+                  lineHeight: 1,
+                  cursor: "pointer",
+                  padding: "4px 6px",
+                }}
+                title="닫기"
+              >
+                ✕
+              </button>
             )}
             <div style={{ display: "flex", gap: "8px", flex: "1 1 auto", minHeight: 0 }}>
             {isMidManager && isWideScreen && prevDateStr &&
@@ -2854,6 +2902,22 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
             {isMidManager && isWideScreen && nextDateStr &&
               renderCompactDayColumn(nextDateStr, adjacentRecords.next, "다음날")}
             </div>
+            {isMidManager && isWideScreen && (
+              <div
+                onMouseDown={handleResizeStart}
+                style={{
+                  position: "absolute",
+                  right: 0,
+                  bottom: 0,
+                  width: "18px",
+                  height: "18px",
+                  cursor: "nwse-resize",
+                  background:
+                    "linear-gradient(135deg, transparent 0%, transparent 45%, #ccc 45%, #ccc 55%, transparent 55%, transparent 100%)",
+                }}
+                title="드래그해서 크기 조절"
+              />
+            )}
           </div>
         </div>
       )}
