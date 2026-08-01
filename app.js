@@ -1446,12 +1446,19 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  // PC 3칸 모드에서 - 마우스로 날짜 모달 창을 드래그해서 옮길 수 있게 (드래그 핸들에서만 시작)
+  // PC 3칸 모드에서 - 마우스로 날짜 모달 창을 드래그해서 옮기고 모서리로 크기 조절
+  // (스와이프 애니메이션과 동일하게, 리렌더 없이 DOM을 직접 움직여서 끊김 없이 부드럽게)
   const [dragPos, setDragPos] = useState({ x: 0, y: 0 });
   const dragStateRef = useRef({ dragging: false, startX: 0, startY: 0, baseX: 0, baseY: 0 });
   const dayModalSheetRef = useRef(null); // 크기 조절 시 현재 크기를 재는 용도
   const [sizeOverride, setSizeOverride] = useState(null); // { width, height } - 직접 조절한 크기 (null이면 기본 크기)
   const resizeStateRef = useRef({ resizing: false, startX: 0, startY: 0, startW: 0, startH: 0 });
+
+  const applyTransform = (x, y) => {
+    if (dayModalSheetRef.current) {
+      dayModalSheetRef.current.style.transform = `translate(${x}px, ${y}px)`;
+    }
+  };
 
   const handleDragStart = (e) => {
     dragStateRef.current = {
@@ -1461,6 +1468,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
       baseX: dragPos.x,
       baseY: dragPos.y,
     };
+    if (dayModalSheetRef.current) dayModalSheetRef.current.style.transition = "none";
   };
   const handleResizeStart = (e) => {
     e.stopPropagation();
@@ -1472,29 +1480,60 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
       startW: rect ? rect.width : 960,
       startH: rect ? rect.height : window.innerHeight * 0.63,
     };
+    if (dayModalSheetRef.current) dayModalSheetRef.current.style.transition = "none";
   };
   useEffect(() => {
-    const onMove = (e) => {
+    let rafId = null;
+    let pendingEvent = null;
+
+    const applyFrame = () => {
+      rafId = null;
+      const e = pendingEvent;
+      if (!e) return;
       const d = dragStateRef.current;
       if (d.dragging) {
-        setDragPos({ x: d.baseX + (e.clientX - d.startX), y: d.baseY + (e.clientY - d.startY) });
+        applyTransform(d.baseX + (e.clientX - d.startX), d.baseY + (e.clientY - d.startY));
       }
       const r = resizeStateRef.current;
-      if (r.resizing) {
+      if (r.resizing && dayModalSheetRef.current) {
         const nextW = Math.max(600, r.startW + (e.clientX - r.startX));
         const nextH = Math.max(300, r.startH + (e.clientY - r.startY));
-        setSizeOverride({ width: nextW, height: nextH });
+        dayModalSheetRef.current.style.width = `${nextW}px`;
+        dayModalSheetRef.current.style.height = `${nextH}px`;
+        dayModalSheetRef.current.style.maxWidth = "none";
       }
     };
-    const onUp = () => {
-      dragStateRef.current.dragging = false;
-      resizeStateRef.current.resizing = false;
+
+    const onMove = (e) => {
+      if (!dragStateRef.current.dragging && !resizeStateRef.current.resizing) return;
+      pendingEvent = e;
+      if (rafId == null) rafId = requestAnimationFrame(applyFrame);
+    };
+    const onUp = (e) => {
+      if (dragStateRef.current.dragging) {
+        dragStateRef.current.dragging = false;
+        setDragPos({
+          x: dragStateRef.current.baseX + (e.clientX - dragStateRef.current.startX),
+          y: dragStateRef.current.baseY + (e.clientY - dragStateRef.current.startY),
+        });
+      }
+      if (resizeStateRef.current.resizing) {
+        resizeStateRef.current.resizing = false;
+        const nextW = Math.max(600, resizeStateRef.current.startW + (e.clientX - resizeStateRef.current.startX));
+        const nextH = Math.max(300, resizeStateRef.current.startH + (e.clientY - resizeStateRef.current.startY));
+        setSizeOverride({ width: nextW, height: nextH });
+      }
+      if (rafId != null) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+      }
     };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
     return () => {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
+      if (rafId != null) cancelAnimationFrame(rafId);
     };
   }, []);
   // 날짜 모달이 닫힐 때마다 드래그 위치/크기 초기화 (다음에 열 때는 항상 기본 상태로 시작)
