@@ -1446,25 +1446,20 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  // PC 3칸 모드에서 - 마우스로 날짜 모달 창을 드래그해서 옮기고 모서리로 크기 조절
+  // PC 3칸 모드에서 - 마우스로 날짜 모달 창을 드래그해서 옮기고, 아래쪽으로만 높이를 조절
   // (스와이프 애니메이션과 동일하게, 리렌더 없이 DOM을 직접 움직여서 끊김 없이 부드럽게)
-  // position:fixed + left/top 고정 좌표 방식 - margin:auto 중앙정렬과 섞으면 크기 조절 시
-  // 양쪽에서 같이 늘어나 마우스를 안 따라가는 것처럼 보이는 문제가 있어서, 좌표를 직접 계산해요.
-  const DAY_MODAL_DEFAULT_W = 960;
-  const DAY_MODAL_DEFAULT_H = typeof window !== "undefined" ? window.innerHeight * 0.63 : 600;
+  // 기본 위치는 left:50%+transform, top:vh 같은 CSS 단위로 잡아요 - window.innerWidth 같은 JS 계산값을
+  // 쓰면 브라우저 화면 배율(줌)이 바뀔 때 리렌더가 안 일어나 위치가 어긋날 수 있어서, 브라우저가 항상
+  // 알아서 다시 계산해주는 CSS 단위를 써요. 드래그한 만큼만 추가로 옮겨요.
+  const DAY_MODAL_DEFAULT_W = 960; // 너비는 고정
   const [dragPos, setDragPos] = useState({ x: 0, y: 0 });
   const dragStateRef = useRef({ dragging: false, startX: 0, startY: 0, baseX: 0, baseY: 0 });
   const dayModalSheetRef = useRef(null); // 크기 조절 시 현재 크기를 재는 용도
-  const [sizeOverride, setSizeOverride] = useState(null); // { width, height } - 직접 조절한 크기 (null이면 기본 크기)
-  const resizeStateRef = useRef({ resizing: false, startX: 0, startY: 0, startW: 0, startH: 0 });
+  const [heightOverride, setHeightOverride] = useState(null); // 직접 조절한 높이(px, null이면 기본 63vh), 너비는 항상 고정
+  const resizeStateRef = useRef({ resizing: false, startY: 0, startH: 0 });
 
-  const dayModalWidth = sizeOverride ? sizeOverride.width : DAY_MODAL_DEFAULT_W;
-  const dayModalHeight = sizeOverride ? sizeOverride.height : DAY_MODAL_DEFAULT_H;
-  // 안쪽 내용 전체(전날·오늘·다음날)를 기준 크기로 고정 배치한 뒤, 이 비율만큼 통째로 확대/축소해요
-  const dayModalScale = dayModalWidth / DAY_MODAL_DEFAULT_W;
-  const dayModalBaseLeft =
-    typeof window !== "undefined" ? Math.max(10, (window.innerWidth - dayModalWidth) / 2) : 0;
-  const dayModalBaseTop = typeof window !== "undefined" ? window.innerHeight * 0.04 : 0;
+  const dayModalWidth = DAY_MODAL_DEFAULT_W;
+  const dayModalHeightStyle = heightOverride != null ? `${heightOverride}px` : "63vh";
 
   const handleDragStart = (e) => {
     dragStateRef.current = {
@@ -1480,10 +1475,8 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
     const rect = dayModalSheetRef.current ? dayModalSheetRef.current.getBoundingClientRect() : null;
     resizeStateRef.current = {
       resizing: true,
-      startX: e.clientX,
       startY: e.clientY,
-      startW: rect ? rect.width : dayModalWidth,
-      startH: rect ? rect.height : dayModalHeight,
+      startH: rect ? rect.height : 600,
     };
   };
   useEffect(() => {
@@ -1498,15 +1491,11 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
       if (d.dragging) {
         const x = d.baseX + (e.clientX - d.startX);
         const y = d.baseY + (e.clientY - d.startY);
-        dayModalSheetRef.current.style.left = `${dayModalBaseLeft + x}px`;
-        dayModalSheetRef.current.style.top = `${dayModalBaseTop + y}px`;
+        dayModalSheetRef.current.style.transform = `translate(calc(-50% + ${x}px), ${y}px)`;
       }
       const r = resizeStateRef.current;
       if (r.resizing) {
-        const scale = Math.max(0.5, Math.min(2.2, (r.startW + (e.clientX - r.startX)) / r.startW));
-        const nextW = Math.max(600, r.startW * scale);
-        const nextH = Math.max(300, r.startH * scale);
-        dayModalSheetRef.current.style.width = `${nextW}px`;
+        const nextH = Math.max(300, r.startH + (e.clientY - r.startY));
         dayModalSheetRef.current.style.height = `${nextH}px`;
       }
     };
@@ -1527,10 +1516,8 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
       if (resizeStateRef.current.resizing) {
         resizeStateRef.current.resizing = false;
         const rs = resizeStateRef.current;
-        const scale = Math.max(0.5, Math.min(2.2, (rs.startW + (e.clientX - rs.startX)) / rs.startW));
-        const nextW = Math.max(600, rs.startW * scale);
-        const nextH = Math.max(300, rs.startH * scale);
-        setSizeOverride({ width: nextW, height: nextH });
+        const nextH = Math.max(300, rs.startH + (e.clientY - rs.startY));
+        setHeightOverride(nextH);
       }
       if (rafId != null) {
         cancelAnimationFrame(rafId);
@@ -1544,12 +1531,12 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
       window.removeEventListener("mouseup", onUp);
       if (rafId != null) cancelAnimationFrame(rafId);
     };
-  }, [dayModalBaseLeft, dayModalBaseTop]);
+  }, []);
   // 날짜 모달이 닫힐 때마다 드래그 위치/크기 초기화 (다음에 열 때는 항상 기본 상태로 시작)
   useEffect(() => {
     if (!selectedDate) {
       setDragPos({ x: 0, y: 0 });
-      setSizeOverride(null);
+      setHeightOverride(null);
     }
   }, [selectedDate]);
 
@@ -2454,12 +2441,13 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
               ...(isMidManager && isWideScreen
                 ? {
                     position: "fixed",
-                    left: `${dayModalBaseLeft + dragPos.x}px`,
-                    top: `${dayModalBaseTop + dragPos.y}px`,
+                    left: "50%",
+                    top: "4vh",
+                    transform: `translate(calc(-50% + ${dragPos.x}px), ${dragPos.y}px)`,
                     margin: 0,
                     maxWidth: "none",
                     width: `${dayModalWidth}px`,
-                    height: `${dayModalHeight}px`,
+                    height: dayModalHeightStyle,
                     padding: 0,
                     overflow: "hidden",
                   }
@@ -2488,20 +2476,17 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
                 ✕
               </button>
             )}
-            {/* 안쪽 내용 전체를 기준 크기(960px)로 고정 배치한 뒤, dayModalScale 비율만큼 통째로 확대/축소 -
-                이렇게 하면 전날·오늘·다음날 세 칸이 다 같이 커지고 작아져요 (인터넷 창 배율 조절과 동일한 방식) */}
             <div
               style={
                 isMidManager && isWideScreen
                   ? {
-                      width: `${DAY_MODAL_DEFAULT_W}px`,
-                      height: `${DAY_MODAL_DEFAULT_H}px`,
-                      transform: `scale(${dayModalScale})`,
-                      transformOrigin: "top left",
+                      width: "100%",
+                      height: "100%",
                       display: "flex",
                       flexDirection: "column",
                       padding: "20px",
                       boxSizing: "border-box",
+                      overflow: "hidden",
                     }
                   : { display: "contents" }
               }
@@ -2978,16 +2963,24 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
                 onMouseDown={handleResizeStart}
                 style={{
                   position: "absolute",
+                  left: 0,
                   right: 0,
                   bottom: 0,
-                  width: "18px",
-                  height: "18px",
-                  cursor: "nwse-resize",
-                  background:
-                    "linear-gradient(135deg, transparent 0%, transparent 45%, #ccc 45%, #ccc 55%, transparent 55%, transparent 100%)",
+                  height: "10px",
+                  cursor: "ns-resize",
                 }}
-                title="드래그해서 크기 조절"
-              />
+                title="아래로 드래그해서 높이 조절"
+              >
+                <div
+                  style={{
+                    width: "36px",
+                    height: "4px",
+                    borderRadius: "2px",
+                    background: "#ccc",
+                    margin: "3px auto 0",
+                  }}
+                />
+              </div>
             )}
           </div>
         </div>
