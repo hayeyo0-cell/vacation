@@ -2134,17 +2134,17 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
     return (
       <div
         style={{
-          flex: "0 0 340px",
+          flex: "0 0 272px",
           background: "#fff",
           border: "1px solid #eee",
           borderRadius: "10px",
           padding: "14px",
-          height: "76vh",
+          height: "63vh",
           overflowY: "auto",
           boxSizing: "border-box",
         }}
       >
-        <div style={{ height: "78px", boxSizing: "border-box" }}>
+        <div style={{ height: "64px", boxSizing: "border-box" }}>
           <div style={{ fontSize: "12px", fontWeight: 700, color: "#888", marginBottom: "2px" }}>{label}</div>
           <div style={{ fontSize: "15px", fontWeight: 700, marginBottom: "2px", lineHeight: "22px" }}>
             {dateStr} ({weekdayShort(dateStr)})
@@ -2342,7 +2342,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
             style={{
               ...modal.sheet,
               ...(isMidManager && isWideScreen
-                ? { maxWidth: "1200px", height: "76vh", display: "flex", gap: "10px", alignItems: "stretch" }
+                ? { maxWidth: "960px", height: "63vh", display: "flex", gap: "8px", alignItems: "stretch" }
                 : {}),
             }}
             onClick={(e) => e.stopPropagation()}
@@ -2493,7 +2493,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
             ) : (
               <React.Fragment>
                 {isMidManager && isWideScreen && (
-                  <div style={{ height: "78px", boxSizing: "border-box" }}>
+                  <div style={{ height: "64px", boxSizing: "border-box" }}>
                     <div style={{ fontSize: "12px", fontWeight: 700, color: "#888", marginBottom: "2px" }}>오늘</div>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "2px" }}>
                       <button
