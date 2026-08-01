@@ -2144,12 +2144,14 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
           boxSizing: "border-box",
         }}
       >
-        <div style={{ fontSize: "13px", fontWeight: 700, color: "#888", marginBottom: "3px" }}>{label}</div>
-        <div style={{ fontSize: "18px", fontWeight: 700, marginBottom: "3px", minHeight: "26px", display: "flex", alignItems: "center" }}>
-          {dateStr} ({weekdayShort(dateStr)})
-        </div>
-        <div style={{ fontSize: "14px", color: "#666", marginBottom: "12px" }}>
-          휴가자 {activeRecs.length}명 · 보장대상 {capacityActive.length}/{capacity}명
+        <div style={{ height: "94px", boxSizing: "border-box" }}>
+          <div style={{ fontSize: "13px", fontWeight: 700, color: "#888", marginBottom: "3px" }}>{label}</div>
+          <div style={{ fontSize: "18px", fontWeight: 700, marginBottom: "3px", lineHeight: "26px" }}>
+            {dateStr} ({weekdayShort(dateStr)})
+          </div>
+          <div style={{ fontSize: "14px", color: "#666" }}>
+            휴가자 {activeRecs.length}명 · 보장대상 {capacityActive.length}/{capacity}명
+          </div>
         </div>
         {branchRecords.length === 0 ? (
           <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0", fontSize: "14px" }}>
@@ -2487,27 +2489,55 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
               </React.Fragment>
             ) : (
               <React.Fragment>
-                <div style={{ fontSize: "13px", fontWeight: 700, color: "#888", marginBottom: "3px" }}>오늘</div>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "3px", minHeight: "26px" }}>
-                  <button
-                    style={{ ...adminStyles.adminBtn, padding: "6px 10px", fontSize: "14px" }}
-                    onClick={() => changeDay(-1)}
-                  >
-                    ‹
-                  </button>
-                  <div style={{ ...modal.dateTitle, marginBottom: 0 }}>{formatDateHeader(selectedDate)}</div>
-                  <button
-                    style={{ ...adminStyles.adminBtn, padding: "6px 10px", fontSize: "14px" }}
-                    onClick={() => changeDay(1)}
-                  >
-                    ›
-                  </button>
-                </div>
-                <div style={{ ...modal.countText, marginBottom: "12px" }}>
-                  휴가자 {activeCount}명
-                  {gyeongsanInfo &&
-                    ` · 보장대상 ${gyeongsanInfo.capacityCount}/${gyeongsanInfo.capacity}명 (여유 ${gyeongsanInfo.remain}명)`}
-                </div>
+                {isMidManager && isWideScreen && (
+                  <div style={{ height: "94px", boxSizing: "border-box" }}>
+                    <div style={{ fontSize: "13px", fontWeight: 700, color: "#888", marginBottom: "3px" }}>오늘</div>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "3px" }}>
+                      <button
+                        style={{ ...adminStyles.adminBtn, padding: "6px 10px", fontSize: "14px" }}
+                        onClick={() => changeDay(-1)}
+                      >
+                        ‹
+                      </button>
+                      <div style={{ fontSize: "18px", fontWeight: 700, lineHeight: "26px" }}>{formatDateHeader(selectedDate)}</div>
+                      <button
+                        style={{ ...adminStyles.adminBtn, padding: "6px 10px", fontSize: "14px" }}
+                        onClick={() => changeDay(1)}
+                      >
+                        ›
+                      </button>
+                    </div>
+                    <div style={{ fontSize: "14px", color: "#1a1a1a", fontWeight: 600 }}>
+                      휴가자 {activeCount}명
+                      {gyeongsanInfo &&
+                        ` · 보장대상 ${gyeongsanInfo.capacityCount}/${gyeongsanInfo.capacity}명 (여유 ${gyeongsanInfo.remain}명)`}
+                    </div>
+                  </div>
+                )}
+                {!(isMidManager && isWideScreen) && (
+                  <React.Fragment>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "4px" }}>
+                      <button
+                        style={{ ...adminStyles.adminBtn, padding: "6px 10px", fontSize: "14px" }}
+                        onClick={() => changeDay(-1)}
+                      >
+                        ‹
+                      </button>
+                      <div style={{ ...modal.dateTitle, marginBottom: 0 }}>{formatDateHeader(selectedDate)}</div>
+                      <button
+                        style={{ ...adminStyles.adminBtn, padding: "6px 10px", fontSize: "14px" }}
+                        onClick={() => changeDay(1)}
+                      >
+                        ›
+                      </button>
+                    </div>
+                    <div style={modal.countText}>
+                      휴가자 {activeCount}명
+                      {gyeongsanInfo &&
+                        ` · 보장대상 ${gyeongsanInfo.capacityCount}/${gyeongsanInfo.capacity}명 (여유 ${gyeongsanInfo.remain}명)`}
+                    </div>
+                  </React.Fragment>
+                )}
 
                 {dayRecords.length === 0 && (
                   <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0" }}>
