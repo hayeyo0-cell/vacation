@@ -1371,7 +1371,7 @@ const VACATION_TYPES = [...CAPACITY_TYPES, ...NON_CAPACITY_TYPES];
 
 const tbl = {
   th: { padding: "5px 3px", textAlign: "center", fontSize: "11px", color: "#666", whiteSpace: "nowrap" },
-  td: { padding: "6px 3px", textAlign: "center", verticalAlign: "top", fontSize: "13px", whiteSpace: "nowrap" },
+  td: { padding: "7px 4px", textAlign: "center", verticalAlign: "top", fontSize: "13px", whiteSpace: "nowrap" },
 };
 
 function pad2(n) {
@@ -2134,38 +2134,38 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
     return (
       <div
         style={{
-          flex: "0 0 380px",
+          flex: "0 0 300px",
           background: "#fff",
           border: "1px solid #eee",
           borderRadius: "10px",
           padding: "14px",
-          height: "82vh",
+          height: "76vh",
           overflowY: "auto",
           boxSizing: "border-box",
         }}
       >
-        <div style={{ height: "94px", boxSizing: "border-box" }}>
-          <div style={{ fontSize: "13px", fontWeight: 700, color: "#888", marginBottom: "3px" }}>{label}</div>
-          <div style={{ fontSize: "18px", fontWeight: 700, marginBottom: "3px", lineHeight: "26px" }}>
+        <div style={{ height: "78px", boxSizing: "border-box" }}>
+          <div style={{ fontSize: "12px", fontWeight: 700, color: "#888", marginBottom: "2px" }}>{label}</div>
+          <div style={{ fontSize: "15px", fontWeight: 700, marginBottom: "2px", lineHeight: "22px" }}>
             {dateStr} ({weekdayShort(dateStr)})
           </div>
-          <div style={{ fontSize: "14px", color: "#666" }}>
+          <div style={{ fontSize: "12px", color: "#666" }}>
             휴가자 {activeRecs.length}명 · 보장대상 {capacityActive.length}/{capacity}명
           </div>
         </div>
         {branchRecords.length === 0 ? (
-          <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0", fontSize: "14px" }}>
+          <div style={{ textAlign: "center", color: "#aaa", padding: "16px 0", fontSize: "12px" }}>
             등록된 휴가가 없어요
           </div>
         ) : (
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "14px" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
             <thead>
               <tr style={{ borderBottom: "2px solid #333" }}>
-                <th style={{ ...tbl.th, fontSize: "13px", padding: "6px 4px" }}>#</th>
-                <th style={{ ...tbl.th, textAlign: "left", fontSize: "13px", padding: "6px 4px" }}>이름</th>
-                <th style={{ ...tbl.th, textAlign: "left", fontSize: "13px", padding: "6px 4px" }}>휴가명</th>
-                <th style={{ ...tbl.th, fontSize: "13px", padding: "6px 4px" }}>DIA</th>
-                <th style={{ ...tbl.th, textAlign: "left", fontSize: "13px", padding: "6px 4px" }}>확인</th>
+                <th style={{ ...tbl.th, fontSize: "11px", padding: "5px 3px" }}>#</th>
+                <th style={{ ...tbl.th, textAlign: "left", fontSize: "11px", padding: "5px 3px" }}>이름</th>
+                <th style={{ ...tbl.th, textAlign: "left", fontSize: "11px", padding: "5px 3px" }}>휴가명</th>
+                <th style={{ ...tbl.th, fontSize: "11px", padding: "5px 3px" }}>DIA</th>
+                <th style={{ ...tbl.th, textAlign: "left", fontSize: "11px", padding: "5px 3px" }}>확인</th>
               </tr>
             </thead>
             <tbody>
@@ -2181,7 +2181,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
                         <td
                           colSpan={5}
                           style={{
-                            padding: "8px 4px 5px",
+                            padding: "6px 3px 4px",
                             fontSize: "13px",
                             fontWeight: 800,
                             color: cap ? "#1b3a5c" : "#666",
@@ -2199,13 +2199,13 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
                         textDecoration: cancelled ? "line-through" : "none",
                       }}
                     >
-                      <td style={{ ...tbl.td, padding: "7px 4px" }}>{v.priority != null ? v.priority : idx + 1}</td>
-                      <td style={{ ...tbl.td, textAlign: "left", padding: "7px 4px" }}>
+                      <td style={{ ...tbl.td, padding: "6px 3px" }}>{v.priority != null ? v.priority : idx + 1}</td>
+                      <td style={{ ...tbl.td, textAlign: "left", padding: "6px 3px" }}>
                         {TYPE_ICON[v.vacationType] || "📌"} {v.name}
                       </td>
-                      <td style={{ ...tbl.td, textAlign: "left", padding: "7px 4px" }}>{v.vacationType}</td>
-                      <td style={{ ...tbl.td, fontWeight: 700, color: "#1b3a5c", padding: "7px 4px" }}>{v.dia}</td>
-                      <td style={{ ...tbl.td, textAlign: "left", padding: "7px 4px" }}>
+                      <td style={{ ...tbl.td, textAlign: "left", padding: "6px 3px" }}>{v.vacationType}</td>
+                      <td style={{ ...tbl.td, fontWeight: 700, color: "#1b3a5c", padding: "6px 3px" }}>{v.dia}</td>
+                      <td style={{ ...tbl.td, textAlign: "left", padding: "6px 3px" }}>
                         {cancelled ? (
                           "-"
                         ) : v.confirmedBy ? (
@@ -2342,7 +2342,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
             style={{
               ...modal.sheet,
               ...(isMidManager && isWideScreen
-                ? { maxWidth: "1300px", height: "82vh", display: "flex", gap: "12px", alignItems: "stretch" }
+                ? { maxWidth: "980px", height: "76vh", display: "flex", gap: "10px", alignItems: "stretch", justifyContent: "center" }
                 : {}),
             }}
             onClick={(e) => e.stopPropagation()}
@@ -2351,10 +2351,13 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
               renderCompactDayColumn(prevDateStr, adjacentRecords.prev, "전날")}
             <div
               style={{
-                flex: isMidManager && isWideScreen ? "1 1 auto" : undefined,
+                flex: isMidManager && isWideScreen ? "0 0 300px" : undefined,
                 minWidth: 0,
                 width: "100%",
-                ...(isMidManager && isWideScreen ? { height: "100%", overflowY: "auto" } : {}),
+                boxSizing: "border-box",
+                ...(isMidManager && isWideScreen
+                  ? { height: "100%", overflowY: "auto", padding: "14px" }
+                  : {}),
               }}
             >
             <div
@@ -2490,24 +2493,24 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
             ) : (
               <React.Fragment>
                 {isMidManager && isWideScreen && (
-                  <div style={{ height: "94px", boxSizing: "border-box" }}>
-                    <div style={{ fontSize: "13px", fontWeight: 700, color: "#888", marginBottom: "3px" }}>오늘</div>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "3px" }}>
+                  <div style={{ height: "78px", boxSizing: "border-box" }}>
+                    <div style={{ fontSize: "12px", fontWeight: 700, color: "#888", marginBottom: "2px" }}>오늘</div>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "2px" }}>
                       <button
-                        style={{ ...adminStyles.adminBtn, padding: "6px 10px", fontSize: "14px" }}
+                        style={{ ...adminStyles.adminBtn, padding: "5px 9px", fontSize: "13px" }}
                         onClick={() => changeDay(-1)}
                       >
                         ‹
                       </button>
-                      <div style={{ fontSize: "18px", fontWeight: 700, lineHeight: "26px" }}>{formatDateHeader(selectedDate)}</div>
+                      <div style={{ fontSize: "15px", fontWeight: 700, lineHeight: "22px" }}>{formatDateHeader(selectedDate)}</div>
                       <button
-                        style={{ ...adminStyles.adminBtn, padding: "6px 10px", fontSize: "14px" }}
+                        style={{ ...adminStyles.adminBtn, padding: "5px 9px", fontSize: "13px" }}
                         onClick={() => changeDay(1)}
                       >
                         ›
                       </button>
                     </div>
-                    <div style={{ fontSize: "14px", color: "#1a1a1a", fontWeight: 600 }}>
+                    <div style={{ fontSize: "12px", color: "#1a1a1a", fontWeight: 600 }}>
                       휴가자 {activeCount}명
                       {gyeongsanInfo &&
                         ` · 보장대상 ${gyeongsanInfo.capacityCount}/${gyeongsanInfo.capacity}명 (여유 ${gyeongsanInfo.remain}명)`}
