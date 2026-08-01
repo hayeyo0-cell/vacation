@@ -2139,8 +2139,9 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
           border: "1px solid #eee",
           borderRadius: "10px",
           padding: "14px",
-          maxHeight: "78vh",
+          height: "82vh",
           overflowY: "auto",
+          boxSizing: "border-box",
         }}
       >
         <div style={{ fontSize: "13px", fontWeight: 700, color: "#888", marginBottom: "3px" }}>{label}</div>
@@ -2339,14 +2340,21 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
             style={{
               ...modal.sheet,
               ...(isMidManager && isWideScreen
-                ? { maxWidth: "1300px", display: "flex", gap: "12px", alignItems: "flex-start" }
+                ? { maxWidth: "1300px", height: "82vh", display: "flex", gap: "12px", alignItems: "stretch" }
                 : {}),
             }}
             onClick={(e) => e.stopPropagation()}
           >
             {isMidManager && isWideScreen && prevDateStr &&
               renderCompactDayColumn(prevDateStr, adjacentRecords.prev, "전날")}
-            <div style={{ flex: isMidManager && isWideScreen ? "1 1 auto" : undefined, minWidth: 0, width: "100%" }}>
+            <div
+              style={{
+                flex: isMidManager && isWideScreen ? "1 1 auto" : undefined,
+                minWidth: 0,
+                width: "100%",
+                ...(isMidManager && isWideScreen ? { height: "100%", overflowY: "auto" } : {}),
+              }}
+            >
             <div
               style={{ overflowX: "hidden" }}
               onTouchStart={handleDayTouchStart}
