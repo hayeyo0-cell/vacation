@@ -1451,6 +1451,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
   // position:fixed + left/top 고정 좌표 방식 - margin:auto 중앙정렬과 섞으면 크기 조절 시
   // 양쪽에서 같이 늘어나 마우스를 안 따라가는 것처럼 보이는 문제가 있어서, 좌표를 직접 계산해요.
   const DAY_MODAL_DEFAULT_W = 960;
+  const DAY_MODAL_DEFAULT_H = typeof window !== "undefined" ? window.innerHeight * 0.63 : 600;
   const [dragPos, setDragPos] = useState({ x: 0, y: 0 });
   const dragStateRef = useRef({ dragging: false, startX: 0, startY: 0, baseX: 0, baseY: 0 });
   const dayModalSheetRef = useRef(null); // 크기 조절 시 현재 크기를 재는 용도
@@ -1458,9 +1459,9 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
   const resizeStateRef = useRef({ resizing: false, startX: 0, startY: 0, startW: 0, startH: 0 });
 
   const dayModalWidth = sizeOverride ? sizeOverride.width : DAY_MODAL_DEFAULT_W;
-  const dayModalHeight = sizeOverride
-    ? sizeOverride.height
-    : (typeof window !== "undefined" ? window.innerHeight * 0.63 : 600);
+  const dayModalHeight = sizeOverride ? sizeOverride.height : DAY_MODAL_DEFAULT_H;
+  // 안쪽 내용 전체(전날·오늘·다음날)를 기준 크기로 고정 배치한 뒤, 이 비율만큼 통째로 확대/축소해요
+  const dayModalScale = dayModalWidth / DAY_MODAL_DEFAULT_W;
   const dayModalBaseLeft =
     typeof window !== "undefined" ? Math.max(10, (window.innerWidth - dayModalWidth) / 2) : 0;
   const dayModalBaseTop = typeof window !== "undefined" ? window.innerHeight * 0.04 : 0;
@@ -2443,7 +2444,8 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
 
       {loading && <div style={{ textAlign: "center", color: "#aaa", padding: "10px" }}>불러오는 중...</div>}
 
-      {selectedDate && (
+      {selectedDate && (() => {
+        const dayModalNode = (
         <div style={modal.overlay} onClick={closeModal}>
           <div
             ref={dayModalSheetRef}
@@ -2458,14 +2460,52 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
                     maxWidth: "none",
                     width: `${dayModalWidth}px`,
                     height: `${dayModalHeight}px`,
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 0,
+                    padding: 0,
+                    overflow: "hidden",
                   }
                 : {}),
             }}
             onClick={(e) => e.stopPropagation()}
           >
+            {isMidManager && isWideScreen && (
+              <button
+                onClick={closeModal}
+                style={{
+                  position: "absolute",
+                  top: "8px",
+                  right: "10px",
+                  border: "none",
+                  background: "transparent",
+                  color: "#999",
+                  fontSize: "20px",
+                  lineHeight: 1,
+                  cursor: "pointer",
+                  padding: "4px 6px",
+                  zIndex: 2,
+                }}
+                title="닫기"
+              >
+                ✕
+              </button>
+            )}
+            {/* 안쪽 내용 전체를 기준 크기(960px)로 고정 배치한 뒤, dayModalScale 비율만큼 통째로 확대/축소 -
+                이렇게 하면 전날·오늘·다음날 세 칸이 다 같이 커지고 작아져요 (인터넷 창 배율 조절과 동일한 방식) */}
+            <div
+              style={
+                isMidManager && isWideScreen
+                  ? {
+                      width: `${DAY_MODAL_DEFAULT_W}px`,
+                      height: `${DAY_MODAL_DEFAULT_H}px`,
+                      transform: `scale(${dayModalScale})`,
+                      transformOrigin: "top left",
+                      display: "flex",
+                      flexDirection: "column",
+                      padding: "20px",
+                      boxSizing: "border-box",
+                    }
+                  : { display: "contents" }
+              }
+            >
             {isMidManager && isWideScreen && (
               <div
                 onMouseDown={handleDragStart}
@@ -2484,33 +2524,12 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
                 ⋯⋯⋯
               </div>
             )}
-            {isMidManager && isWideScreen && (
-              <button
-                onClick={closeModal}
-                style={{
-                  position: "absolute",
-                  top: "8px",
-                  right: "10px",
-                  border: "none",
-                  background: "transparent",
-                  color: "#999",
-                  fontSize: "20px",
-                  lineHeight: 1,
-                  cursor: "pointer",
-                  padding: "4px 6px",
-                }}
-                title="닫기"
-              >
-                ✕
-              </button>
-            )}
             <div
               style={{
                 display: "flex",
                 gap: "8px",
                 flex: "1 1 auto",
                 minHeight: 0,
-                ...(isMidManager && isWideScreen ? { zoom: dayModalWidth / DAY_MODAL_DEFAULT_W } : {}),
               }}
             >
             {isMidManager && isWideScreen && prevDateStr &&
@@ -2953,6 +2972,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
             {isMidManager && isWideScreen && nextDateStr &&
               renderCompactDayColumn(nextDateStr, adjacentRecords.next, "다음날")}
             </div>
+            </div>
             {isMidManager && isWideScreen && (
               <div
                 onMouseDown={handleResizeStart}
@@ -2971,7 +2991,11 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
             )}
           </div>
         </div>
-      )}
+        );
+        return isMidManager && isWideScreen
+          ? ReactDOM.createPortal(dayModalNode, document.body)
+          : dayModalNode;
+      })()}
 
       {showAdminMenu && (
         <div style={modal.overlay} onClick={closeModal}>
