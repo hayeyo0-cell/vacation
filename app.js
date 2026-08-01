@@ -2134,7 +2134,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
     return (
       <div
         style={{
-          flex: "0 0 250px",
+          flex: "0 0 340px",
           background: "#fff",
           border: "1px solid #eee",
           borderRadius: "10px",
@@ -2165,6 +2165,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
                 <th style={{ ...tbl.th, textAlign: "left", fontSize: "11px", padding: "5px 3px" }}>이름</th>
                 <th style={{ ...tbl.th, textAlign: "left", fontSize: "11px", padding: "5px 3px" }}>휴가명</th>
                 <th style={{ ...tbl.th, fontSize: "11px", padding: "5px 3px" }}>DIA</th>
+                <th style={{ ...tbl.th, textAlign: "left", fontSize: "11px", padding: "5px 3px" }}>확인</th>
               </tr>
             </thead>
             <tbody>
@@ -2178,7 +2179,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
                     {showGroupHeader && (
                       <tr>
                         <td
-                          colSpan={4}
+                          colSpan={5}
                           style={{
                             padding: "6px 3px 4px",
                             fontSize: "13px",
@@ -2201,10 +2202,18 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
                       <td style={{ ...tbl.td, padding: "6px 3px" }}>{v.priority != null ? v.priority : idx + 1}</td>
                       <td style={{ ...tbl.td, textAlign: "left", padding: "6px 3px" }}>
                         {TYPE_ICON[v.vacationType] || "📌"} {v.name}
-                        {!cancelled && v.confirmedBy && <span style={{ color: "#1caa5c" }}> ✅</span>}
                       </td>
                       <td style={{ ...tbl.td, textAlign: "left", padding: "6px 3px" }}>{v.vacationType}</td>
                       <td style={{ ...tbl.td, fontWeight: 700, color: "#1b3a5c", padding: "6px 3px" }}>{v.dia}</td>
+                      <td style={{ ...tbl.td, textAlign: "left", padding: "6px 3px" }}>
+                        {cancelled ? (
+                          "-"
+                        ) : v.confirmedBy ? (
+                          <span style={{ color: "#1caa5c" }}>✅{v.confirmedBy}</span>
+                        ) : (
+                          <span style={{ color: "#ccc" }}>대기중</span>
+                        )}
+                      </td>
                     </tr>
                   </React.Fragment>
                 );
@@ -2333,7 +2342,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
             style={{
               ...modal.sheet,
               ...(isMidManager && isWideScreen
-                ? { maxWidth: "1040px", height: "76vh", display: "flex", gap: "10px", alignItems: "stretch" }
+                ? { maxWidth: "1200px", height: "76vh", display: "flex", gap: "10px", alignItems: "stretch" }
                 : {}),
             }}
             onClick={(e) => e.stopPropagation()}
