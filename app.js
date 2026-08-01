@@ -1448,17 +1448,22 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
 
   // PC 3칸 모드에서 - 마우스로 날짜 모달 창을 드래그해서 옮기고 모서리로 크기 조절
   // (스와이프 애니메이션과 동일하게, 리렌더 없이 DOM을 직접 움직여서 끊김 없이 부드럽게)
+  // position:fixed + left/top 고정 좌표 방식 - margin:auto 중앙정렬과 섞으면 크기 조절 시
+  // 양쪽에서 같이 늘어나 마우스를 안 따라가는 것처럼 보이는 문제가 있어서, 좌표를 직접 계산해요.
+  const DAY_MODAL_DEFAULT_W = 960;
   const [dragPos, setDragPos] = useState({ x: 0, y: 0 });
   const dragStateRef = useRef({ dragging: false, startX: 0, startY: 0, baseX: 0, baseY: 0 });
   const dayModalSheetRef = useRef(null); // 크기 조절 시 현재 크기를 재는 용도
   const [sizeOverride, setSizeOverride] = useState(null); // { width, height } - 직접 조절한 크기 (null이면 기본 크기)
   const resizeStateRef = useRef({ resizing: false, startX: 0, startY: 0, startW: 0, startH: 0 });
 
-  const applyTransform = (x, y) => {
-    if (dayModalSheetRef.current) {
-      dayModalSheetRef.current.style.transform = `translate(${x}px, ${y}px)`;
-    }
-  };
+  const dayModalWidth = sizeOverride ? sizeOverride.width : DAY_MODAL_DEFAULT_W;
+  const dayModalHeight = sizeOverride
+    ? sizeOverride.height
+    : (typeof window !== "undefined" ? window.innerHeight * 0.63 : 600);
+  const dayModalBaseLeft =
+    typeof window !== "undefined" ? Math.max(10, (window.innerWidth - dayModalWidth) / 2) : 0;
+  const dayModalBaseTop = typeof window !== "undefined" ? window.innerHeight * 0.04 : 0;
 
   const handleDragStart = (e) => {
     dragStateRef.current = {
@@ -1468,7 +1473,6 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
       baseX: dragPos.x,
       baseY: dragPos.y,
     };
-    if (dayModalSheetRef.current) dayModalSheetRef.current.style.transition = "none";
   };
   const handleResizeStart = (e) => {
     e.stopPropagation();
@@ -1477,10 +1481,9 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
       resizing: true,
       startX: e.clientX,
       startY: e.clientY,
-      startW: rect ? rect.width : 960,
-      startH: rect ? rect.height : window.innerHeight * 0.63,
+      startW: rect ? rect.width : dayModalWidth,
+      startH: rect ? rect.height : dayModalHeight,
     };
-    if (dayModalSheetRef.current) dayModalSheetRef.current.style.transition = "none";
   };
   useEffect(() => {
     let rafId = null;
@@ -1489,18 +1492,20 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
     const applyFrame = () => {
       rafId = null;
       const e = pendingEvent;
-      if (!e) return;
+      if (!e || !dayModalSheetRef.current) return;
       const d = dragStateRef.current;
       if (d.dragging) {
-        applyTransform(d.baseX + (e.clientX - d.startX), d.baseY + (e.clientY - d.startY));
+        const x = d.baseX + (e.clientX - d.startX);
+        const y = d.baseY + (e.clientY - d.startY);
+        dayModalSheetRef.current.style.left = `${dayModalBaseLeft + x}px`;
+        dayModalSheetRef.current.style.top = `${dayModalBaseTop + y}px`;
       }
       const r = resizeStateRef.current;
-      if (r.resizing && dayModalSheetRef.current) {
+      if (r.resizing) {
         const nextW = Math.max(600, r.startW + (e.clientX - r.startX));
         const nextH = Math.max(300, r.startH + (e.clientY - r.startY));
         dayModalSheetRef.current.style.width = `${nextW}px`;
         dayModalSheetRef.current.style.height = `${nextH}px`;
-        dayModalSheetRef.current.style.maxWidth = "none";
       }
     };
 
@@ -1535,7 +1540,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
       window.removeEventListener("mouseup", onUp);
       if (rafId != null) cancelAnimationFrame(rafId);
     };
-  }, []);
+  }, [dayModalBaseLeft, dayModalBaseTop]);
   // 날짜 모달이 닫힐 때마다 드래그 위치/크기 초기화 (다음에 열 때는 항상 기본 상태로 시작)
   useEffect(() => {
     if (!selectedDate) {
@@ -2436,27 +2441,23 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
       {loading && <div style={{ textAlign: "center", color: "#aaa", padding: "10px" }}>불러오는 중...</div>}
 
       {selectedDate && (
-        <div
-          style={{
-            ...modal.overlay,
-            ...(isMidManager && isWideScreen ? { alignItems: "flex-start", paddingTop: "4vh" } : {}),
-          }}
-          onClick={closeModal}
-        >
+        <div style={modal.overlay} onClick={closeModal}>
           <div
             ref={dayModalSheetRef}
             style={{
               ...modal.sheet,
               ...(isMidManager && isWideScreen
                 ? {
-                    maxWidth: sizeOverride ? "none" : "960px",
-                    width: sizeOverride ? `${sizeOverride.width}px` : undefined,
-                    height: sizeOverride ? `${sizeOverride.height}px` : "63vh",
+                    position: "fixed",
+                    left: `${dayModalBaseLeft + dragPos.x}px`,
+                    top: `${dayModalBaseTop + dragPos.y}px`,
+                    margin: 0,
+                    maxWidth: "none",
+                    width: `${dayModalWidth}px`,
+                    height: `${dayModalHeight}px`,
                     display: "flex",
                     flexDirection: "column",
                     gap: 0,
-                    position: "relative",
-                    transform: `translate(${dragPos.x}px, ${dragPos.y}px)`,
                   }
                 : {}),
             }}
