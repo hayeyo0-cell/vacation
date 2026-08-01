@@ -1502,8 +1502,9 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
       }
       const r = resizeStateRef.current;
       if (r.resizing) {
-        const nextW = Math.max(600, r.startW + (e.clientX - r.startX));
-        const nextH = Math.max(300, r.startH + (e.clientY - r.startY));
+        const scale = Math.max(0.5, Math.min(2.2, (r.startW + (e.clientX - r.startX)) / r.startW));
+        const nextW = Math.max(600, r.startW * scale);
+        const nextH = Math.max(300, r.startH * scale);
         dayModalSheetRef.current.style.width = `${nextW}px`;
         dayModalSheetRef.current.style.height = `${nextH}px`;
       }
@@ -1524,8 +1525,10 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
       }
       if (resizeStateRef.current.resizing) {
         resizeStateRef.current.resizing = false;
-        const nextW = Math.max(600, resizeStateRef.current.startW + (e.clientX - resizeStateRef.current.startX));
-        const nextH = Math.max(300, resizeStateRef.current.startH + (e.clientY - resizeStateRef.current.startY));
+        const rs = resizeStateRef.current;
+        const scale = Math.max(0.5, Math.min(2.2, (rs.startW + (e.clientX - rs.startX)) / rs.startW));
+        const nextW = Math.max(600, rs.startW * scale);
+        const nextH = Math.max(300, rs.startH * scale);
         setSizeOverride({ width: nextW, height: nextH });
       }
       if (rafId != null) {
@@ -2501,7 +2504,15 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
                 ✕
               </button>
             )}
-            <div style={{ display: "flex", gap: "8px", flex: "1 1 auto", minHeight: 0 }}>
+            <div
+              style={{
+                display: "flex",
+                gap: "8px",
+                flex: "1 1 auto",
+                minHeight: 0,
+                ...(isMidManager && isWideScreen ? { zoom: dayModalWidth / DAY_MODAL_DEFAULT_W } : {}),
+              }}
+            >
             {isMidManager && isWideScreen && prevDateStr &&
               renderCompactDayColumn(prevDateStr, adjacentRecords.prev, "전날")}
             <div
