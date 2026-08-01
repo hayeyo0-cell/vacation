@@ -1445,6 +1445,41 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
+
+  // PC 3칸 모드에서 - 마우스로 날짜 모달 창을 드래그해서 옮길 수 있게 (드래그 핸들에서만 시작)
+  const [dragPos, setDragPos] = useState({ x: 0, y: 0 });
+  const dragStateRef = useRef({ dragging: false, startX: 0, startY: 0, baseX: 0, baseY: 0 });
+
+  const handleDragStart = (e) => {
+    dragStateRef.current = {
+      dragging: true,
+      startX: e.clientX,
+      startY: e.clientY,
+      baseX: dragPos.x,
+      baseY: dragPos.y,
+    };
+  };
+  useEffect(() => {
+    const onMove = (e) => {
+      const s = dragStateRef.current;
+      if (!s.dragging) return;
+      setDragPos({ x: s.baseX + (e.clientX - s.startX), y: s.baseY + (e.clientY - s.startY) });
+    };
+    const onUp = () => {
+      dragStateRef.current.dragging = false;
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, []);
+  // 날짜 모달이 닫힐 때마다 드래그 위치 초기화 (다음에 열 때는 항상 제자리에서 시작)
+  useEffect(() => {
+    if (!selectedDate) setDragPos({ x: 0, y: 0 });
+  }, [selectedDate]);
+
   const myCode = (employees || []).find((e) => e.id === currentUser.id)?.code || "";
   const myBaseCode = (employees || []).find((e) => e.id === currentUser.id)?.baseCode || "";
   const myTeamKey = REVERSE_TEAM_MAP[currentUser.branch];
@@ -2337,16 +2372,48 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
       {loading && <div style={{ textAlign: "center", color: "#aaa", padding: "10px" }}>불러오는 중...</div>}
 
       {selectedDate && (
-        <div style={modal.overlay} onClick={closeModal}>
+        <div
+          style={{
+            ...modal.overlay,
+            ...(isMidManager && isWideScreen ? { alignItems: "flex-start", paddingTop: "4vh" } : {}),
+          }}
+          onClick={closeModal}
+        >
           <div
             style={{
               ...modal.sheet,
               ...(isMidManager && isWideScreen
-                ? { maxWidth: "960px", height: "63vh", display: "flex", gap: "8px", alignItems: "stretch" }
+                ? {
+                    maxWidth: "960px",
+                    height: "63vh",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 0,
+                    transform: `translate(${dragPos.x}px, ${dragPos.y}px)`,
+                  }
                 : {}),
             }}
             onClick={(e) => e.stopPropagation()}
           >
+            {isMidManager && isWideScreen && (
+              <div
+                onMouseDown={handleDragStart}
+                style={{
+                  cursor: "grab",
+                  padding: "6px 0",
+                  marginBottom: "8px",
+                  textAlign: "center",
+                  color: "#ccc",
+                  fontSize: "16px",
+                  userSelect: "none",
+                  flexShrink: 0,
+                }}
+                title="드래그해서 창 옮기기"
+              >
+                ⋯⋯⋯
+              </div>
+            )}
+            <div style={{ display: "flex", gap: "8px", flex: "1 1 auto", minHeight: 0 }}>
             {isMidManager && isWideScreen && prevDateStr &&
               renderCompactDayColumn(prevDateStr, adjacentRecords.prev, "전날")}
             <div
@@ -2786,6 +2853,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
             </div>
             {isMidManager && isWideScreen && nextDateStr &&
               renderCompactDayColumn(nextDateStr, adjacentRecords.next, "다음날")}
+            </div>
           </div>
         </div>
       )}
