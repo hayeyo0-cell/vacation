@@ -1503,6 +1503,35 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
     return () => { cancelled = true; };
   }, [viewYear]);
 
+  // 관리자 로그인 시 한 번 - 마지막 백업이 7일 지났으면 조용히 자동으로 스프레드시트에 백업
+  // ⚠️ 테스트 모드에서는 실행 안 함 - 실제 운영 전환(TEST_MODE = false) 후부터 작동
+  useEffect(() => {
+    if (TEST_MODE) return;
+    if (!isAdminUser(currentUser)) return;
+    waitForFirestore()
+      .then(() => window.BackupAPI.getLastBackupAt())
+      .then((lastBackupAt) => {
+        const now = Date.now();
+        const lastMs = lastBackupAt?.toMillis?.() || 0;
+        const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+        if (now - lastMs < sevenDaysMs) return; // 아직 7일 안 지남 - 조용히 넘어감
+        return window.VacationAPI.getAll().then((records) => {
+          const payload = {
+            backupDate: todayStr(),
+            count: records.length,
+            vacations: records,
+          };
+          return fetch(VACATION_API_URL, {
+            method: "POST",
+            body: JSON.stringify(payload),
+          })
+            .then(() => window.BackupAPI.setLastBackupAt())
+            .catch((err) => console.error("자동 백업 전송 실패:", err));
+        });
+      })
+      .catch((err) => console.error("백업 확인 실패:", err));
+  }, [currentUser.name, currentUser.branch]);
+
   // 앱 접속(로그인) 시 한 번 - 본인이 신청한 것 중 5일 이내인데 아직 운용 확인 전인 건 알림
   useEffect(() => {
     if (isMidManager) return; // 운용은 본인이 확인 주체라 대상 아님
@@ -2105,35 +2134,35 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
     return (
       <div
         style={{
-          flex: "0 0 280px",
+          flex: "0 0 380px",
           background: "#fff",
           border: "1px solid #eee",
           borderRadius: "10px",
-          padding: "10px",
-          maxHeight: "75vh",
+          padding: "14px",
+          maxHeight: "78vh",
           overflowY: "auto",
         }}
       >
-        <div style={{ fontSize: "11px", fontWeight: 700, color: "#888", marginBottom: "2px" }}>{label}</div>
-        <div style={{ fontSize: "15px", fontWeight: 700, marginBottom: "2px" }}>
+        <div style={{ fontSize: "13px", fontWeight: 700, color: "#888", marginBottom: "3px" }}>{label}</div>
+        <div style={{ fontSize: "18px", fontWeight: 700, marginBottom: "3px" }}>
           {dateStr} ({weekdayShort(dateStr)})
         </div>
-        <div style={{ fontSize: "12px", color: "#666", marginBottom: "10px" }}>
+        <div style={{ fontSize: "14px", color: "#666", marginBottom: "12px" }}>
           휴가자 {activeRecs.length}명 · 보장대상 {capacityActive.length}/{capacity}명
         </div>
         {branchRecords.length === 0 ? (
-          <div style={{ textAlign: "center", color: "#aaa", padding: "16px 0", fontSize: "12px" }}>
+          <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0", fontSize: "14px" }}>
             등록된 휴가가 없어요
           </div>
         ) : (
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "14px" }}>
             <thead>
               <tr style={{ borderBottom: "2px solid #333" }}>
-                <th style={tbl.th}>#</th>
-                <th style={{ ...tbl.th, textAlign: "left" }}>이름</th>
-                <th style={{ ...tbl.th, textAlign: "left" }}>휴가명</th>
-                <th style={tbl.th}>DIA</th>
-                <th style={{ ...tbl.th, textAlign: "left" }}>확인</th>
+                <th style={{ ...tbl.th, fontSize: "13px", padding: "6px 4px" }}>#</th>
+                <th style={{ ...tbl.th, textAlign: "left", fontSize: "13px", padding: "6px 4px" }}>이름</th>
+                <th style={{ ...tbl.th, textAlign: "left", fontSize: "13px", padding: "6px 4px" }}>휴가명</th>
+                <th style={{ ...tbl.th, fontSize: "13px", padding: "6px 4px" }}>DIA</th>
+                <th style={{ ...tbl.th, textAlign: "left", fontSize: "13px", padding: "6px 4px" }}>확인</th>
               </tr>
             </thead>
             <tbody>
@@ -2149,8 +2178,8 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
                         <td
                           colSpan={5}
                           style={{
-                            padding: "6px 3px 4px",
-                            fontSize: "12px",
+                            padding: "8px 4px 5px",
+                            fontSize: "13px",
                             fontWeight: 800,
                             color: cap ? "#1b3a5c" : "#666",
                             background: cap ? "#eaf1ff" : "#f2f2f2",
@@ -2167,13 +2196,13 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
                         textDecoration: cancelled ? "line-through" : "none",
                       }}
                     >
-                      <td style={tbl.td}>{v.priority != null ? v.priority : idx + 1}</td>
-                      <td style={{ ...tbl.td, textAlign: "left" }}>
+                      <td style={{ ...tbl.td, padding: "7px 4px" }}>{v.priority != null ? v.priority : idx + 1}</td>
+                      <td style={{ ...tbl.td, textAlign: "left", padding: "7px 4px" }}>
                         {TYPE_ICON[v.vacationType] || "📌"} {v.name}
                       </td>
-                      <td style={{ ...tbl.td, textAlign: "left" }}>{v.vacationType}</td>
-                      <td style={{ ...tbl.td, fontWeight: 700, color: "#1b3a5c" }}>{v.dia}</td>
-                      <td style={{ ...tbl.td, textAlign: "left" }}>
+                      <td style={{ ...tbl.td, textAlign: "left", padding: "7px 4px" }}>{v.vacationType}</td>
+                      <td style={{ ...tbl.td, fontWeight: 700, color: "#1b3a5c", padding: "7px 4px" }}>{v.dia}</td>
+                      <td style={{ ...tbl.td, textAlign: "left", padding: "7px 4px" }}>
                         {cancelled ? (
                           "-"
                         ) : v.confirmedBy ? (
@@ -2310,7 +2339,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
             style={{
               ...modal.sheet,
               ...(isMidManager && isWideScreen
-                ? { maxWidth: "1100px", display: "flex", gap: "10px", alignItems: "flex-start" }
+                ? { maxWidth: "1300px", display: "flex", gap: "12px", alignItems: "flex-start" }
                 : {}),
             }}
             onClick={(e) => e.stopPropagation()}
