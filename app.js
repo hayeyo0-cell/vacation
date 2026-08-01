@@ -2144,7 +2144,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
         }}
       >
         <div style={{ fontSize: "13px", fontWeight: 700, color: "#888", marginBottom: "3px" }}>{label}</div>
-        <div style={{ fontSize: "18px", fontWeight: 700, marginBottom: "3px" }}>
+        <div style={{ fontSize: "18px", fontWeight: 700, marginBottom: "3px", minHeight: "26px", display: "flex", alignItems: "center" }}>
           {dateStr} ({weekdayShort(dateStr)})
         </div>
         <div style={{ fontSize: "14px", color: "#666", marginBottom: "12px" }}>
@@ -2479,7 +2479,8 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
               </React.Fragment>
             ) : (
               <React.Fragment>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "4px" }}>
+                <div style={{ fontSize: "13px", fontWeight: 700, color: "#888", marginBottom: "3px" }}>오늘</div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "3px", minHeight: "26px" }}>
                   <button
                     style={{ ...adminStyles.adminBtn, padding: "6px 10px", fontSize: "14px" }}
                     onClick={() => changeDay(-1)}
@@ -2494,7 +2495,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
                     ›
                   </button>
                 </div>
-                <div style={modal.countText}>
+                <div style={{ ...modal.countText, marginBottom: "12px" }}>
                   휴가자 {activeCount}명
                   {gyeongsanInfo &&
                     ` · 보장대상 ${gyeongsanInfo.capacityCount}/${gyeongsanInfo.capacity}명 (여유 ${gyeongsanInfo.remain}명)`}
