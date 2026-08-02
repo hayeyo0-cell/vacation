@@ -3192,6 +3192,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
     </div>
   );
 }
+
 /* ------------------------------------------------------------------ */
 /* 관리자 승인 패널 (관리자 이름으로 로그인했을 때만 버튼 노출)             */
 /* ------------------------------------------------------------------ */
@@ -4170,11 +4171,15 @@ function AdminPanel({ onClose, employees, managers }) {
       )
     )
       return;
-    window.ApprovalAPI.deleteAll().then((count) => {
-      alert(`승인 기록 ${count}건을 삭제했어요.`);
-      setPending([]);
-      setApproved([]);
-    });
+    window.ApprovalAPI.deleteAll()
+      .then((count) => {
+        alert(`승인 기록 ${count}건을 삭제했어요.`);
+        load(); // 서버에서 다시 불러와서 실제로 지워졌는지 화면에 확인
+      })
+      .catch((err) => {
+        console.error(err);
+        alert("삭제 실패: " + (err && err.message ? err.message : err));
+      });
   };
 
   return (
