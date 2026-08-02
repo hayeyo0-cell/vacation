@@ -2228,7 +2228,8 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
     return (
       <div
         style={{
-          flex: "0 0 272px",
+          flex: "3 3 0",
+          minWidth: 0,
           background: "#fff",
           border: "1px solid #eee",
           borderRadius: "10px",
@@ -2521,7 +2522,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
               renderCompactDayColumn(prevDateStr, adjacentRecords.prev, "전날")}
             <div
               style={{
-                flex: isMidManager && isWideScreen ? "1 1 auto" : undefined,
+                flex: isMidManager && isWideScreen ? "4 4 0" : undefined,
                 minWidth: 0,
                 width: "100%",
                 boxSizing: "border-box",
