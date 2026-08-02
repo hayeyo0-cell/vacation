@@ -1451,15 +1451,15 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
   // 기본 위치는 left:50%+transform, top:vh 같은 CSS 단위로 잡아요 - window.innerWidth 같은 JS 계산값을
   // 쓰면 브라우저 화면 배율(줌)이 바뀔 때 리렌더가 안 일어나 위치가 어긋날 수 있어서, 브라우저가 항상
   // 알아서 다시 계산해주는 CSS 단위를 써요. 드래그한 만큼만 추가로 옮겨요.
-  const DAY_MODAL_DEFAULT_W = 960; // 너비는 고정
+  const DAY_MODAL_DEFAULT_W = 1498; // 너비는 고정 (1152에서 30% 추가 증가)
   const [dragPos, setDragPos] = useState({ x: 0, y: 0 });
   const dragStateRef = useRef({ dragging: false, startX: 0, startY: 0, baseX: 0, baseY: 0 });
   const dayModalSheetRef = useRef(null); // 크기 조절 시 현재 크기를 재는 용도
-  const [heightOverride, setHeightOverride] = useState(null); // 직접 조절한 높이(px, null이면 기본 63vh), 너비는 항상 고정
+  const [heightOverride, setHeightOverride] = useState(null); // 직접 조절한 높이(px, null이면 기본 76vh), 너비는 항상 고정
   const resizeStateRef = useRef({ resizing: false, startY: 0, startH: 0 });
 
   const dayModalWidth = DAY_MODAL_DEFAULT_W;
-  const dayModalHeightStyle = heightOverride != null ? `${heightOverride}px` : "63vh";
+  const dayModalHeightStyle = heightOverride != null ? `${heightOverride}px` : "94vh";
 
   const handleDragStart = (e) => {
     dragStateRef.current = {
@@ -1597,7 +1597,6 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
     });
     return () => { cancelled = true; };
   }, [viewYear]);
-
   // 관리자 로그인 시 한 번 - 마지막 백업이 7일 지났으면 조용히 자동으로 스프레드시트에 백업
   // ⚠️ 테스트 모드에서는 실행 안 함 - 실제 운영 전환(TEST_MODE = false) 후부터 작동
   useEffect(() => {
@@ -2433,7 +2432,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
 
       {selectedDate && (() => {
         const dayModalNode = (
-        <div style={modal.overlay} onClick={closeModal}>
+        <div style={modal.overlay} onClick={isMidManager && isWideScreen ? undefined : closeModal}>
           <div
             ref={dayModalSheetRef}
             style={{
@@ -2442,10 +2441,11 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
                 ? {
                     position: "fixed",
                     left: "50%",
-                    top: "4vh",
+                    top: "3vh",
                     transform: `translate(calc(-50% + ${dragPos.x}px), ${dragPos.y}px)`,
                     margin: 0,
                     maxWidth: "none",
+                    maxHeight: "none",
                     width: `${dayModalWidth}px`,
                     height: dayModalHeightStyle,
                     padding: 0,
