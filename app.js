@@ -1219,6 +1219,14 @@ function getDayType(dateStr, holidaySet) {
   return "평일";
 }
 
+// 날짜 헤더 표시용 색상 - 토요일은 파란색, 휴일(공휴일·일요일)은 빨간색, 평일은 기본색
+function dateHeaderColor(dateStr, holidaySet) {
+  const type = getDayType(dateStr, holidaySet);
+  if (type === "휴일") return "#e02020";
+  if (type === "토요일") return "#1a73e8";
+  return undefined;
+}
+
 // 경산 전용: "3왕복"에 해당하는 교번(DIA) - 평일은 3d·6d, 토요일은 3d.
 // 부담이 큰 근무라 기관사들끼리 가급적 휴가를 안 내기로 한 약속이 있어요 (강제는 아니고 안내만).
 const THREE_ROUND_TRIP_CODES = { 평일: ["3d", "6d"], 토요일: ["3d"] };
@@ -2241,7 +2249,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
       >
         <div style={{ height: "64px", boxSizing: "border-box" }}>
           <div style={{ fontSize: "12px", fontWeight: 700, color: "#888", marginBottom: "2px" }}>{label}</div>
-          <div style={{ fontSize: "15px", fontWeight: 700, marginBottom: "2px", lineHeight: "22px" }}>
+          <div style={{ fontSize: "15px", fontWeight: 700, marginBottom: "2px", lineHeight: "22px", color: dateHeaderColor(dateStr, holidaySet) }}>
             {dateStr} ({weekdayShort(dateStr)})
           </div>
           <div style={{ fontSize: "12px", color: "#666" }}>
@@ -2546,7 +2554,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
               >
             {showManagerForm ? (
               <React.Fragment>
-                <div style={modal.dateTitle}>{formatDateHeader(selectedDate)} 대신 기록</div>
+                <div style={{ ...modal.dateTitle, color: dateHeaderColor(selectedDate, holidaySet) }}>{formatDateHeader(selectedDate)} 대신 기록</div>
                 <div style={{ ...modal.countText, marginBottom: "20px" }}>중간관리자({currentUser.name}) 기록</div>
 
                 <div style={modal.formRow}>
@@ -2616,7 +2624,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
               </React.Fragment>
             ) : showRegisterForm ? (
               <React.Fragment>
-                <div style={modal.dateTitle}>{formatDateHeader(selectedDate)} 휴가 신청</div>
+                <div style={{ ...modal.dateTitle, color: dateHeaderColor(selectedDate, holidaySet) }}>{formatDateHeader(selectedDate)} 휴가 신청</div>
                 <div style={{ ...modal.countText, marginBottom: "20px" }}>{currentUser.name}님 이름으로 등록돼요</div>
 
                 <div style={modal.formRow}>
@@ -2673,7 +2681,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
                       >
                         ‹
                       </button>
-                      <div style={{ fontSize: "15px", fontWeight: 700, lineHeight: "22px" }}>{formatDateHeader(selectedDate)}</div>
+                      <div style={{ fontSize: "15px", fontWeight: 700, lineHeight: "22px", color: dateHeaderColor(selectedDate, holidaySet) }}>{formatDateHeader(selectedDate)}</div>
                       <button
                         style={{ ...adminStyles.adminBtn, padding: "5px 9px", fontSize: "13px" }}
                         onClick={() => changeDay(1)}
@@ -2697,7 +2705,7 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
                       >
                         ‹
                       </button>
-                      <div style={{ ...modal.dateTitle, marginBottom: 0 }}>{formatDateHeader(selectedDate)}</div>
+                      <div style={{ ...modal.dateTitle, marginBottom: 0, color: dateHeaderColor(selectedDate, holidaySet) }}>{formatDateHeader(selectedDate)}</div>
                       <button
                         style={{ ...adminStyles.adminBtn, padding: "6px 10px", fontSize: "14px" }}
                         onClick={() => changeDay(1)}
@@ -3213,7 +3221,6 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
     </div>
   );
 }
-
 /* ------------------------------------------------------------------ */
 /* 관리자 승인 패널 (관리자 이름으로 로그인했을 때만 버튼 노출)             */
 /* ------------------------------------------------------------------ */
