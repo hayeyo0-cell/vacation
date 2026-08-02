@@ -1597,7 +1597,6 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
   const [managerFormDia, setManagerFormDia] = useState("");
   const [managerFormNote, setManagerFormNote] = useState("");
   const [managerSaving, setManagerSaving] = useState(false);
-
   useEffect(() => {
     let cancelled = false;
     fetchHolidays(viewYear).then((set) => {
@@ -1605,34 +1604,6 @@ function MainScreen({ currentUser, employees, managers, onSwitchUser }) {
     });
     return () => { cancelled = true; };
   }, [viewYear]);
-  // 관리자 로그인 시 한 번 - 마지막 백업이 7일 지났으면 조용히 자동으로 스프레드시트에 백업
-  // ⚠️ 테스트 모드에서는 실행 안 함 - 실제 운영 전환(TEST_MODE = false) 후부터 작동
-  useEffect(() => {
-    if (TEST_MODE) return;
-    if (!isAdminUser(currentUser)) return;
-    waitForFirestore()
-      .then(() => window.BackupAPI.getLastBackupAt())
-      .then((lastBackupAt) => {
-        const now = Date.now();
-        const lastMs = lastBackupAt?.toMillis?.() || 0;
-        const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
-        if (now - lastMs < sevenDaysMs) return; // 아직 7일 안 지남 - 조용히 넘어감
-        return window.VacationAPI.getAll().then((records) => {
-          const payload = {
-            backupDate: todayStr(),
-            count: records.length,
-            vacations: records,
-          };
-          return fetch(VACATION_API_URL, {
-            method: "POST",
-            body: JSON.stringify(payload),
-          })
-            .then(() => window.BackupAPI.setLastBackupAt())
-            .catch((err) => console.error("자동 백업 전송 실패:", err));
-        });
-      })
-      .catch((err) => console.error("백업 확인 실패:", err));
-  }, [currentUser.name, currentUser.branch]);
 
   // 앱 접속(로그인) 시 한 번 - 본인이 신청한 것 중 5일 이내인데 아직 운용 확인 전인 건 알림
   useEffect(() => {
