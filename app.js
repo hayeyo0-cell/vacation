@@ -304,6 +304,19 @@ function PinPad({ length = 4, onComplete, error }) {
 
   const backspace = () => setPin(pin.slice(0, -1));
 
+  // PC에서 마우스로 숫자 버튼을 누르는 것 외에, 키보드 숫자키(0~9)와 백스페이스로도 입력할 수 있게
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key >= "0" && e.key <= "9") {
+        press(e.key);
+      } else if (e.key === "Backspace") {
+        backspace();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [pin, length]);
+
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
       <div style={styles.pinDots}>
