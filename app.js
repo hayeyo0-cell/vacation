@@ -5128,10 +5128,11 @@ function HyuchungdangAdminPanel({ branch, onClose, employees, managers, holidayS
                     >
                       <option value="">이름 선택</option>
                       {[...branchEmployees]
-                        .filter((e) => String(codeForEmployeeOnDate(e.id, selectedDate) || "").startsWith("휴"))
+                        .map((e) => ({ ...e, restCode: codeForEmployeeOnDate(e.id, selectedDate) }))
+                        .filter((e) => String(e.restCode || "").startsWith("휴"))
                         .sort((a, b) => a.name.localeCompare(b.name, "ko"))
                         .map((e) => (
-                          <option key={e.id} value={e.id}>{e.name}</option>
+                          <option key={e.id} value={e.id}>{e.name} ({e.restCode})</option>
                         ))}
                     </select>
                     <div style={{ fontSize: "12px", color: "#888", marginTop: "4px" }}>
