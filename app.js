@@ -4946,6 +4946,27 @@ function HyuchungdangAdminPanel({ branch, onClose, employees, managers, holidayS
 
   return (
     <div style={modal.overlay} onClick={onClose}>
+      <button
+        onClick={onClose}
+        style={{
+          position: "fixed",
+          top: "10px",
+          right: "10px",
+          zIndex: 300,
+          width: "34px",
+          height: "34px",
+          borderRadius: "50%",
+          border: "none",
+          background: "rgba(0,0,0,0.55)",
+          color: "#fff",
+          fontSize: "18px",
+          lineHeight: 1,
+          cursor: "pointer",
+        }}
+        title="닫기"
+      >
+        ✕
+      </button>
       <div
         style={{ background: "#f7f4ee", width: "100%", maxWidth: "480px", margin: "0 auto", minHeight: "100vh" }}
         onClick={(e) => e.stopPropagation()}
