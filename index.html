@@ -65,6 +65,7 @@
     deleteDoc,
     serverTimestamp,
     onSnapshot,
+    Timestamp,
   } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
   const firebaseConfig = {
@@ -126,8 +127,8 @@
     async add(record) {
       const ref = await addDoc(collection(db, COLLECTION), {
         ...record,
-        status: "정상",
-        createdAt: serverTimestamp(),
+        status: record.status || "정상",
+        createdAt: record.createdAt || serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
       return ref.id;
@@ -135,8 +136,8 @@
     async addOnce(id, record) {
       await setDoc(doc(db, COLLECTION, id), {
         ...record,
-        status: "정상",
-        createdAt: serverTimestamp(),
+        status: record.status || "정상",
+        createdAt: record.createdAt || serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
       return id;
@@ -193,6 +194,9 @@
         snap.docs.map((d) => updateDoc(doc(db, COLLECTION, d.id), { confirmedBy: "확인" }))
       );
       return snap.docs.length;
+    },
+    async timestampFromDate(year, month, day) {
+      return Timestamp.fromDate(new Date(year, month - 1, day));
     },
   };
 
