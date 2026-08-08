@@ -14,7 +14,7 @@ const GAS_URL =
 
 // 경산 휴가 데이터 - 교번앱이 이미 안정적으로 쓰고 있는 검증된 API (날짜가 완성된 형태로 옴)
 const VACATION_API_URL =
-  "https://script.google.com/macros/s/AKfycbyPum5D2CcjwC6rjJZYi-gMx0wUeq9o_zZQMQ7lhRaE-4MR2_aw71bDCMRjVJPc1vi98Q/exec";
+  "https://script.google.com/macros/s/AKfycby_p9K5jW7LTxAGy_uTTV88KcEGtnFQAEy7UctYq4Xkv2lpTj5RtR-mOACfic_BmE29kQ/exec";
 
 // 가져오기 테스트에서 이 날짜 이전 기록은 제외 (필요하면 이 값만 바꾸면 돼요)
 const IMPORT_FROM_DATE = "2026-07-01";
@@ -5720,33 +5720,28 @@ function ImportTestPanel({ onClose, employees, managers }) {
     setLoading(true);
     setError("");
 
-    // 실제 배포된 Apps Script(doGet) 응답 형식: { entries: { "YYYY-MM-DD": [...] }, holidays: {...} }
-    // 각 항목엔 row/name/type/dia/confirmer/cancelled/note/reqDate/seq가 들어있어요.
+    // 실제 배포된 API 응답 형식: { ok, updatedAt, dateRange, count, vacations: [...] } (flat 배열)
+    // 각 항목엔 date/seq/vacationSeq/name/type/category/dia/cancelled가 들어있어요.
+    // 신청일(원 신청 시각)이나 확인자 데이터는 이 API에 없어서 못 가져와요.
     jsonpRequest(VACATION_API_URL, {})
       .then((json) => {
-        if (!json || !json.entries) {
+        if (!json || !json.ok || !Array.isArray(json.vacations)) {
           throw new Error((json && json.error) || "응답 형식이 예상과 달라요");
         }
-        const flat = [];
-        Object.keys(json.entries).forEach((dateStr) => {
-          (json.entries[dateStr] || []).forEach((item) => {
-            if (!item || !item.name) return;
-            flat.push({
-              date: dateStr,
-              name: String(item.name).trim(),
-              type: item.type ? String(item.type).trim() : "",
-              dia: item.dia == null ? "" : item.dia,
-              cancelled: !!item.cancelled,
-              confirmer: item.confirmer || null,
-              reqDate: item.reqDate || null, // "M/d" 형식 - 실제 신청일
-              seq: item.seq == null || item.seq === "" ? null : item.seq, // 실제 순번
-            });
-          });
-        });
-        const filtered = flat
+        const flat = json.vacations
+          .filter((v) => v && v.date && v.name)
           .filter((v) => v.date >= IMPORT_FROM_DATE) // 이 날짜 이전 데이터는 제외
-          .sort((a, b) => a.date.localeCompare(b.date));
-        setRows(filtered);
+          .map((v) => ({
+            date: v.date,
+            name: String(v.name).trim(),
+            type: v.type ? String(v.type).trim() : "",
+            dia: v.dia == null ? "" : v.dia,
+            cancelled: !!v.cancelled,
+            // vacationSeq: 보장휴가(연차·분지 등)만 채워지는 전용 순번 - 없으면 일반 seq로 대체
+            seq: v.vacationSeq != null && v.vacationSeq !== "" ? v.vacationSeq : v.seq != null ? v.seq : null,
+          }));
+        flat.sort((a, b) => a.date.localeCompare(b.date));
+        setRows(flat);
       })
       .catch((err) => {
         console.error(err);
@@ -5812,20 +5807,6 @@ function ImportTestPanel({ onClose, employees, managers }) {
     .map((r) => {
       const matchedId = matchEmployeeId(r.name);
       const autoConfirmed = r.date <= cutoffDate;
-      // 신청일(reqDate, "M/d")이 있으면 휴가일과 같은 연도로 맞춰서 실제 신청 시각을 구성해요.
-      // 시간 정보는 없어서 "날짜만" 표시하라는 표시(createdAtDateOnly)를 같이 남겨요.
-      let createdAt = null;
-      let createdAtDateOnly = false;
-      if (r.reqDate) {
-        const parts = String(r.reqDate).split("/").map((s) => parseInt(s, 10));
-        const mo = parts[0];
-        const dd = parts[1];
-        if (mo && dd) {
-          const year = parseInt(r.date.slice(0, 4), 10);
-          createdAt = window.VacationAPI.timestampFromDate(year, mo, dd);
-          createdAtDateOnly = true;
-        }
-      }
       return {
         date: r.date,
         name: r.name,
@@ -5835,10 +5816,8 @@ function ImportTestPanel({ onClose, employees, managers }) {
         vacationType: r.type,
         dia: r.dia,
         status: r.cancelled ? "취소됨" : "정상",
-        confirmedBy: r.confirmer || (autoConfirmed ? "확인" : null),
+        confirmedBy: autoConfirmed ? "확인" : null,
         priority: isCapacityType(r.type) ? r.seq || 0 : null, // 일단 원본 순번(임시), 아래에서 날짜별로 다시 매김
-        createdAt,
-        createdAtDateOnly,
       };
     });
   // 제외된 사람 때문에 순번에 구멍이 생기지 않도록, 날짜별로 보장휴가 순번을 1번부터 다시 매겨요
@@ -5881,7 +5860,6 @@ function ImportTestPanel({ onClose, employees, managers }) {
         dia: c.dia,
         date: c.date,
         ...(c.priority != null ? { priority: c.priority } : {}),
-        ...(c.createdAt ? { createdAt: c.createdAt, createdAtDateOnly: true } : {}),
       })
         .then((id) => {
           newIds.push(id);
@@ -6011,7 +5989,6 @@ function ImportTestPanel({ onClose, employees, managers }) {
                     <div style={modal.typeRow}>
                       {r.type || "(종류 없음)"}
                       {r.cancelled ? " · 취소됨" : ""}
-                      {r.reqDate ? ` · 신청일 ${r.reqDate}` : ""}
                       {r.seq != null ? ` · 순번 ${r.seq}` : ""}
                     </div>
                   </div>
