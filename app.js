@@ -1819,7 +1819,7 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
       .then(() => window.HyuchungdangAPI.listMine(currentUser.id))
       .then((list) => {
         const today = koreaTodayStr();
-        const results = (list || []).filter((r) => r.confirmedBy && r.date > today);
+        const results = (list || []).filter((r) => r.confirmedBy && r.status !== "취소됨" && r.date > today);
         setHyuchungdangResultsToShow(results);
       })
       .catch((err) => console.error("휴충당 확정 알림 조회 실패:", err));
@@ -5001,6 +5001,25 @@ function HyuchungdangAdminPanel({ branch, onClose, employees, managers, holidayS
     setEditingConfirmId(null);
   };
 
+  // 운용이 "확정 취소" - 신청 자체는 그대로 두고, 충당교번/확인만 다시 빈 상태로 되돌려요.
+  // (막판 사정 변경 대응용. 신청을 취소하는 게 아니라서 기관사 본인 목록엔 아무 변화 없어요 -
+  // 여전히 "신청중"으로 그대로 보여요.)
+  const handleCancelByAdmin = (r) => {
+    if (!confirm(`${r.name}님의 ${r.date} 휴충당 확정을 취소할까요? (신청 자체는 유지돼요)`)) return;
+    patchRequest(r, { substituteDia: "", confirmedBy: "" });
+  };
+
+  // "+ 휴충당 지정"으로 운용이 직접 등록한 건 - 사람을 잘못 골랐거나 할 때 완전히 지울 수 있어요.
+  // (신청자 본인이 낸 건 아니라서 흔적을 남길 필요 없이 그냥 삭제해요)
+  const handleRemoveAssigned = (r) => {
+    if (!confirm(`${r.name}님으로 지정한 ${r.date} 휴충당을 완전히 삭제할까요?`)) return;
+    window.HyuchungdangAPI.remove(r.id)
+      .then(() => {
+        setAllRequests((prev) => prev.filter((x) => x.id !== r.id));
+      })
+      .catch((err) => alert("삭제 실패: " + (err && err.message ? err.message : err)));
+  };
+
   const openAssignForm = () => {
     setAssignTargetId("");
     setAssignSubstituteDia("");
@@ -5026,6 +5045,7 @@ function HyuchungdangAdminPanel({ branch, onClose, employees, managers, holidayS
       branch,
       date: selectedDate,
       originalDia,
+      assignedByAdmin: true,
       ...(assignSubstituteDia ? { substituteDia: assignSubstituteDia } : {}),
     })
       .then(() => {
@@ -5039,6 +5059,7 @@ function HyuchungdangAdminPanel({ branch, onClose, employees, managers, holidayS
             date: selectedDate,
             originalDia,
             substituteDia: assignSubstituteDia || undefined,
+            assignedByAdmin: true,
             status: "신청중",
           },
         ]);
@@ -5199,6 +5220,8 @@ function HyuchungdangAdminPanel({ branch, onClose, employees, managers, holidayS
                         <th style={tbl.th}>충당교번</th>
                         <th style={tbl.th}>확인</th>
                         <th style={tbl.th}>올해 확정</th>
+                        <th style={tbl.th}></th>
+                        <th style={tbl.th}></th>
                       </tr>
                     </thead>
                     <tbody>
@@ -5259,6 +5282,26 @@ function HyuchungdangAdminPanel({ branch, onClose, employees, managers, holidayS
                             )}
                           </td>
                           <td style={tbl.td}>{confirmedCountForEmployee(r.employeeId, r.date)}건</td>
+                          <td style={tbl.td}>
+                            {r.confirmedBy && (
+                              <span
+                                style={{ color: "#e02020", textDecoration: "underline", cursor: "pointer", fontSize: "12px" }}
+                                onClick={() => handleCancelByAdmin(r)}
+                              >
+                                확정취소
+                              </span>
+                            )}
+                          </td>
+                          <td style={tbl.td}>
+                            {r.assignedByAdmin && (
+                              <span
+                                style={{ color: "#999", textDecoration: "underline", cursor: "pointer", fontSize: "12px" }}
+                                onClick={() => handleRemoveAssigned(r)}
+                              >
+                                삭제
+                              </span>
+                            )}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
