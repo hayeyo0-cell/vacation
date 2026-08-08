@@ -5128,11 +5128,15 @@ function HyuchungdangAdminPanel({ branch, onClose, employees, managers, holidayS
                     >
                       <option value="">이름 선택</option>
                       {[...branchEmployees]
+                        .filter((e) => String(codeForEmployeeOnDate(e.id, selectedDate) || "").startsWith("휴"))
                         .sort((a, b) => a.name.localeCompare(b.name, "ko"))
                         .map((e) => (
                           <option key={e.id} value={e.id}>{e.name}</option>
                         ))}
                     </select>
+                    <div style={{ fontSize: "12px", color: "#888", marginTop: "4px" }}>
+                      그날 교번이 "휴"인 사람만 목록에 나와요
+                    </div>
                   </div>
 
                   <div style={modal.formRow}>
