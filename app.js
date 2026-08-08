@@ -958,12 +958,16 @@ function formatDateHeader(dateStr) {
   return `${dateStr} ${WEEKDAYS[d.getDay()]}요일`;
 }
 
-function formatEntryTime(ts) {
+// dateOnly가 true면(가져오기로 들어와 실제 신청 "시각" 정보가 없는 기록) 시간 없이 날짜만 표시해요.
+function formatEntryTime(ts, dateOnly) {
   if (!ts) return "";
   const date = typeof ts.toDate === "function" ? ts.toDate() : new Date(ts);
   if (isNaN(date.getTime())) return "";
   const mo = String(date.getMonth() + 1).padStart(2, "0");
   const dd = String(date.getDate()).padStart(2, "0");
+  if (dateOnly) {
+    return `${date.getMonth() + 1}/${date.getDate()} 입력`;
+  }
   const hh = String(date.getHours()).padStart(2, "0");
   const mm = String(date.getMinutes()).padStart(2, "0");
   return `${mo}/${dd} ${hh}:${mm} 입력`;
@@ -1710,7 +1714,6 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
   const [managerFormDia, setManagerFormDia] = useState("");
   const [managerFormNote, setManagerFormNote] = useState("");
   const [managerSaving, setManagerSaving] = useState(false);
-
   // 휴충당 신청 (경산 전용) - 본인 교번이 "휴"로 시작하는 날짜에 한해, 언제든 신청 가능.
   // 상태는 "신청중"/"취소됨" 두 가지만 써요. 확정 처리는 별도의 "휴충당 신청 현황" 달력에서 운용이 처리해요.
   const [hyuchungdangByDate, setHyuchungdangByDate] = useState([]);
@@ -3091,7 +3094,7 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
                                 </div>
                                 {v.createdAt && (
                                   <div style={{ fontSize: "12px", color: "#333" }}>
-                                    {formatEntryTime(v.createdAt)}
+                                    {formatEntryTime(v.createdAt, v.createdAtDateOnly)}
                                   </div>
                                 )}
                               </td>
@@ -5664,26 +5667,33 @@ function ImportTestPanel({ onClose, employees, managers }) {
     setLoading(true);
     setError("");
 
-    // 교번앱이 이미 안정적으로 쓰고 있는 검증된 API - 날짜가 이미 완성된 형태("YYYY-MM-DD")로 와서
-    // 지난번 같은 날짜 조합 버그가 원천적으로 없어요. 확인란 데이터는 없고, 그건 운용이 앱에서 직접 확인해요.
+    // 실제 배포된 Apps Script(doGet) 응답 형식: { entries: { "YYYY-MM-DD": [...] }, holidays: {...} }
+    // 각 항목엔 row/name/type/dia/confirmer/cancelled/note/reqDate/seq가 들어있어요.
     jsonpRequest(VACATION_API_URL, {})
       .then((json) => {
-        if (!json || !json.ok || !Array.isArray(json.vacations)) {
+        if (!json || !json.entries) {
           throw new Error((json && json.error) || "응답 형식이 예상과 달라요");
         }
-        const flat = json.vacations
-          .filter((v) => v && v.date && v.name)
+        const flat = [];
+        Object.keys(json.entries).forEach((dateStr) => {
+          (json.entries[dateStr] || []).forEach((item) => {
+            if (!item || !item.name) return;
+            flat.push({
+              date: dateStr,
+              name: String(item.name).trim(),
+              type: item.type ? String(item.type).trim() : "",
+              dia: item.dia == null ? "" : item.dia,
+              cancelled: !!item.cancelled,
+              confirmer: item.confirmer || null,
+              reqDate: item.reqDate || null, // "M/d" 형식 - 실제 신청일
+              seq: item.seq == null || item.seq === "" ? null : item.seq, // 실제 순번
+            });
+          });
+        });
+        const filtered = flat
           .filter((v) => v.date >= IMPORT_FROM_DATE) // 이 날짜 이전 데이터는 제외
-          .map((v) => ({
-            date: v.date,
-            name: String(v.name).trim(),
-            type: v.type ? String(v.type).trim() : "",
-            dia: v.dia == null ? "" : v.dia,
-            cancelled: !!v.cancelled,
-            seq: v.seq || 0,
-          }));
-        flat.sort((a, b) => a.date.localeCompare(b.date));
-        setRows(flat);
+          .sort((a, b) => a.date.localeCompare(b.date));
+        setRows(filtered);
       })
       .catch((err) => {
         console.error(err);
@@ -5749,6 +5759,20 @@ function ImportTestPanel({ onClose, employees, managers }) {
     .map((r) => {
       const matchedId = matchEmployeeId(r.name);
       const autoConfirmed = r.date <= cutoffDate;
+      // 신청일(reqDate, "M/d")이 있으면 휴가일과 같은 연도로 맞춰서 실제 신청 시각을 구성해요.
+      // 시간 정보는 없어서 "날짜만" 표시하라는 표시(createdAtDateOnly)를 같이 남겨요.
+      let createdAt = null;
+      let createdAtDateOnly = false;
+      if (r.reqDate) {
+        const parts = String(r.reqDate).split("/").map((s) => parseInt(s, 10));
+        const mo = parts[0];
+        const dd = parts[1];
+        if (mo && dd) {
+          const year = parseInt(r.date.slice(0, 4), 10);
+          createdAt = window.VacationAPI.timestampFromDate(year, mo, dd);
+          createdAtDateOnly = true;
+        }
+      }
       return {
         date: r.date,
         name: r.name,
@@ -5758,8 +5782,10 @@ function ImportTestPanel({ onClose, employees, managers }) {
         vacationType: r.type,
         dia: r.dia,
         status: r.cancelled ? "취소됨" : "정상",
-        confirmedBy: autoConfirmed ? "확인" : null,
+        confirmedBy: r.confirmer || (autoConfirmed ? "확인" : null),
         priority: isCapacityType(r.type) ? r.seq || 0 : null, // 일단 원본 순번(임시), 아래에서 날짜별로 다시 매김
+        createdAt,
+        createdAtDateOnly,
       };
     });
   // 제외된 사람 때문에 순번에 구멍이 생기지 않도록, 날짜별로 보장휴가 순번을 1번부터 다시 매겨요
@@ -5802,6 +5828,7 @@ function ImportTestPanel({ onClose, employees, managers }) {
         dia: c.dia,
         date: c.date,
         ...(c.priority != null ? { priority: c.priority } : {}),
+        ...(c.createdAt ? { createdAt: c.createdAt, createdAtDateOnly: true } : {}),
       })
         .then((id) => {
           newIds.push(id);
@@ -5931,6 +5958,8 @@ function ImportTestPanel({ onClose, employees, managers }) {
                     <div style={modal.typeRow}>
                       {r.type || "(종류 없음)"}
                       {r.cancelled ? " · 취소됨" : ""}
+                      {r.reqDate ? ` · 신청일 ${r.reqDate}` : ""}
+                      {r.seq != null ? ` · 순번 ${r.seq}` : ""}
                     </div>
                   </div>
                 ))}
