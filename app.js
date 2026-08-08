@@ -5332,7 +5332,7 @@ function HyuchungdangAdminPanel({ branch, onClose, employees, managers, holidayS
               </div>
 
               <div style={{ fontSize: "12px", color: "#888", margin: "10px 0" }}>
-                실제 휴가 기록(연차·분지 등)이 필요하면 날짜 모달의 "+ 대신 기록"에서 따로 등록해주세요.
+                신청자가 없어도, 운용이 기관사와 협의 후 직접 지정할 수 있어요.
               </div>
               <button style={modal.closeBtn} onClick={closeDetail}>닫기</button>
             </div>
