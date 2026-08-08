@@ -330,9 +330,7 @@
     },
   };
 
-  // 휴충당 신청 API (경산 전용) - 상태는 "신청중"/"취소됨" 두 가지만 사용해요.
-  // 취소는 완전삭제가 아니라 상태변경이라, 기관사 본인 화면에서는 취소선으로 계속 남고
-  // 운용 화면(집계 대상)에서는 자동으로 빠져요.
+  // 휴충당 신청 API (경산 전용)
   window.HyuchungdangAPI = {
     async listAll() {
       const snap = await getDocs(collection(db, HYUCHUNGDANG_COLLECTION));
@@ -367,6 +365,9 @@
         ...patch,
         updatedAt: serverTimestamp(),
       });
+    },
+    async remove(id) {
+      await deleteDoc(doc(db, HYUCHUNGDANG_COLLECTION, id));
     },
   };
 
