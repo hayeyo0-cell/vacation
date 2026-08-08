@@ -1807,13 +1807,16 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
       .catch((err) => console.error("명절 추첨 결과 조회 실패:", err));
   }, [currentUser.id]);
 
-  // 앱 접속(로그인) 시 한 번 - 경산 기관사, 운용이 확인까지 마친(=확정된) 휴충당 중 아직 안 본 것만 알림
+  // 앱 접속(로그인) 시 한 번 - 경산 기관사, 운용이 확인까지 마친(=확정된) 휴충당 중
+  // 아직 그 전날(휴충당 날짜 하루 전) 자정이 지나지 않은 것만 알림. 한 번 닫아도
+  // 다음에 다시 들어오면 그 날짜가 되기 전까지는 계속 다시 떠요.
   useEffect(() => {
     if (isMidManager || currentUser.branch !== "경산") return;
     waitForFirestore()
       .then(() => window.HyuchungdangAPI.listMine(currentUser.id))
       .then((list) => {
-        const results = (list || []).filter((r) => r.confirmedBy && !r.notified);
+        const today = koreaTodayStr();
+        const results = (list || []).filter((r) => r.confirmedBy && r.date > today);
         setHyuchungdangResultsToShow(results);
       })
       .catch((err) => console.error("휴충당 확정 알림 조회 실패:", err));
@@ -3406,22 +3409,14 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
             </div>
             <button
               style={modal.closeBtn}
-              onClick={() => {
-                Promise.all(
-                  hyuchungdangResultsToShow.map((r) =>
-                    window.HyuchungdangAPI.update(r.id, { notified: true }).catch((err) =>
-                      console.error("휴충당 알림 확인 처리 실패:", err)
-                    )
-                  )
-                ).finally(() => setHyuchungdangResultsToShow([]));
-              }}
+              onClick={() => setHyuchungdangResultsToShow([])}
             >
               확인
             </button>
           </div>
         </div>
       )}
-      {showEtiquetteNotice && !isMidManager && lotteryResultsToShow.length > 0 && (
+      {showEtiquetteNotice && !isMidManager && hyuchungdangResultsToShow.length === 0 && lotteryResultsToShow.length > 0 && (
         <div style={{ ...modal.overlay, alignItems: "safe center", justifyContent: "center" }}>
           <div style={{ ...modal.sheet, maxWidth: "340px", borderRadius: "16px", textAlign: "center" }}>
             <div style={{ fontSize: "26px", marginBottom: "10px" }}>🎋</div>
@@ -3453,7 +3448,7 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
         </div>
       )}
 
-      {showEtiquetteNotice && !isMidManager && lotteryResultsToShow.length === 0 && (
+      {showEtiquetteNotice && !isMidManager && hyuchungdangResultsToShow.length === 0 && lotteryResultsToShow.length === 0 && (
         <div style={{ ...modal.overlay, alignItems: "safe center", justifyContent: "center" }}>
           <div style={{ ...modal.sheet, maxWidth: "340px", borderRadius: "16px", textAlign: "center" }}>
             <div style={{ fontSize: "26px", marginBottom: "10px" }}>🙏</div>
