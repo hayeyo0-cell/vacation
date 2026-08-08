@@ -3376,7 +3376,7 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
         <LotteryApplyPanel currentUser={currentUser} onClose={closeModal} employees={employees} />
       )}
       {showHyuchungdangAdmin && (
-        <HyuchungdangAdminPanel branch={currentUser.branch} onClose={closeModal} employees={employees} managers={managers} />
+        <HyuchungdangAdminPanel branch={currentUser.branch} onClose={closeModal} employees={employees} managers={managers} holidaySet={holidaySet} />
       )}
       {!isMidManager && hyuchungdangResultsToShow.length > 0 && (
         <div style={{ ...modal.overlay, alignItems: "safe center", justifyContent: "center" }}>
@@ -4783,10 +4783,12 @@ function LotteryAdminPanel({ branch, isSuperAdmin, onClose, employees, managers,
 
 /* ------------------------------------------------------------------ */
 /* 휴충당 신청 현황 (경산 전용, 운용 전용 - 관리자 메뉴와 무관, isMidManager면 누구나) */
-/* 휴가현황 달력과 완전히 분리된 별도 달력. 날짜별 신청 인원수(0 포함)를 보여주고,       */
-/* 클릭하면 그 날짜 신청자 표(충당교번/확인 지정) + 운용이 직접 지정하는 기능까지 제공.   */
+/* 휴가현황 달력과 완전히 분리된 별도 화면이지만, 디자인은 거의 동일하게 맞췄어요.       */
+/* 날짜 칸에 신청 인원수(0 포함)를 배지로 보여주고, 클릭하면 그날 상세(휴가 상세창과      */
+/* 비슷한 디자인)로 신청자 표를 보여주고, "+ 휴충당 지정"으로 대신기록과 같은 형태의      */
+/* 폼(이름+충당교번 선택)으로 신청자 없이도 직접 등록할 수 있어요.                        */
 /* ------------------------------------------------------------------ */
-function HyuchungdangAdminPanel({ branch, onClose, employees, managers }) {
+function HyuchungdangAdminPanel({ branch, onClose, employees, managers, holidaySet }) {
   const now = new Date();
   const [viewYear, setViewYear] = useState(now.getFullYear());
   const [viewMonth, setViewMonth] = useState(now.getMonth()); // 0-indexed
@@ -4796,17 +4798,8 @@ function HyuchungdangAdminPanel({ branch, onClose, employees, managers }) {
   const [editingConfirmId, setEditingConfirmId] = useState(null); // 확인자 재수정 중인 신청 id
   const [showAssignForm, setShowAssignForm] = useState(false); // "+ 휴충당 지정" 폼 표시 여부
   const [assignTargetId, setAssignTargetId] = useState("");
+  const [assignSubstituteDia, setAssignSubstituteDia] = useState("");
   const [assignSaving, setAssignSaving] = useState(false);
-
-  // PC(넓은 화면)인지 감지 - 다른 화면들과 동일한 640px 기준
-  const [isWideScreen, setIsWideScreen] = useState(
-    typeof window !== "undefined" && window.innerWidth >= 640
-  );
-  useEffect(() => {
-    const onResize = () => setIsWideScreen(window.innerWidth >= 640);
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
 
   // 충당교번 드롭다운/지정 대상자 계산용 - 그 소속의 교번틀 코드 목록·직원 목록
   const teamKey = REVERSE_TEAM_MAP[branch];
@@ -4890,6 +4883,7 @@ function HyuchungdangAdminPanel({ branch, onClose, employees, managers }) {
 
   const openAssignForm = () => {
     setAssignTargetId("");
+    setAssignSubstituteDia("");
     setShowAssignForm(true);
   };
 
@@ -4912,14 +4906,25 @@ function HyuchungdangAdminPanel({ branch, onClose, employees, managers }) {
       branch,
       date: selectedDate,
       originalDia,
+      ...(assignSubstituteDia ? { substituteDia: assignSubstituteDia } : {}),
     })
       .then(() => {
         setAllRequests((prev) => [
           ...prev,
-          { id, employeeId: emp.id, name: emp.name, branch, date: selectedDate, originalDia, status: "신청중" },
+          {
+            id,
+            employeeId: emp.id,
+            name: emp.name,
+            branch,
+            date: selectedDate,
+            originalDia,
+            substituteDia: assignSubstituteDia || undefined,
+            status: "신청중",
+          },
         ]);
         setShowAssignForm(false);
         setAssignTargetId("");
+        setAssignSubstituteDia("");
       })
       .catch((err) => alert("지정 실패: " + (err && err.message ? err.message : err)))
       .finally(() => setAssignSaving(false));
@@ -4941,227 +4946,219 @@ function HyuchungdangAdminPanel({ branch, onClose, employees, managers }) {
 
   return (
     <div style={modal.overlay} onClick={onClose}>
-      <div style={{ ...modal.sheet, maxWidth: "480px" }} onClick={(e) => e.stopPropagation()}>
-        <div style={modal.dateTitle}>🔁 휴충당 신청 현황</div>
-        <div style={{ ...modal.countText, marginBottom: "10px" }}>
-          {branch} · 날짜를 누르면 상세(0명이어도 확인 가능)가 떠요
-        </div>
-
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
-          <button style={{ ...adminStyles.adminBtn, padding: "6px 12px", fontSize: "16px" }} onClick={() => changeMonth(-1)}>
-            ‹
-          </button>
-          <div style={{ fontWeight: 800, fontSize: "16px", color: "#1b3a5c" }}>
-            {viewYear}년 {viewMonth + 1}월
-          </div>
-          <button style={{ ...adminStyles.adminBtn, padding: "6px 12px", fontSize: "16px" }} onClick={() => changeMonth(1)}>
-            ›
-          </button>
-        </div>
-
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(7, 1fr)",
-            textAlign: "center",
-            fontSize: "11px",
-            color: "#888",
-            marginBottom: "4px",
-          }}
-        >
-          {WEEKDAYS.map((w, i) => (
-            <div key={w} style={{ color: i === 0 ? "#e02020" : i === 6 ? "#1a73e8" : "#888" }}>
-              {w}
+      <div
+        style={{ background: "#f7f4ee", width: "100%", maxWidth: "480px", margin: "0 auto", minHeight: "100vh" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div style={cal.header}>
+          <div style={cal.headerTop}>
+            <div style={cal.userName}>🔁 휴충당 신청 현황</div>
+            <div style={cal.headerBtnRow}>
+              <button style={adminStyles.adminBtn} onClick={onClose}>닫기</button>
             </div>
-          ))}
+          </div>
+          <div style={cal.navRow}>
+            <button style={cal.navBtn} onClick={() => changeMonth(-1)}>‹</button>
+            <div style={cal.monthTitle}>{viewYear}년 {viewMonth + 1}월</div>
+            <button style={cal.navBtn} onClick={() => changeMonth(1)}>›</button>
+          </div>
+          <div style={cal.weekRow}>
+            {WEEKDAYS.map((w, i) => (
+              <div key={w} style={{ color: i === 0 ? "#ff8a80" : i === 6 ? "#8ecdff" : "#c9d4de" }}>
+                {w}
+              </div>
+            ))}
+          </div>
+          <div style={cal.railDivider} />
         </div>
 
         {loading ? (
-          <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0" }}>불러오는 중...</div>
+          <div style={{ textAlign: "center", color: "#aaa", padding: "24px" }}>불러오는 중...</div>
         ) : (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "3px", marginBottom: "14px" }}>
+          <div style={cal.grid}>
             {cells.map((d, i) => {
-              if (d === null) return <div key={i} />;
+              if (d === null) return <div key={i} style={cal.emptyCell} />;
               const key = `${viewYear}-${pad2(viewMonth + 1)}-${pad2(d)}`;
               const count = (monthMap[key] || []).length;
+              const dayType = getDayType(key, holidaySet);
               return (
-                <div
-                  key={i}
-                  onClick={() => setSelectedDate(key)}
-                  style={{
-                    minHeight: "46px",
-                    border: key === todayKey ? "2px solid #1b3a5c" : "1px solid #eee",
-                    borderRadius: "6px",
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    cursor: "pointer",
-                    background: count > 0 ? "#fff7e6" : "#fff",
-                    boxSizing: "border-box",
-                  }}
-                >
-                  <div style={{ fontSize: "12px", color: "#333" }}>{d}</div>
-                  <div style={{ fontSize: "15px", fontWeight: 800, color: count > 0 ? "#e08a20" : "#ccc" }}>
-                    {count}
-                  </div>
+                <div key={i} style={cal.dayCell(key === todayKey)} onClick={() => setSelectedDate(key)}>
+                  <div style={cal.dayNum(dayType)}>{d}</div>
+                  <div style={cal.dayDivider} />
+                  <div style={{ fontSize: "11px", color: "#aaa" }}>신청</div>
+                  <div style={cal.dayBadge(count > 0 ? "#e08a20" : "#ccc")}>{count}</div>
                 </div>
               );
             })}
           </div>
         )}
-
-        <button style={modal.closeBtn} onClick={onClose}>닫기</button>
       </div>
 
-      {selectedDate && (
-        <div
-          style={{ ...modal.overlay, alignItems: "safe center", justifyContent: "center", zIndex: 200 }}
-          onClick={(e) => {
-            e.stopPropagation();
-            closeDetail();
-          }}
-        >
+      {selectedDate && (() => {
+        const headerColor = dateHeaderColor(selectedDate, holidaySet);
+        return (
           <div
-            style={{ ...modal.sheet, maxWidth: isWideScreen ? "680px" : "420px", borderRadius: "16px" }}
-            onClick={(e) => e.stopPropagation()}
+            style={{ ...modal.overlay, alignItems: "safe center", justifyContent: "center", zIndex: 200 }}
+            onClick={(e) => {
+              e.stopPropagation();
+              closeDetail();
+            }}
           >
-            <div style={modal.dateTitle}>
-              {selectedDate} ({weekdayShort(selectedDate)})
-            </div>
-            <div style={{ ...modal.countText, marginBottom: "12px" }}>신청중 {selectedRows.length}명</div>
+            <div style={{ ...modal.sheet, maxWidth: "480px" }} onClick={(e) => e.stopPropagation()}>
+              <div style={{ ...modal.dateTitle, color: headerColor }}>
+                {formatDateHeader(selectedDate)}
+              </div>
+              <div style={modal.countText}>신청중 {selectedRows.length}명</div>
 
-            {selectedRows.length === 0 ? (
-              <div style={{ textAlign: "center", color: "#aaa", padding: "16px 0" }}>신청자가 없어요</div>
-            ) : (
-              <div style={{ overflowX: "auto", marginBottom: "12px" }}>
-                <table style={{ width: "max-content", minWidth: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
-                  <thead>
-                    <tr style={{ borderBottom: "2px solid #333" }}>
-                      <th style={tbl.th}>#</th>
-                      <th style={{ ...tbl.th, textAlign: "left" }}>이름</th>
-                      <th style={tbl.th}>교번</th>
-                      <th style={tbl.th}>충당교번</th>
-                      <th style={tbl.th}>확인</th>
-                      <th style={tbl.th}>올해 확정</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {selectedRows.map((r, idx) => (
-                      <tr key={r.id} style={{ borderBottom: "1px solid #eee" }}>
-                        <td style={tbl.td}>{idx + 1}</td>
-                        <td style={{ ...tbl.td, textAlign: "left", fontWeight: 700 }}>{r.name}</td>
-                        <td style={{ ...tbl.td, fontWeight: 700, color: "#1b3a5c" }}>{r.originalDia || "-"}</td>
-                        <td style={tbl.td}>
-                          <select
-                            value={r.substituteDia || ""}
-                            onChange={(e) => patchRequest(r, { substituteDia: e.target.value })}
-                            style={{ fontSize: "12px", padding: "2px", maxWidth: "76px" }}
-                          >
-                            <option value="">선택</option>
-                            {branchCodes.map((c) => (
-                              <option key={c} value={c}>{c}</option>
-                            ))}
-                          </select>
-                        </td>
-                        <td style={tbl.td}>
-                          {r.confirmedBy ? (
-                            editingConfirmId === r.id ? (
+              {selectedRows.length === 0 ? (
+                <div style={{ textAlign: "center", color: "#aaa", padding: "16px 0" }}>신청자가 없어요</div>
+              ) : (
+                <div style={{ overflowX: "auto", marginBottom: "12px" }}>
+                  <table style={{ width: "max-content", minWidth: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
+                    <thead>
+                      <tr style={{ borderBottom: "2px solid #333" }}>
+                        <th style={tbl.th}>#</th>
+                        <th style={{ ...tbl.th, textAlign: "left" }}>이름</th>
+                        <th style={tbl.th}>교번</th>
+                        <th style={tbl.th}>충당교번</th>
+                        <th style={tbl.th}>확인</th>
+                        <th style={tbl.th}>올해 확정</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedRows.map((r, idx) => (
+                        <tr key={r.id} style={{ borderBottom: "1px solid #eee" }}>
+                          <td style={tbl.td}>{idx + 1}</td>
+                          <td style={{ ...tbl.td, textAlign: "left", fontWeight: 700 }}>{r.name}</td>
+                          <td style={{ ...tbl.td, fontWeight: 700, color: "#1b3a5c" }}>{r.originalDia || "-"}</td>
+                          <td style={tbl.td}>
+                            <select
+                              value={r.substituteDia || ""}
+                              onChange={(e) => patchRequest(r, { substituteDia: e.target.value })}
+                              style={{ fontSize: "12px", padding: "2px", maxWidth: "76px" }}
+                            >
+                              <option value="">선택</option>
+                              {branchCodes.map((c) => (
+                                <option key={c} value={c}>{c}</option>
+                              ))}
+                            </select>
+                          </td>
+                          <td style={tbl.td}>
+                            {r.confirmedBy ? (
+                              editingConfirmId === r.id ? (
+                                <select
+                                  value={r.confirmedBy}
+                                  onChange={(e) => {
+                                    if (e.target.value) handleConfirmSelect(r, e.target.value);
+                                  }}
+                                  onBlur={() => setEditingConfirmId(null)}
+                                  style={{ fontSize: "11px", padding: "2px", maxWidth: "80px" }}
+                                  autoFocus
+                                >
+                                  {branchManagerNames.map((name) => (
+                                    <option key={name} value={name}>{name}</option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <span
+                                  style={{ color: "#1caa5c", cursor: "pointer" }}
+                                  onClick={() => setEditingConfirmId(r.id)}
+                                >
+                                  ✅{r.confirmedBy} ✏️
+                                </span>
+                              )
+                            ) : (
                               <select
-                                value={r.confirmedBy}
+                                value=""
                                 onChange={(e) => {
                                   if (e.target.value) handleConfirmSelect(r, e.target.value);
                                 }}
-                                onBlur={() => setEditingConfirmId(null)}
                                 style={{ fontSize: "11px", padding: "2px", maxWidth: "80px" }}
-                                autoFocus
                               >
+                                <option value="">확인</option>
                                 {branchManagerNames.map((name) => (
                                   <option key={name} value={name}>{name}</option>
                                 ))}
                               </select>
-                            ) : (
-                              <span
-                                style={{ color: "#1caa5c", cursor: "pointer" }}
-                                onClick={() => setEditingConfirmId(r.id)}
-                              >
-                                ✅{r.confirmedBy} ✏️
-                              </span>
-                            )
-                          ) : (
-                            <select
-                              value=""
-                              onChange={(e) => {
-                                if (e.target.value) handleConfirmSelect(r, e.target.value);
-                              }}
-                              style={{ fontSize: "11px", padding: "2px", maxWidth: "80px" }}
-                            >
-                              <option value="">확인</option>
-                              {branchManagerNames.map((name) => (
-                                <option key={name} value={name}>{name}</option>
-                              ))}
-                            </select>
-                          )}
-                        </td>
-                        <td style={tbl.td}>{confirmedCountForEmployee(r.employeeId, r.date)}건</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-
-            {!showAssignForm ? (
-              <button
-                style={{ ...adminStyles.approveBtn, width: "100%", padding: "10px", marginBottom: "10px" }}
-                onClick={openAssignForm}
-              >
-                + 휴충당 지정
-              </button>
-            ) : (
-              <div style={{ background: "#f8f9fb", borderRadius: "10px", padding: "12px", marginBottom: "10px" }}>
-                <div style={{ fontSize: "12px", color: "#666", marginBottom: "6px" }}>
-                  신청자가 없어도, 운용이 협의 후 직접 대상자를 지정해 등록할 수 있어요
+                            )}
+                          </td>
+                          <td style={tbl.td}>{confirmedCountForEmployee(r.employeeId, r.date)}건</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-                <select
-                  value={assignTargetId}
-                  onChange={(e) => setAssignTargetId(e.target.value)}
-                  style={{ ...modal.input, marginBottom: "8px" }}
-                >
-                  <option value="">대상자 선택</option>
-                  {[...branchEmployees]
-                    .sort((a, b) => a.name.localeCompare(b.name, "ko"))
-                    .map((e) => (
-                      <option key={e.id} value={e.id}>{e.name}</option>
-                    ))}
-                </select>
-                <div style={{ display: "flex", gap: "6px" }}>
-                  <button style={adminStyles.approveBtn} disabled={assignSaving} onClick={handleAssign}>
-                    {assignSaving ? "지정 중..." : "지정"}
+              )}
+
+              {!showAssignForm ? (
+                <button style={{ ...modal.addBtn, background: "#e08a20" }} onClick={openAssignForm}>
+                  + 휴충당 지정
+                </button>
+              ) : (
+                <React.Fragment>
+                  <div style={{ ...modal.dateTitle, fontSize: "16px", marginTop: "10px" }}>
+                    {formatDateHeader(selectedDate)} 휴충당 지정
+                  </div>
+                  <div style={{ ...modal.countText, marginBottom: "18px" }}>운용이 직접 지정하는 기록이에요</div>
+
+                  <div style={modal.formRow}>
+                    <label style={modal.label}>대상자</label>
+                    <select
+                      style={modal.input}
+                      value={assignTargetId}
+                      onChange={(e) => setAssignTargetId(e.target.value)}
+                    >
+                      <option value="">이름 선택</option>
+                      {[...branchEmployees]
+                        .sort((a, b) => a.name.localeCompare(b.name, "ko"))
+                        .map((e) => (
+                          <option key={e.id} value={e.id}>{e.name}</option>
+                        ))}
+                    </select>
+                  </div>
+
+                  <div style={modal.formRow}>
+                    <label style={modal.label}>충당교번</label>
+                    <select
+                      style={modal.input}
+                      value={assignSubstituteDia}
+                      onChange={(e) => setAssignSubstituteDia(e.target.value)}
+                    >
+                      <option value="">교번을 선택해주세요</option>
+                      {branchCodes.map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <button style={modal.addBtn} onClick={handleAssign} disabled={assignSaving}>
+                    {assignSaving ? "저장 중..." : "저장"}
                   </button>
                   <button
-                    style={{ ...modal.smallCancelBtn, margin: 0 }}
+                    style={modal.closeBtn}
                     onClick={() => {
                       setShowAssignForm(false);
                       setAssignTargetId("");
+                      setAssignSubstituteDia("");
                     }}
                   >
                     취소
                   </button>
-                </div>
-              </div>
-            )}
+                </React.Fragment>
+              )}
 
-            <div style={{ fontSize: "12px", color: "#888", marginBottom: "10px" }}>
-              실제 휴가 기록(연차·분지 등)이 필요하면 날짜 모달의 "+ 대신 기록"에서 따로 등록해주세요.
+              <div style={{ fontSize: "12px", color: "#888", margin: "10px 0" }}>
+                실제 휴가 기록(연차·분지 등)이 필요하면 날짜 모달의 "+ 대신 기록"에서 따로 등록해주세요.
+              </div>
+              <button style={modal.closeBtn} onClick={closeDetail}>닫기</button>
             </div>
-            <button style={modal.closeBtn} onClick={closeDetail}>닫기</button>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
+
 
 
 function AdminPanel({ branch, isSuperAdmin, onClose, employees, managers }) {
