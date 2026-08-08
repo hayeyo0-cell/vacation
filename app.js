@@ -3871,7 +3871,12 @@ function MyVacationsPanel({ currentUser, onClose, employees }) {
                     textDecoration: cancelled ? "line-through" : "none",
                   }}
                 >
-                  <span>{r.date} ({weekdayShort(r.date)})</span>
+                  <span>
+                    {r.date} ({weekdayShort(r.date)})
+                    {r.originalDia && (
+                      <span style={{ color: "#1b3a5c", fontWeight: 700 }}> · {r.originalDia}</span>
+                    )}
+                  </span>
                   {!cancelled && (
                     <span
                       style={{ color: "#e02020", textDecoration: "underline", cursor: "pointer", fontSize: "12px" }}
