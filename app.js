@@ -499,9 +499,14 @@ function App() {
     const lastCleanupYear = parseInt(localStorage.getItem(CLEANUP_KEY) || "0", 10);
     if (lastCleanupYear < currentYear) {
       waitForFirestore()
-        .then(() => window.VacationAPI.deleteOlderThan(`${currentYear - 1}-01-01`))
+        .then(() =>
+          Promise.all([
+            window.VacationAPI.deleteOlderThan(`${currentYear - 1}-01-01`),
+            window.HyuchungdangAPI.deleteOlderThan(`${currentYear - 1}-01-01`),
+          ])
+        )
         .then(() => localStorage.setItem(CLEANUP_KEY, String(currentYear)))
-        .catch((err) => console.error("오래된 휴가 기록 정리 실패:", err));
+        .catch((err) => console.error("오래된 기록 정리 실패:", err));
     }
   }, []);
 
@@ -1714,7 +1719,6 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
   const [managerFormDia, setManagerFormDia] = useState("");
   const [managerFormNote, setManagerFormNote] = useState("");
   const [managerSaving, setManagerSaving] = useState(false);
-
   // 휴충당 신청 (경산 전용) - 본인 교번이 "휴"로 시작하는 날짜에 한해, 언제든 신청 가능.
   // 상태는 "신청중"/"취소됨" 두 가지만 써요. 확정 처리는 별도의 "휴충당 신청 현황" 달력에서 운용이 처리해요.
   const [hyuchungdangByDate, setHyuchungdangByDate] = useState([]);
