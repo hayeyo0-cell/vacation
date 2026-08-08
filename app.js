@@ -3853,6 +3853,7 @@ function MyVacationsPanel({ currentUser, onClose, employees }) {
             </div>
             {hyuchungdangList.map((r) => {
               const cancelled = r.status === "취소됨";
+              const confirmed = !cancelled && r.confirmedBy && r.substituteDia;
               return (
                 <div
                   key={r.id}
@@ -3868,11 +3869,18 @@ function MyVacationsPanel({ currentUser, onClose, employees }) {
                 >
                   <span>
                     {r.date} ({weekdayShort(r.date)})
-                    {r.originalDia && (
-                      <span style={{ color: "#1b3a5c", fontWeight: 700 }}> · {r.originalDia}</span>
+                    {confirmed ? (
+                      <span style={{ color: "#1caa5c", fontWeight: 700 }}>
+                        {" "}
+                        · {r.originalDia}→{r.substituteDia}충당 확정
+                      </span>
+                    ) : (
+                      r.originalDia && (
+                        <span style={{ color: "#1b3a5c", fontWeight: 700 }}> · {r.originalDia}</span>
+                      )
                     )}
                   </span>
-                  {!cancelled && (
+                  {!cancelled && !confirmed && (
                     <span
                       style={{ color: "#e02020", textDecoration: "underline", cursor: "pointer", fontSize: "12px" }}
                       onClick={() => handleCancelMyHyuchungdang(r.id)}
