@@ -10,7 +10,7 @@ const { useState, useEffect, useCallback, useRef } = React;
 /*   "오늘 기준 실제 교번"을 계산 (교번앱과 동일한 방식)                  */
 /* ------------------------------------------------------------------ */
 const GAS_URL =
-  "https://script.google.com/macros/s/AKfycbw8NMVjH3J_Mt7SBymWOg44zvD4gd4GXkQB3r95QTl63M3aWqtf-OglLrG2rQPH7J6UjA/exec";
+  "https://script.google.com/macros/s/AKfycbyPum5D2CcjwC6rjJZYi-gMx0wUeq9o_zZQMQ7lhRaE-4MR2_aw71bDCMRjVJPc1vi98Q/exec";
 
 // 경산 휴가 데이터 - 교번앱이 이미 안정적으로 쓰고 있는 검증된 API (날짜가 완성된 형태로 옴)
 const VACATION_API_URL =
