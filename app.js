@@ -1505,10 +1505,12 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
   const [showMyVacations, setShowMyVacations] = useState(false);
   const [showLotteryAdmin, setShowLotteryAdmin] = useState(false); // 명절 추첨 관리 (관리자)
   const [showLotteryApply, setShowLotteryApply] = useState(false); // 명절 추첨 응모 (기관사)
+  const [showHyuchungdangAdmin, setShowHyuchungdangAdmin] = useState(false); // 휴충당 관리 (관리자, 경산 전용)
   const [showAdminMenu, setShowAdminMenu] = useState(false); // 관리자 메뉴 모음
   const [showEtiquetteNotice, setShowEtiquetteNotice] = useState(true); // 로그인할 때마다 한 번 안내
   const [upcomingUnconfirmed, setUpcomingUnconfirmed] = useState([]); // 5일 이내 & 아직 미확인인 내 신청 건
   const [lotteryResultsToShow, setLotteryResultsToShow] = useState([]); // 아직 확인 안 한 명절 추첨 결과
+  const [hyuchungdangResultsToShow, setHyuchungdangResultsToShow] = useState([]); // 아직 확인 안 한 휴충당 확정 결과
   const [branchUpcomingUnconfirmed, setBranchUpcomingUnconfirmed] = useState([]); // 운용용 - 소속 전체의 5일 이내 미확인 신청
   const [adjacentRecords, setAdjacentRecords] = useState({ prev: [], next: [] }); // 운용용 - 전날/다음날 요약
 
@@ -1708,6 +1710,57 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
   const [managerFormDia, setManagerFormDia] = useState("");
   const [managerFormNote, setManagerFormNote] = useState("");
   const [managerSaving, setManagerSaving] = useState(false);
+
+  // 휴충당 신청 (경산 전용) - 본인 교번이 "휴"로 시작하는 날짜에 한해, 언제든 신청 가능.
+  // 상태는 "신청중"/"취소됨" 두 가지만 써요. 확정 처리는 별도의 "휴충당 신청 현황" 달력에서 운용이 처리해요.
+  const [hyuchungdangByDate, setHyuchungdangByDate] = useState([]);
+  useEffect(() => {
+    if (!selectedDate) {
+      setHyuchungdangByDate([]);
+      return;
+    }
+    let cancelled = false;
+    waitForFirestore()
+      .then(() => window.HyuchungdangAPI.listByDate(selectedDate))
+      .then((list) => {
+        if (cancelled) return;
+        setHyuchungdangByDate((list || []).filter((r) => r.branch === currentUser.branch && r.status === "신청중"));
+      })
+      .catch((err) => console.error("휴충당 신청 목록 조회 실패:", err));
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDate]);
+
+  const myHyuchungdangRequest = hyuchungdangByDate.find((r) => r.employeeId === currentUser.id);
+
+  const handleApplyHyuchungdang = () => {
+    if (!confirm(`${selectedDate}에 휴충당을 신청할까요?`)) return;
+    const id = `${currentUser.id}_${selectedDate}`;
+    const originalDia = codeForDate(selectedDate);
+    window.HyuchungdangAPI.request(id, {
+      employeeId: currentUser.id,
+      name: currentUser.name,
+      branch: currentUser.branch,
+      date: selectedDate,
+      originalDia,
+    })
+      .then(() => {
+        setHyuchungdangByDate((prev) => [
+          ...prev,
+          { id, employeeId: currentUser.id, name: currentUser.name, branch: currentUser.branch, date: selectedDate, originalDia, status: "신청중" },
+        ]);
+      })
+      .catch((err) => alert("신청 실패: " + (err && err.message ? err.message : err)));
+  };
+
+  const handleCancelHyuchungdang = (reqId) => {
+    if (!confirm("휴충당 신청을 취소할까요?")) return;
+    window.HyuchungdangAPI.cancel(reqId)
+      .then(() => setHyuchungdangByDate((prev) => prev.filter((r) => r.id !== reqId)))
+      .catch((err) => alert("취소 실패: " + (err && err.message ? err.message : err)));
+  };
+
   useEffect(() => {
     let cancelled = false;
     fetchHolidays(viewYear).then((set) => {
@@ -1752,6 +1805,18 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
         setLotteryResultsToShow(results);
       })
       .catch((err) => console.error("명절 추첨 결과 조회 실패:", err));
+  }, [currentUser.id]);
+
+  // 앱 접속(로그인) 시 한 번 - 경산 기관사, 운용이 확인까지 마친(=확정된) 휴충당 중 아직 안 본 것만 알림
+  useEffect(() => {
+    if (isMidManager || currentUser.branch !== "경산") return;
+    waitForFirestore()
+      .then(() => window.HyuchungdangAPI.listMine(currentUser.id))
+      .then((list) => {
+        const results = (list || []).filter((r) => r.confirmedBy && !r.notified);
+        setHyuchungdangResultsToShow(results);
+      })
+      .catch((err) => console.error("휴충당 확정 알림 조회 실패:", err));
   }, [currentUser.id]);
 
   // 앱 접속(로그인) 시 한 번 - 운용용, 소속 전체에서 5일 이내인데 아직 미확인인 신청 알림
@@ -1878,7 +1943,7 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
   // 날짜 모달/사이드 패널(내 휴가현황·승인 관리·운용 인원·가져오기 테스트) 공통으로 쓰는 닫기 함수.
   // 뒤로가기 버튼을 눌러도 popstate 핸들러가 똑같이 처리해서, 항상 달력 화면으로 돌아가요.
   const closeModal = () => {
-    if (selectedDate || showAdmin || showManagerAdmin || showImportTest || showMyVacations || showLotteryAdmin || showLotteryApply || showAdminMenu) {
+    if (selectedDate || showAdmin || showManagerAdmin || showImportTest || showMyVacations || showLotteryAdmin || showLotteryApply || showHyuchungdangAdmin || showAdminMenu) {
       window.history.back();
     }
   };
@@ -1914,6 +1979,7 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
       setShowMyVacations(false);
       setShowLotteryAdmin(false);
       setShowLotteryApply(false);
+      setShowHyuchungdangAdmin(false);
       setShowAdminMenu(false);
     };
     window.addEventListener("popstate", handlePopState);
@@ -2534,6 +2600,11 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
             {currentUser.branch === "경산" && !isMidManager && !ghosting && (
               <button style={adminStyles.adminBtn} onClick={() => openPanel(setShowLotteryApply)}>
                 🎋 명절 응모
+              </button>
+            )}
+            {currentUser.branch === "경산" && isMidManager && !ghosting && (
+              <button style={adminStyles.adminBtn} onClick={() => openPanel(setShowHyuchungdangAdmin)}>
+                🔁 휴충당 신청 현황
               </button>
             )}
             {isAdmin && (
@@ -3169,6 +3240,34 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
                     + 대신 기록 (병가·청휴·교육 등)
                   </button>
                 )}
+                {!isMidManager && !ghosting && currentUser.branch === "경산" && String(codeForDate(selectedDate) || "").startsWith("휴") && (
+                  myHyuchungdangRequest ? (
+                    <div
+                      style={{
+                        textAlign: "center",
+                        fontSize: "13px",
+                        padding: "10px 0",
+                        color: "#e08a20",
+                        fontWeight: 600,
+                      }}
+                    >
+                      🔁 휴충당 신청 완료{" "}
+                      <span
+                        style={{ color: "#e02020", textDecoration: "underline", cursor: "pointer", fontWeight: 400 }}
+                        onClick={() => handleCancelHyuchungdang(myHyuchungdangRequest.id)}
+                      >
+                        신청취소
+                      </span>
+                    </div>
+                  ) : (
+                    <button
+                      style={{ ...modal.addBtn, background: "#e08a20", marginTop: "6px" }}
+                      onClick={handleApplyHyuchungdang}
+                    >
+                      🔁 휴충당 신청
+                    </button>
+                  )
+                )}
                 <button style={modal.closeBtn} onClick={closeModal}>닫기</button>
               </React.Fragment>
             )}
@@ -3275,6 +3374,52 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
       )}
       {showLotteryApply && (
         <LotteryApplyPanel currentUser={currentUser} onClose={closeModal} employees={employees} />
+      )}
+      {showHyuchungdangAdmin && (
+        <HyuchungdangAdminPanel branch={currentUser.branch} onClose={closeModal} employees={employees} managers={managers} />
+      )}
+      {!isMidManager && hyuchungdangResultsToShow.length > 0 && (
+        <div style={{ ...modal.overlay, alignItems: "safe center", justifyContent: "center" }}>
+          <div style={{ ...modal.sheet, maxWidth: "340px", borderRadius: "16px", textAlign: "center" }}>
+            <div style={{ fontSize: "26px", marginBottom: "10px" }}>🔁</div>
+            <div style={{ fontSize: "15px", fontWeight: 700, marginBottom: "12px" }}>
+              휴충당이 확정됐어요
+            </div>
+            <div style={{ textAlign: "left" }}>
+              {hyuchungdangResultsToShow.map((r) => (
+                <div
+                  key={r.id}
+                  style={{
+                    background: "#fff7e6",
+                    border: "1px solid #f5cf7a",
+                    borderRadius: "10px",
+                    padding: "10px 12px",
+                    marginBottom: "8px",
+                    fontSize: "13px",
+                  }}
+                >
+                  {r.name}기관사님, {r.date} ({weekdayShort(r.date)}) {r.originalDia}이(가){" "}
+                  <span style={{ fontWeight: 700, color: "#e08a20" }}>{r.substituteDia}</span>로 휴충당 확정
+                  되었습니다.
+                </div>
+              ))}
+            </div>
+            <button
+              style={modal.closeBtn}
+              onClick={() => {
+                Promise.all(
+                  hyuchungdangResultsToShow.map((r) =>
+                    window.HyuchungdangAPI.update(r.id, { notified: true }).catch((err) =>
+                      console.error("휴충당 알림 확인 처리 실패:", err)
+                    )
+                  )
+                ).finally(() => setHyuchungdangResultsToShow([]));
+              }}
+            >
+              확인
+            </button>
+          </div>
+        </div>
       )}
       {showEtiquetteNotice && !isMidManager && lotteryResultsToShow.length > 0 && (
         <div style={{ ...modal.overlay, alignItems: "safe center", justifyContent: "center" }}>
@@ -3535,6 +3680,8 @@ const adminStyles = {
 function MyVacationsPanel({ currentUser, onClose, employees }) {
   const [list, setList] = useState([]);
   const [yearStats, setYearStats] = useState([]); // 올해 종류별 보장휴가 사용 개수
+  const [hyuchungdangList, setHyuchungdangList] = useState([]); // 내가 신청한 휴충당 목록 (경산 전용, 신청중+취소됨 둘 다)
+  const [hyuchungdangConfirmedCount, setHyuchungdangConfirmedCount] = useState(0); // 올해 확정 휴충당 개수
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState(null); // 휴가종류 수정 중인 기록 id
   const [editType, setEditType] = useState("");
@@ -3554,17 +3701,35 @@ function MyVacationsPanel({ currentUser, onClose, employees }) {
   const load = () => {
     setLoading(true);
     waitForFirestore()
-      .then(() => window.VacationAPI.getMine(currentUser.id))
-      .then((records) => {
+      .then(() =>
+        Promise.all([
+          window.VacationAPI.getMine(currentUser.id),
+          currentUser.branch === "경산" ? window.HyuchungdangAPI.listMine(currentUser.id) : Promise.resolve([]),
+        ])
+      )
+      .then(([records, hyuchungdangRecords]) => {
         const today = todayStr();
         const upcoming = records
           .filter((v) => v.date >= today && isCapacityType(v.vacationType))
           .sort((a, b) => a.date.localeCompare(b.date));
         setList(upcoming);
 
+        // 오늘 이후 신청 내역만 (신청중/취소됨 둘 다 - 취소된 건 취소선으로 계속 보여줌)
+        setHyuchungdangList(
+          (hyuchungdangRecords || [])
+            .filter((r) => r.date >= today)
+            .sort((a, b) => a.date.localeCompare(b.date))
+        );
+
+        // 올해 확정(충당교번+확인까지 마친) 휴충당 개수
+        const currentYear = today.slice(0, 4);
+        const confirmedCount = (hyuchungdangRecords || []).filter(
+          (r) => r.date.startsWith(currentYear) && r.status !== "취소됨" && r.confirmedBy
+        ).length;
+        setHyuchungdangConfirmedCount(confirmedCount);
+
         // 올해(1월 1일부터) 보장휴가만, 취소되지 않은 것만 종류별로 집계
         // 단, 연차비/분지비/장재비는 야간근무 시 다음날에 같이 기록되는 것일 뿐 실제 사용 개수는 아니라서 집계에서 제외해요
-        const currentYear = today.slice(0, 4);
         const NIGHT_SHIFT_COMPANION_TYPES = ["연차비", "분지비", "장재비"];
         const counts = {};
         records
@@ -3588,6 +3753,15 @@ function MyVacationsPanel({ currentUser, onClose, employees }) {
   useEffect(() => {
     load();
   }, []);
+
+  const handleCancelMyHyuchungdang = (reqId) => {
+    if (!confirm("휴충당 신청을 취소할까요?")) return;
+    window.HyuchungdangAPI.cancel(reqId)
+      .then(() => {
+        setHyuchungdangList((prev) => prev.map((r) => (r.id === reqId ? { ...r, status: "취소됨" } : r)));
+      })
+      .catch((err) => alert("취소 실패: " + (err && err.message ? err.message : err)));
+  };
 
   const handleCancelMine = (record) => {
     const check = checkSelfCancelAllowed(currentUser.branch, record);
@@ -3657,6 +3831,58 @@ function MyVacationsPanel({ currentUser, onClose, employees }) {
                 {yearStats.map((s) => `${s.type} ${s.count}`).join(" · ")}
               </div>
             )}
+          </div>
+        )}
+        {!loading && currentUser.branch === "경산" && hyuchungdangList.length > 0 && (
+          <div
+            style={{
+              background: "#fff7e6",
+              border: "1px solid #f5cf7a",
+              borderRadius: "10px",
+              padding: "10px 14px",
+              marginBottom: "16px",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: "6px",
+              }}
+            >
+              <div style={{ fontSize: "12px", fontWeight: 700, color: "#e08a20" }}>🔁 신청한 휴충당</div>
+              <div style={{ fontSize: "12px", color: "#888" }}>
+                올해 확정 휴충당 <strong style={{ color: "#e08a20" }}>{hyuchungdangConfirmedCount}건</strong>
+              </div>
+            </div>
+            {hyuchungdangList.map((r) => {
+              const cancelled = r.status === "취소됨";
+              return (
+                <div
+                  key={r.id}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    fontSize: "13px",
+                    padding: "3px 0",
+                    opacity: cancelled ? 0.5 : 1,
+                    textDecoration: cancelled ? "line-through" : "none",
+                  }}
+                >
+                  <span>{r.date} ({weekdayShort(r.date)})</span>
+                  {!cancelled && (
+                    <span
+                      style={{ color: "#e02020", textDecoration: "underline", cursor: "pointer", fontSize: "12px" }}
+                      onClick={() => handleCancelMyHyuchungdang(r.id)}
+                    >
+                      취소
+                    </span>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
         <div style={modal.countText}>오늘부터 이후 신청 내역이에요</div>
@@ -4554,6 +4780,389 @@ function LotteryAdminPanel({ branch, isSuperAdmin, onClose, employees, managers,
     </div>
   );
 }
+
+/* ------------------------------------------------------------------ */
+/* 휴충당 신청 현황 (경산 전용, 운용 전용 - 관리자 메뉴와 무관, isMidManager면 누구나) */
+/* 휴가현황 달력과 완전히 분리된 별도 달력. 날짜별 신청 인원수(0 포함)를 보여주고,       */
+/* 클릭하면 그 날짜 신청자 표(충당교번/확인 지정) + 운용이 직접 지정하는 기능까지 제공.   */
+/* ------------------------------------------------------------------ */
+function HyuchungdangAdminPanel({ branch, onClose, employees, managers }) {
+  const now = new Date();
+  const [viewYear, setViewYear] = useState(now.getFullYear());
+  const [viewMonth, setViewMonth] = useState(now.getMonth()); // 0-indexed
+  const [allRequests, setAllRequests] = useState([]); // 이 소속의 전체 휴충당 신청(모든 상태)
+  const [loading, setLoading] = useState(true);
+  const [selectedDate, setSelectedDate] = useState(null); // 상세 팝업용
+  const [editingConfirmId, setEditingConfirmId] = useState(null); // 확인자 재수정 중인 신청 id
+  const [showAssignForm, setShowAssignForm] = useState(false); // "+ 휴충당 지정" 폼 표시 여부
+  const [assignTargetId, setAssignTargetId] = useState("");
+  const [assignSaving, setAssignSaving] = useState(false);
+
+  // PC(넓은 화면)인지 감지 - 다른 화면들과 동일한 640px 기준
+  const [isWideScreen, setIsWideScreen] = useState(
+    typeof window !== "undefined" && window.innerWidth >= 640
+  );
+  useEffect(() => {
+    const onResize = () => setIsWideScreen(window.innerWidth >= 640);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  // 충당교번 드롭다운/지정 대상자 계산용 - 그 소속의 교번틀 코드 목록·직원 목록
+  const teamKey = REVERSE_TEAM_MAP[branch];
+  const order = GYOBUN_ORDER[teamKey] || [];
+  const branchEmployees = (employees || []).filter((e) => e.branch === branch);
+  const templateCodes = order.filter((c) => branchEmployees.some((e) => e.code === c));
+  const otherCodes = [...new Set(branchEmployees.map((e) => e.code))].filter((c) => !templateCodes.includes(c));
+  const branchCodes = [...templateCodes, ...otherCodes];
+
+  // 확인자 드롭다운용 - 그 소속 운용 명단 (이름순)
+  const branchManagerNames = (managers || [])
+    .filter((m) => m.branch === branch)
+    .map((m) => m.name)
+    .sort((a, b) => a.localeCompare(b, "ko"));
+
+  const load = () => {
+    setLoading(true);
+    waitForFirestore()
+      .then(() => window.HyuchungdangAPI.listAll())
+      .then((data) => {
+        setAllRequests((data || []).filter((r) => r.branch === branch));
+      })
+      .catch((err) => alert("불러오기 실패: " + (err && err.message ? err.message : err)))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  const changeMonth = (delta) => {
+    let y = viewYear;
+    let m = viewMonth + delta;
+    if (m < 0) { m = 11; y -= 1; }
+    if (m > 11) { m = 0; y += 1; }
+    setViewYear(y);
+    setViewMonth(m);
+  };
+
+  // 신청중인 것만 실제 "달력에 보이는 신청"으로 취급 (취소된 건 집계·목록 어디에도 안 잡힘)
+  const activeRequests = allRequests.filter((r) => r.status === "신청중");
+  const monthMap = {};
+  activeRequests.forEach((r) => {
+    if (!monthMap[r.date]) monthMap[r.date] = [];
+    monthMap[r.date].push(r);
+  });
+
+  // 특정 직원의 특정 날짜 실제 교번 계산 (운용이 직접 지정할 때, 원래 교번을 자동으로 채워주기 위함)
+  const codeForEmployeeOnDate = (empId, dateStr) => {
+    const emp = branchEmployees.find((e) => e.id === empId);
+    if (!emp || !BASE_DATE || !emp.baseCode || !order.length) return "";
+    const offset = diffDays_(BASE_DATE, dateStr);
+    return shiftCodeByDays_(order, emp.baseCode, offset);
+  };
+
+  // 그 직원이 올해 확정(충당교번+확인까지 마침)한 휴충당 총 건수
+  const confirmedCountForEmployee = (empId, dateStr) => {
+    const year = dateStr.slice(0, 4);
+    return allRequests.filter(
+      (r) => r.employeeId === empId && r.date.startsWith(year) && r.status !== "취소됨" && r.confirmedBy
+    ).length;
+  };
+
+  // 목록 안의 특정 신청 건을 부분 수정 (충당교번/확인자) - 로컬 상태도 같이 갱신
+  const patchRequest = (r, patch) => {
+    window.HyuchungdangAPI.update(r.id, patch)
+      .then(() => {
+        setAllRequests((prev) => prev.map((x) => (x.id === r.id ? { ...x, ...patch } : x)));
+      })
+      .catch((err) => alert("수정 실패: " + (err && err.message ? err.message : err)));
+  };
+
+  const handleConfirmSelect = (r, name) => {
+    if (!r.substituteDia) {
+      alert("충당교번을 먼저 선택해주세요");
+      return;
+    }
+    patchRequest(r, { confirmedBy: name, notified: false });
+    setEditingConfirmId(null);
+  };
+
+  const openAssignForm = () => {
+    setAssignTargetId("");
+    setShowAssignForm(true);
+  };
+
+  const handleAssign = () => {
+    const emp = branchEmployees.find((e) => e.id === assignTargetId);
+    if (!emp) {
+      alert("대상자를 선택해주세요");
+      return;
+    }
+    if (activeRequests.some((r) => r.employeeId === emp.id && r.date === selectedDate)) {
+      alert("이미 그 날짜에 신청(또는 지정)된 기록이 있어요");
+      return;
+    }
+    setAssignSaving(true);
+    const id = `${emp.id}_${selectedDate}`;
+    const originalDia = codeForEmployeeOnDate(emp.id, selectedDate);
+    window.HyuchungdangAPI.request(id, {
+      employeeId: emp.id,
+      name: emp.name,
+      branch,
+      date: selectedDate,
+      originalDia,
+    })
+      .then(() => {
+        setAllRequests((prev) => [
+          ...prev,
+          { id, employeeId: emp.id, name: emp.name, branch, date: selectedDate, originalDia, status: "신청중" },
+        ]);
+        setShowAssignForm(false);
+        setAssignTargetId("");
+      })
+      .catch((err) => alert("지정 실패: " + (err && err.message ? err.message : err)))
+      .finally(() => setAssignSaving(false));
+  };
+
+  const closeDetail = () => {
+    setSelectedDate(null);
+    setShowAssignForm(false);
+    setEditingConfirmId(null);
+  };
+
+  const firstWeekday = new Date(viewYear, viewMonth, 1).getDay();
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const cells = [];
+  for (let i = 0; i < firstWeekday; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+  const todayKey = todayStr();
+  const selectedRows = selectedDate ? monthMap[selectedDate] || [] : [];
+
+  return (
+    <div style={modal.overlay} onClick={onClose}>
+      <div style={{ ...modal.sheet, maxWidth: "480px" }} onClick={(e) => e.stopPropagation()}>
+        <div style={modal.dateTitle}>🔁 휴충당 신청 현황</div>
+        <div style={{ ...modal.countText, marginBottom: "10px" }}>
+          {branch} · 날짜를 누르면 상세(0명이어도 확인 가능)가 떠요
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
+          <button style={{ ...adminStyles.adminBtn, padding: "6px 12px", fontSize: "16px" }} onClick={() => changeMonth(-1)}>
+            ‹
+          </button>
+          <div style={{ fontWeight: 800, fontSize: "16px", color: "#1b3a5c" }}>
+            {viewYear}년 {viewMonth + 1}월
+          </div>
+          <button style={{ ...adminStyles.adminBtn, padding: "6px 12px", fontSize: "16px" }} onClick={() => changeMonth(1)}>
+            ›
+          </button>
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(7, 1fr)",
+            textAlign: "center",
+            fontSize: "11px",
+            color: "#888",
+            marginBottom: "4px",
+          }}
+        >
+          {WEEKDAYS.map((w, i) => (
+            <div key={w} style={{ color: i === 0 ? "#e02020" : i === 6 ? "#1a73e8" : "#888" }}>
+              {w}
+            </div>
+          ))}
+        </div>
+
+        {loading ? (
+          <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0" }}>불러오는 중...</div>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "3px", marginBottom: "14px" }}>
+            {cells.map((d, i) => {
+              if (d === null) return <div key={i} />;
+              const key = `${viewYear}-${pad2(viewMonth + 1)}-${pad2(d)}`;
+              const count = (monthMap[key] || []).length;
+              return (
+                <div
+                  key={i}
+                  onClick={() => setSelectedDate(key)}
+                  style={{
+                    minHeight: "46px",
+                    border: key === todayKey ? "2px solid #1b3a5c" : "1px solid #eee",
+                    borderRadius: "6px",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    cursor: "pointer",
+                    background: count > 0 ? "#fff7e6" : "#fff",
+                    boxSizing: "border-box",
+                  }}
+                >
+                  <div style={{ fontSize: "12px", color: "#333" }}>{d}</div>
+                  <div style={{ fontSize: "15px", fontWeight: 800, color: count > 0 ? "#e08a20" : "#ccc" }}>
+                    {count}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <button style={modal.closeBtn} onClick={onClose}>닫기</button>
+      </div>
+
+      {selectedDate && (
+        <div
+          style={{ ...modal.overlay, alignItems: "safe center", justifyContent: "center", zIndex: 200 }}
+          onClick={(e) => {
+            e.stopPropagation();
+            closeDetail();
+          }}
+        >
+          <div
+            style={{ ...modal.sheet, maxWidth: isWideScreen ? "680px" : "420px", borderRadius: "16px" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={modal.dateTitle}>
+              {selectedDate} ({weekdayShort(selectedDate)})
+            </div>
+            <div style={{ ...modal.countText, marginBottom: "12px" }}>신청중 {selectedRows.length}명</div>
+
+            {selectedRows.length === 0 ? (
+              <div style={{ textAlign: "center", color: "#aaa", padding: "16px 0" }}>신청자가 없어요</div>
+            ) : (
+              <div style={{ overflowX: "auto", marginBottom: "12px" }}>
+                <table style={{ width: "max-content", minWidth: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
+                  <thead>
+                    <tr style={{ borderBottom: "2px solid #333" }}>
+                      <th style={tbl.th}>#</th>
+                      <th style={{ ...tbl.th, textAlign: "left" }}>이름</th>
+                      <th style={tbl.th}>교번</th>
+                      <th style={tbl.th}>충당교번</th>
+                      <th style={tbl.th}>확인</th>
+                      <th style={tbl.th}>올해 확정</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedRows.map((r, idx) => (
+                      <tr key={r.id} style={{ borderBottom: "1px solid #eee" }}>
+                        <td style={tbl.td}>{idx + 1}</td>
+                        <td style={{ ...tbl.td, textAlign: "left", fontWeight: 700 }}>{r.name}</td>
+                        <td style={{ ...tbl.td, fontWeight: 700, color: "#1b3a5c" }}>{r.originalDia || "-"}</td>
+                        <td style={tbl.td}>
+                          <select
+                            value={r.substituteDia || ""}
+                            onChange={(e) => patchRequest(r, { substituteDia: e.target.value })}
+                            style={{ fontSize: "12px", padding: "2px", maxWidth: "76px" }}
+                          >
+                            <option value="">선택</option>
+                            {branchCodes.map((c) => (
+                              <option key={c} value={c}>{c}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td style={tbl.td}>
+                          {r.confirmedBy ? (
+                            editingConfirmId === r.id ? (
+                              <select
+                                value={r.confirmedBy}
+                                onChange={(e) => {
+                                  if (e.target.value) handleConfirmSelect(r, e.target.value);
+                                }}
+                                onBlur={() => setEditingConfirmId(null)}
+                                style={{ fontSize: "11px", padding: "2px", maxWidth: "80px" }}
+                                autoFocus
+                              >
+                                {branchManagerNames.map((name) => (
+                                  <option key={name} value={name}>{name}</option>
+                                ))}
+                              </select>
+                            ) : (
+                              <span
+                                style={{ color: "#1caa5c", cursor: "pointer" }}
+                                onClick={() => setEditingConfirmId(r.id)}
+                              >
+                                ✅{r.confirmedBy} ✏️
+                              </span>
+                            )
+                          ) : (
+                            <select
+                              value=""
+                              onChange={(e) => {
+                                if (e.target.value) handleConfirmSelect(r, e.target.value);
+                              }}
+                              style={{ fontSize: "11px", padding: "2px", maxWidth: "80px" }}
+                            >
+                              <option value="">확인</option>
+                              {branchManagerNames.map((name) => (
+                                <option key={name} value={name}>{name}</option>
+                              ))}
+                            </select>
+                          )}
+                        </td>
+                        <td style={tbl.td}>{confirmedCountForEmployee(r.employeeId, r.date)}건</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {!showAssignForm ? (
+              <button
+                style={{ ...adminStyles.approveBtn, width: "100%", padding: "10px", marginBottom: "10px" }}
+                onClick={openAssignForm}
+              >
+                + 휴충당 지정
+              </button>
+            ) : (
+              <div style={{ background: "#f8f9fb", borderRadius: "10px", padding: "12px", marginBottom: "10px" }}>
+                <div style={{ fontSize: "12px", color: "#666", marginBottom: "6px" }}>
+                  신청자가 없어도, 운용이 협의 후 직접 대상자를 지정해 등록할 수 있어요
+                </div>
+                <select
+                  value={assignTargetId}
+                  onChange={(e) => setAssignTargetId(e.target.value)}
+                  style={{ ...modal.input, marginBottom: "8px" }}
+                >
+                  <option value="">대상자 선택</option>
+                  {[...branchEmployees]
+                    .sort((a, b) => a.name.localeCompare(b.name, "ko"))
+                    .map((e) => (
+                      <option key={e.id} value={e.id}>{e.name}</option>
+                    ))}
+                </select>
+                <div style={{ display: "flex", gap: "6px" }}>
+                  <button style={adminStyles.approveBtn} disabled={assignSaving} onClick={handleAssign}>
+                    {assignSaving ? "지정 중..." : "지정"}
+                  </button>
+                  <button
+                    style={{ ...modal.smallCancelBtn, margin: 0 }}
+                    onClick={() => {
+                      setShowAssignForm(false);
+                      setAssignTargetId("");
+                    }}
+                  >
+                    취소
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div style={{ fontSize: "12px", color: "#888", marginBottom: "10px" }}>
+              실제 휴가 기록(연차·분지 등)이 필요하면 날짜 모달의 "+ 대신 기록"에서 따로 등록해주세요.
+            </div>
+            <button style={modal.closeBtn} onClick={closeDetail}>닫기</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 function AdminPanel({ branch, isSuperAdmin, onClose, employees, managers }) {
   const [tab, setTab] = useState("pending"); // "pending" | "approved"
