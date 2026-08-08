@@ -4809,6 +4809,18 @@ function HyuchungdangAdminPanel({ branch, onClose, employees, managers, holidayS
   const [assignSubstituteDia, setAssignSubstituteDia] = useState("");
   const [assignSaving, setAssignSaving] = useState(false);
 
+  // 월 달력 스와이프용 (휴가 달력과 동일한 방식)
+  const touchStartX = useRef(null);
+  const gridRef = useRef(null);
+  const [slideX, setSlideX] = useState(0);
+  const [slideTransition, setSlideTransition] = useState(false);
+
+  // 날짜 상세 팝업 스와이프용 (휴가 상세창과 동일한 방식)
+  const dayTouchStartX = useRef(null);
+  const dayGridRef = useRef(null);
+  const [daySlideX, setDaySlideX] = useState(0);
+  const [daySlideTransition, setDaySlideTransition] = useState(false);
+
   // PC(넓은 화면)인지 감지 - 넓은 화면에서는 상세 팝업 바깥을 클릭해도 안 닫히게 하기 위함
   const [isWideScreen, setIsWideScreen] = useState(
     typeof window !== "undefined" && window.innerWidth >= 640
@@ -4855,6 +4867,93 @@ function HyuchungdangAdminPanel({ branch, onClose, employees, managers, holidayS
     if (m > 11) { m = 0; y += 1; }
     setViewYear(y);
     setViewMonth(m);
+  };
+
+  const handleTouchStart = (e) => {
+    touchStartX.current = e.touches[0].clientX;
+    setSlideTransition(false);
+  };
+  const handleTouchMove = (e) => {
+    if (touchStartX.current == null) return;
+    setSlideX(e.touches[0].clientX - touchStartX.current);
+  };
+  const handleTouchEnd = () => {
+    if (touchStartX.current == null) return;
+    const dx = slideX;
+    touchStartX.current = null;
+    const width = gridRef.current ? gridRef.current.offsetWidth : 320;
+
+    if (Math.abs(dx) > 60) {
+      const dir = dx < 0 ? 1 : -1;
+      setSlideTransition(true);
+      setSlideX(-dir * width);
+      setTimeout(() => {
+        changeMonth(dir);
+        setSlideTransition(false);
+        setSlideX(dir * width);
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            setSlideTransition(true);
+            setSlideX(0);
+          });
+        });
+      }, 220);
+    } else {
+      setSlideTransition(true);
+      setSlideX(0);
+    }
+  };
+
+  // 상세 팝업 안에서 이전/다음 날짜로 이동 (화살표 버튼 + 스와이프 공용)
+  const changeSelectedDate = (delta) => {
+    if (!selectedDate) return;
+    const d = new Date(selectedDate + "T00:00:00");
+    d.setDate(d.getDate() + delta);
+    const newYear = d.getFullYear();
+    const newMonth = d.getMonth();
+    const newDateStr = `${newYear}-${pad2(newMonth + 1)}-${pad2(d.getDate())}`;
+    if (newYear !== viewYear || newMonth !== viewMonth) {
+      setViewYear(newYear);
+      setViewMonth(newMonth);
+    }
+    setSelectedDate(newDateStr);
+    setShowAssignForm(false);
+    setEditingConfirmId(null);
+  };
+
+  const handleDayTouchStart = (e) => {
+    dayTouchStartX.current = e.touches[0].clientX;
+    setDaySlideTransition(false);
+  };
+  const handleDayTouchMove = (e) => {
+    if (dayTouchStartX.current == null) return;
+    setDaySlideX(e.touches[0].clientX - dayTouchStartX.current);
+  };
+  const handleDayTouchEnd = () => {
+    if (dayTouchStartX.current == null) return;
+    dayTouchStartX.current = null;
+    const dx = daySlideX;
+    const width = dayGridRef.current ? dayGridRef.current.offsetWidth : 320;
+
+    if (Math.abs(dx) > 60) {
+      const dir = dx < 0 ? 1 : -1;
+      setDaySlideTransition(true);
+      setDaySlideX(-dir * width);
+      setTimeout(() => {
+        changeSelectedDate(dir);
+        setDaySlideTransition(false);
+        setDaySlideX(dir * width);
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            setDaySlideTransition(true);
+            setDaySlideX(0);
+          });
+        });
+      }, 220);
+    } else {
+      setDaySlideTransition(true);
+      setDaySlideX(0);
+    }
   };
 
   // 신청중인 것만 실제 "달력에 보이는 신청"으로 취급 (취소된 건 집계·목록 어디에도 안 잡힘)
@@ -4993,21 +5092,35 @@ function HyuchungdangAdminPanel({ branch, onClose, employees, managers, holidayS
         {loading ? (
           <div style={{ textAlign: "center", color: "#aaa", padding: "24px" }}>불러오는 중...</div>
         ) : (
-          <div style={cal.grid}>
-            {cells.map((d, i) => {
-              if (d === null) return <div key={i} style={cal.emptyCell} />;
-              const key = `${viewYear}-${pad2(viewMonth + 1)}-${pad2(d)}`;
-              const count = (monthMap[key] || []).length;
-              const dayType = getDayType(key, holidaySet);
-              return (
-                <div key={i} style={cal.dayCell(key === todayKey)} onClick={() => setSelectedDate(key)}>
-                  <div style={cal.dayNum(dayType)}>{d}</div>
-                  <div style={cal.dayDivider} />
-                  <div style={{ fontSize: "11px", color: "#aaa" }}>신청</div>
-                  <div style={cal.dayBadge(count > 0 ? "#e08a20" : "#ccc")}>{count}</div>
-                </div>
-              );
-            })}
+          <div
+            style={{ overflow: "hidden", width: "100%" }}
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+          >
+            <div
+              ref={gridRef}
+              style={{
+                ...cal.grid,
+                transform: `translateX(${slideX}px)`,
+                transition: slideTransition ? "transform 220ms ease" : "none",
+              }}
+            >
+              {cells.map((d, i) => {
+                if (d === null) return <div key={i} style={cal.emptyCell} />;
+                const key = `${viewYear}-${pad2(viewMonth + 1)}-${pad2(d)}`;
+                const count = (monthMap[key] || []).length;
+                const dayType = getDayType(key, holidaySet);
+                return (
+                  <div key={i} style={cal.dayCell(key === todayKey)} onClick={() => setSelectedDate(key)}>
+                    <div style={cal.dayNum(dayType)}>{d}</div>
+                    <div style={cal.dayDivider} />
+                    <div style={{ fontSize: "11px", color: "#aaa" }}>신청</div>
+                    <div style={cal.dayBadge(count > 0 ? "#e08a20" : "#ccc")}>{count}</div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
       </div>
@@ -5023,9 +5136,30 @@ function HyuchungdangAdminPanel({ branch, onClose, employees, managers, holidayS
             }}
           >
             <div style={{ ...modal.sheet, maxWidth: "480px" }} onClick={(e) => e.stopPropagation()}>
-              <div style={{ ...modal.dateTitle, color: headerColor }}>
-                {formatDateHeader(selectedDate)}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "4px" }}>
+                <button style={{ ...adminStyles.adminBtn, padding: "6px 10px", fontSize: "14px" }} onClick={() => changeSelectedDate(-1)}>
+                  ‹
+                </button>
+                <div style={{ ...modal.dateTitle, marginBottom: 0, color: headerColor }}>
+                  {formatDateHeader(selectedDate)}
+                </div>
+                <button style={{ ...adminStyles.adminBtn, padding: "6px 10px", fontSize: "14px" }} onClick={() => changeSelectedDate(1)}>
+                  ›
+                </button>
               </div>
+              <div
+                style={{ overflowX: "hidden" }}
+                onTouchStart={handleDayTouchStart}
+                onTouchMove={handleDayTouchMove}
+                onTouchEnd={handleDayTouchEnd}
+              >
+              <div
+                ref={dayGridRef}
+                style={{
+                  transform: `translateX(${daySlideX}px)`,
+                  transition: daySlideTransition ? "transform 220ms ease" : "none",
+                }}
+              >
               <div style={modal.countText}>신청중 {selectedRows.length}명</div>
 
               {selectedRows.length === 0 ? (
@@ -5173,6 +5307,8 @@ function HyuchungdangAdminPanel({ branch, onClose, employees, managers, holidayS
                   </button>
                 </React.Fragment>
               )}
+              </div>
+              </div>
 
               <div style={{ fontSize: "12px", color: "#888", margin: "10px 0" }}>
                 실제 휴가 기록(연차·분지 등)이 필요하면 날짜 모달의 "+ 대신 기록"에서 따로 등록해주세요.
