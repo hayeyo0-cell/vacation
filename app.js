@@ -1714,6 +1714,7 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
   const [managerFormDia, setManagerFormDia] = useState("");
   const [managerFormNote, setManagerFormNote] = useState("");
   const [managerSaving, setManagerSaving] = useState(false);
+
   // 휴충당 신청 (경산 전용) - 본인 교번이 "휴"로 시작하는 날짜에 한해, 언제든 신청 가능.
   // 상태는 "신청중"/"취소됨" 두 가지만 써요. 확정 처리는 별도의 "휴충당 신청 현황" 달력에서 운용이 처리해요.
   const [hyuchungdangByDate, setHyuchungdangByDate] = useState([]);
@@ -5154,14 +5155,19 @@ function HyuchungdangAdminPanel({ branch, onClose, employees, managers, holidayS
               {cells.map((d, i) => {
                 if (d === null) return <div key={i} style={cal.emptyCell} />;
                 const key = `${viewYear}-${pad2(viewMonth + 1)}-${pad2(d)}`;
-                const count = (monthMap[key] || []).length;
+                const dayRequests = monthMap[key] || [];
+                const confirmedList = dayRequests.filter((r) => r.confirmedBy);
+                const pendingList = dayRequests.filter((r) => !r.confirmedBy);
+                const isConfirmedState = key < todayKey || confirmedList.length > 0;
+                const displayCount = isConfirmedState ? confirmedList.length : pendingList.length;
+                const badgeColor = isConfirmedState ? "#1caa5c" : displayCount > 0 ? "#e08a20" : "#ccc";
                 const dayType = getDayType(key, holidaySet);
                 return (
                   <div key={i} style={cal.dayCell(key === todayKey)} onClick={() => setSelectedDate(key)}>
                     <div style={cal.dayNum(dayType)}>{d}</div>
                     <div style={cal.dayDivider} />
-                    <div style={{ fontSize: "11px", color: "#aaa" }}>신청</div>
-                    <div style={cal.dayBadge(count > 0 ? "#e08a20" : "#ccc")}>{count}</div>
+                    <div style={{ fontSize: "11px", color: "#aaa" }}>{isConfirmedState ? "확정" : "신청"}</div>
+                    <div style={cal.dayBadge(badgeColor)}>{displayCount}</div>
                   </div>
                 );
               })}
