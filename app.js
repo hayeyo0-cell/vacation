@@ -5130,7 +5130,11 @@ function HyuchungdangAdminPanel({ branch, onClose, employees, managers, holidayS
                       {[...branchEmployees]
                         .map((e) => ({ ...e, restCode: codeForEmployeeOnDate(e.id, selectedDate) }))
                         .filter((e) => String(e.restCode || "").startsWith("휴"))
-                        .sort((a, b) => a.name.localeCompare(b.name, "ko"))
+                        .sort((a, b) => {
+                          const na = parseInt(String(a.restCode).replace(/[^0-9]/g, ""), 10) || 0;
+                          const nb = parseInt(String(b.restCode).replace(/[^0-9]/g, ""), 10) || 0;
+                          return na - nb;
+                        })
                         .map((e) => (
                           <option key={e.id} value={e.id}>{e.name} ({e.restCode})</option>
                         ))}
