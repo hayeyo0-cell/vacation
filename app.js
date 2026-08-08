@@ -4801,6 +4801,16 @@ function HyuchungdangAdminPanel({ branch, onClose, employees, managers, holidayS
   const [assignSubstituteDia, setAssignSubstituteDia] = useState("");
   const [assignSaving, setAssignSaving] = useState(false);
 
+  // PC(넓은 화면)인지 감지 - 넓은 화면에서는 상세 팝업 바깥을 클릭해도 안 닫히게 하기 위함
+  const [isWideScreen, setIsWideScreen] = useState(
+    typeof window !== "undefined" && window.innerWidth >= 640
+  );
+  useEffect(() => {
+    const onResize = () => setIsWideScreen(window.innerWidth >= 640);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
   // 충당교번 드롭다운/지정 대상자 계산용 - 그 소속의 교번틀 코드 목록·직원 목록
   const teamKey = REVERSE_TEAM_MAP[branch];
   const order = GYOBUN_ORDER[teamKey] || [];
@@ -4946,27 +4956,6 @@ function HyuchungdangAdminPanel({ branch, onClose, employees, managers, holidayS
 
   return (
     <div style={modal.overlay} onClick={onClose}>
-      <button
-        onClick={onClose}
-        style={{
-          position: "fixed",
-          top: "10px",
-          right: "10px",
-          zIndex: 300,
-          width: "34px",
-          height: "34px",
-          borderRadius: "50%",
-          border: "none",
-          background: "rgba(0,0,0,0.55)",
-          color: "#fff",
-          fontSize: "18px",
-          lineHeight: 1,
-          cursor: "pointer",
-        }}
-        title="닫기"
-      >
-        ✕
-      </button>
       <div
         style={{ background: "#f7f4ee", width: "100%", maxWidth: "480px", margin: "0 auto", minHeight: "100vh" }}
         onClick={(e) => e.stopPropagation()}
@@ -5022,7 +5011,7 @@ function HyuchungdangAdminPanel({ branch, onClose, employees, managers, holidayS
             style={{ ...modal.overlay, alignItems: "safe center", justifyContent: "center", zIndex: 200 }}
             onClick={(e) => {
               e.stopPropagation();
-              closeDetail();
+              if (!isWideScreen) closeDetail();
             }}
           >
             <div style={{ ...modal.sheet, maxWidth: "480px" }} onClick={(e) => e.stopPropagation()}>
