@@ -14,7 +14,7 @@ const GAS_URL =
 
 // 경산 휴가 데이터 - 교번앱이 이미 안정적으로 쓰고 있는 검증된 API (날짜가 완성된 형태로 옴)
 const VACATION_API_URL =
-  "https://script.google.com/macros/s/AKfycby_p9K5jW7LTxAGy_uTTV88KcEGtnFQAEy7UctYq4Xkv2lpTj5RtR-mOACfic_BmE29kQ/exec";
+  "https://script.google.com/macros/s/AKfycbxx07MyxgIYUHweQQYF_7ioGqekeVql3wdlTDt2fmYGEXKS0L4CRFzV50vZRdLVg0C5/exec";
 
 // 가져오기 테스트에서 이 날짜 이전 기록은 제외 (필요하면 이 값만 바꾸면 돼요)
 const IMPORT_FROM_DATE = "2026-07-01";
