@@ -1719,7 +1719,7 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
   const [managerFormDia, setManagerFormDia] = useState("");
   const [managerFormNote, setManagerFormNote] = useState("");
   const [managerSaving, setManagerSaving] = useState(false);
- // 휴충당 신청 (경산 전용) - 본인 교번이 "휴"로 시작하는 날짜에 한해, 언제든 신청 가능.
+  // 휴충당 신청 (경산 전용) - 본인 교번이 "휴"로 시작하는 날짜에 한해, 언제든 신청 가능.
   // 상태는 "신청중"/"취소됨" 두 가지만 써요. 확정 처리는 별도의 "휴충당 신청 현황" 달력에서 운용이 처리해요.
   const [hyuchungdangByDate, setHyuchungdangByDate] = useState([]);
   useEffect(() => {
@@ -5846,9 +5846,17 @@ function ImportTestPanel({ onClose, employees, managers }) {
       let createdAt = null;
       let createdAtDateOnly = false;
       const parsed = parseReqDateToYMD(r.reqDate, r.date);
-      if (parsed) {
-        createdAt = window.VacationAPI.timestampFromDate(parsed.year, parsed.month, parsed.day);
-        createdAtDateOnly = true;
+      if (parsed && window.VacationAPI && typeof window.VacationAPI.timestampFromDate === "function") {
+        try {
+          const ts = window.VacationAPI.timestampFromDate(parsed.year, parsed.month, parsed.day);
+          // timestampFromDate가 실수로 async(Promise 반환)로 정의돼 있으면 여기서 걸러내요
+          if (ts && typeof ts.then !== "function") {
+            createdAt = ts;
+            createdAtDateOnly = true;
+          }
+        } catch (err) {
+          console.error("신청일 변환 실패:", err);
+        }
       }
       return {
         date: r.date,
