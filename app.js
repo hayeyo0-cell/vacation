@@ -1544,7 +1544,9 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
   const currentUser =
     isSuperAdmin && ghosting ? { ...realCurrentUser, branch: otherBranch } : realCurrentUser;
   const isAdmin = isAdminUser(currentUser);
-  const isMidManager = isMidManagerUser(currentUser, managers);
+  // 슈퍼관리자(권재림)는 경산·문양 어느 쪽으로 전환해도, 그 소속에 운용으로 따로 등록돼있지 않아도
+  // 항상 운용 화면(대신 기록, 확인 스탬프, 휴충당 관리 등)에 자유롭게 접근할 수 있어요.
+  const isMidManager = isMidManagerUser(currentUser, managers) || isSuperAdmin;
   const [showAdmin, setShowAdmin] = useState(false);
   const [showManagerAdmin, setShowManagerAdmin] = useState(false);
   const [showImportTest, setShowImportTest] = useState(false);
@@ -3656,10 +3658,17 @@ function isAdminUser(user) {
   return ADMIN_NAMES.some((a) => a.name === user.name && a.branch === user.branch);
 }
 
-// 전체관리자(앱 총괄) - 소속과 무관하게 모든 소속의 승인관리·운용인원·명절추첨을 볼 수 있어요.
+// 전체관리자(앱 총괄) - 소속과 무관하게 모든 소속의 승인관리·운용인원·명절추첨을 볼 수 있고,
+// 운용 등록 여부와 무관하게 운용 화면(대신 기록·확인·휴충당 관리 등)에도 자유롭게 접근할 수 있어요.
 // 로그인은 평소처럼 한 소속으로 하되, 관리 화면 안에서 소속을 전환(고스트 모드)할 수 있어요.
+//
+// ⚠️ 나중에 안정화되면 이 SUPER_ADMIN_CROSS_BRANCH 한 줄만 false로 바꾸면 깔끔하게 종료돼요.
+// (TEST_MODE와 같은 방식) - 꺼지면 "🔀 전환" 버튼, 관리 화면의 소속 탭, 운용 자동부여가
+// 전부 자동으로 사라지고, 권재림님도 평소처럼 본인 소속(경산)에만 묶여요.
+const SUPER_ADMIN_CROSS_BRANCH = true;
 const SUPER_ADMIN_NAMES = ["권재림"];
 function isSuperAdminUser(user) {
+  if (!SUPER_ADMIN_CROSS_BRANCH) return false;
   if (!user) return false;
   return SUPER_ADMIN_NAMES.includes(user.name);
 }
