@@ -8,31 +8,19 @@
 <link rel="icon" href="icon-192.png" />
 <link rel="apple-touch-icon" href="icon-192.png" />
 <meta name="theme-color" content="#1b3a5c" />
-
 <style>
-  * {
-    box-sizing: border-box;
-    margin: 0;
-    padding: 0;
-  }
-
+  * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Malgun Gothic", sans-serif;
     background: #f7f4ee;
     color: #1a1a1a;
     -webkit-tap-highlight-color: transparent;
   }
-
-  #root {
-    min-height: 100vh;
-  }
+  #root { min-height: 100vh; }
 
   /* PC 등 넓은 화면에서는 모바일 폭을 확대해서 보여줌 (관리자는 주로 PC에서 사용) */
   @media (min-width: 640px) {
-    body {
-      background: #e7e2d5;
-    }
-
+    body { background: #e7e2d5; }
     #root > div {
       max-width: 525px;
       margin: 0 auto;
@@ -41,7 +29,6 @@
       zoom: 1.4;
     }
   }
-
   @supports not (zoom: 1) {
     @media (min-width: 640px) {
       #root > div {
@@ -52,22 +39,18 @@
   }
 </style>
 </head>
-
 <body>
-
 <div id="root"></div>
 
 <!-- React -->
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-
 <!-- Babel (JSX를 브라우저에서 바로 변환) -->
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
 <!-- Firebase (모듈형 SDK, CDN) -->
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
-
   import {
     getFirestore,
     collection,
@@ -83,6 +66,7 @@
     serverTimestamp,
     onSnapshot,
     Timestamp,
+    writeBatch,
   } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
   const firebaseConfig = {
@@ -96,7 +80,6 @@
 
   const app = initializeApp(firebaseConfig);
   const db = getFirestore(app);
-
   const COLLECTION = "vacations";
   const APPROVAL_COLLECTION = "approvals";
   const MANAGER_COLLECTION = "managers";
@@ -106,68 +89,35 @@
   const HYUCHUNGDANG_COLLECTION = "hyuchungdang_requests";
   const SYSTEM_COLLECTION = "system";
 
-
-  /* =========================================================
-     휴가 API
-     ========================================================= */
-
   window.VacationAPI = {
-
     async getByDate(dateStr) {
-      const q = query(
-        collection(db, COLLECTION),
-        where("date", "==", dateStr)
-      );
-
+      const q = query(collection(db, COLLECTION), where("date", "==", dateStr));
       const snap = await getDocs(q);
-
-      return snap.docs.map((d) => ({
-        id: d.id,
-        ...d.data()
-      }));
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     },
-
     async getByRange(startStr, endStr) {
       const q = query(
         collection(db, COLLECTION),
         where("date", ">=", startStr),
         where("date", "<=", endStr)
       );
-
       const snap = await getDocs(q);
-
-      return snap.docs.map((d) => ({
-        id: d.id,
-        ...d.data()
-      }));
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     },
-
     async getAll() {
-      const snap = await getDocs(
-        collection(db, COLLECTION)
-      );
-
-      return snap.docs.map((d) => ({
-        id: d.id,
-        ...d.data()
-      }));
+      const snap = await getDocs(collection(db, COLLECTION));
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     },
-
     subscribeRange(startStr, endStr, callback) {
       const q = query(
         collection(db, COLLECTION),
         where("date", ">=", startStr),
         where("date", "<=", endStr)
       );
-
       return onSnapshot(
         q,
         (snap) => {
-          const records = snap.docs.map((d) => ({
-            id: d.id,
-            ...d.data()
-          }));
-
+          const records = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
           callback(records);
         },
         (err) => {
@@ -175,184 +125,111 @@
         }
       );
     },
-
     async add(record) {
-      const ref = await addDoc(
-        collection(db, COLLECTION),
-        {
-          ...record,
-          status: record.status || "정상",
-          createdAt: record.createdAt || serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        }
-      );
-
+      const ref = await addDoc(collection(db, COLLECTION), {
+        ...record,
+        status: record.status || "정상",
+        createdAt: record.createdAt || serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
       return ref.id;
     },
-
     async addOnce(id, record) {
-      await setDoc(
-        doc(db, COLLECTION, id),
-        {
-          ...record,
-          status: record.status || "정상",
-          createdAt: record.createdAt || serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        }
-      );
-
+      await setDoc(doc(db, COLLECTION, id), {
+        ...record,
+        status: record.status || "정상",
+        createdAt: record.createdAt || serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
       return id;
     },
-
     async update(id, patch) {
-      await updateDoc(
-        doc(db, COLLECTION, id),
-        {
-          ...patch,
-          updatedAt: serverTimestamp(),
-        }
-      );
+      await updateDoc(doc(db, COLLECTION, id), {
+        ...patch,
+        updatedAt: serverTimestamp(),
+      });
     },
-
     async cancel(id) {
-      await updateDoc(
-        doc(db, COLLECTION, id),
-        {
-          status: "취소됨",
-          updatedAt: serverTimestamp(),
-        }
-      );
+      await updateDoc(doc(db, COLLECTION, id), {
+        status: "취소됨",
+        updatedAt: serverTimestamp(),
+      });
     },
-
     async remove(id) {
-      await deleteDoc(
-        doc(db, COLLECTION, id)
-      );
+      await deleteDoc(doc(db, COLLECTION, id));
     },
-
     async confirm(id, managerName) {
-      await updateDoc(
-        doc(db, COLLECTION, id),
-        {
-          confirmedBy: managerName,
-          confirmedAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        }
-      );
+      await updateDoc(doc(db, COLLECTION, id), {
+        confirmedBy: managerName,
+        confirmedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
     },
-
     async getMine(employeeId) {
-      const q = query(
-        collection(db, COLLECTION),
-        where("employeeId", "==", employeeId)
-      );
-
+      const q = query(collection(db, COLLECTION), where("employeeId", "==", employeeId));
       const snap = await getDocs(q);
-
-      return snap.docs.map((d) => ({
-        id: d.id,
-        ...d.data()
-      }));
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     },
-
     async removeAllForEmployee(employeeId) {
-      const q = query(
-        collection(db, COLLECTION),
-        where("employeeId", "==", employeeId)
-      );
-
+      const q = query(collection(db, COLLECTION), where("employeeId", "==", employeeId));
       const snap = await getDocs(q);
-
-      await Promise.all(
-        snap.docs.map((d) =>
-          deleteDoc(
-            doc(db, COLLECTION, d.id)
-          )
-        )
-      );
-
+      await Promise.all(snap.docs.map((d) => deleteDoc(doc(db, COLLECTION, d.id))));
       return snap.docs.length;
     },
-
     async removeAllForBranch(branch) {
-      const q = query(
-        collection(db, COLLECTION),
-        where("branch", "==", branch)
-      );
-
+      const q = query(collection(db, COLLECTION), where("branch", "==", branch));
       const snap = await getDocs(q);
-
-      await Promise.all(
-        snap.docs.map((d) =>
-          deleteDoc(
-            doc(db, COLLECTION, d.id)
-          )
-        )
-      );
-
+      await Promise.all(snap.docs.map((d) => deleteDoc(doc(db, COLLECTION, d.id))));
       return snap.docs.length;
     },
-
-    // 보관 기한(1년) 지난 오래된 기록 자동 삭제
+    // 보관 기한(1년) 지난 오래된 기록 자동 삭제 - date < cutoffDate 인 것 전부 삭제 (저장공간 관리용)
     async deleteOlderThan(cutoffDate) {
-      const q = query(
-        collection(db, COLLECTION),
-        where("date", "<", cutoffDate)
-      );
-
+      const q = query(collection(db, COLLECTION), where("date", "<", cutoffDate));
       const snap = await getDocs(q);
-
-      await Promise.all(
-        snap.docs.map((d) =>
-          deleteDoc(
-            doc(db, COLLECTION, d.id)
-          )
-        )
-      );
-
+      await Promise.all(snap.docs.map((d) => deleteDoc(doc(db, COLLECTION, d.id))));
       return snap.docs.length;
     },
-
     async fixAutoConfirmLabel() {
-      const q = query(
-        collection(db, COLLECTION),
-        where(
-          "confirmedBy",
-          "==",
-          "가져오기(자동확인)"
-        )
-      );
-
+      const q = query(collection(db, COLLECTION), where("confirmedBy", "==", "가져오기(자동확인)"));
       const snap = await getDocs(q);
-
       await Promise.all(
-        snap.docs.map((d) =>
-          updateDoc(
-            doc(db, COLLECTION, d.id),
-            {
-              confirmedBy: "확인"
-            }
-          )
-        )
+        snap.docs.map((d) => updateDoc(doc(db, COLLECTION, d.id), { confirmedBy: "확인" }))
       );
-
       return snap.docs.length;
     },
-
     timestampFromDate(year, month, day) {
-      return Timestamp.fromDate(
-        new Date(year, month - 1, day)
-      );
+      return Timestamp.fromDate(new Date(year, month - 1, day));
+    },
+    // 여러 건을 한 번에 묶어서 저장 (가져오기 전용) - 한 건씩 저장하면 실시간 리스너가
+    // 매번 다시 그려지면서 건수가 많을 때 화면이 멈추거나 죽을 수 있어서, 배치로 처리해요.
+    // Firestore 배치는 한 번에 최대 500개까지라 450개씩 나눠서 순차 커밋해요.
+    async bulkImport(records) {
+      const chunks = [];
+      for (let i = 0; i < records.length; i += 450) {
+        chunks.push(records.slice(i, i + 450));
+      }
+      const ids = [];
+      for (const chunk of chunks) {
+        const batch = writeBatch(db);
+        chunk.forEach((r) => {
+          const ref = doc(collection(db, COLLECTION));
+          ids.push(ref.id);
+          const { status, confirmedBy, ...rest } = r;
+          batch.set(ref, {
+            ...rest,
+            status: status || "정상",
+            ...(confirmedBy ? { confirmedBy, confirmedAt: serverTimestamp() } : {}),
+            createdAt: r.createdAt || serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          });
+        });
+        await batch.commit();
+      }
+      return ids;
     },
   };
 
-
-  /* =========================================================
-     승인 API
-     ========================================================= */
-
   window.ApprovalAPI = {
-
     async request(record) {
       await setDoc(
         doc(db, APPROVAL_COLLECTION, record.id),
@@ -366,438 +243,190 @@
         { merge: true }
       );
     },
-
     async getStatus(id) {
-      const snap = await getDoc(
-        doc(db, APPROVAL_COLLECTION, id)
-      );
-
-      return snap.exists()
-        ? snap.data()
-        : null;
+      const snap = await getDoc(doc(db, APPROVAL_COLLECTION, id));
+      return snap.exists() ? snap.data() : null;
     },
-
     async listPending() {
-      const q = query(
-        collection(db, APPROVAL_COLLECTION),
-        where("status", "==", "pending")
-      );
-
+      const q = query(collection(db, APPROVAL_COLLECTION), where("status", "==", "pending"));
       const snap = await getDocs(q);
-
-      return snap.docs.map((d) => ({
-        id: d.id,
-        ...d.data()
-      }));
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     },
-
     async listApproved() {
-      const q = query(
-        collection(db, APPROVAL_COLLECTION),
-        where("status", "==", "approved")
-      );
-
+      const q = query(collection(db, APPROVAL_COLLECTION), where("status", "==", "approved"));
       const snap = await getDocs(q);
-
-      return snap.docs.map((d) => ({
-        id: d.id,
-        ...d.data()
-      }));
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     },
-
     async setStatus(id, status) {
-      await updateDoc(
-        doc(db, APPROVAL_COLLECTION, id),
-        {
-          status,
-          updatedAt: serverTimestamp(),
-        }
-      );
+      await updateDoc(doc(db, APPROVAL_COLLECTION, id), {
+        status,
+        updatedAt: serverTimestamp(),
+      });
     },
-
     async reset(id) {
-      await deleteDoc(
-        doc(db, APPROVAL_COLLECTION, id)
-      );
+      await deleteDoc(doc(db, APPROVAL_COLLECTION, id));
     },
-
     async deleteAll() {
-      const snap = await getDocs(
-        collection(db, APPROVAL_COLLECTION)
-      );
-
-      await Promise.all(
-        snap.docs.map((d) =>
-          deleteDoc(
-            doc(db, APPROVAL_COLLECTION, d.id)
-          )
-        )
-      );
-
+      const snap = await getDocs(collection(db, APPROVAL_COLLECTION));
+      await Promise.all(snap.docs.map((d) => deleteDoc(doc(db, APPROVAL_COLLECTION, d.id))));
       return snap.docs.length;
     },
   };
 
-
-  /* =========================================================
-     운용 인원 API
-     ========================================================= */
-
   window.ManagerAPI = {
-
     async list() {
-      const snap = await getDocs(
-        collection(db, MANAGER_COLLECTION)
-      );
-
-      return snap.docs.map((d) => ({
-        id: d.id,
-        ...d.data()
-      }));
+      const snap = await getDocs(collection(db, MANAGER_COLLECTION));
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     },
-
     async add(record) {
-      const ref = await addDoc(
-        collection(db, MANAGER_COLLECTION),
-        {
-          name: record.name,
-          branch: record.branch,
-          createdAt: serverTimestamp(),
-        }
-      );
-
+      const ref = await addDoc(collection(db, MANAGER_COLLECTION), {
+        name: record.name,
+        branch: record.branch,
+        createdAt: serverTimestamp(),
+      });
       return ref.id;
     },
-
     async remove(id) {
-      await deleteDoc(
-        doc(db, MANAGER_COLLECTION, id)
-      );
+      await deleteDoc(doc(db, MANAGER_COLLECTION, id));
     },
   };
 
-
-  /* =========================================================
-     휴가일수 API
-     ========================================================= */
-
   window.QuotaAPI = {
-
     async get(employeeId) {
-      const snap = await getDoc(
-        doc(db, QUOTA_COLLECTION, employeeId)
-      );
-
-      return snap.exists()
-        ? snap.data()
-        : null;
+      const snap = await getDoc(doc(db, QUOTA_COLLECTION, employeeId));
+      return snap.exists() ? snap.data() : null;
     },
-
     async setExtra(employeeId, name, branch, extra) {
       await setDoc(
         doc(db, QUOTA_COLLECTION, employeeId),
-        {
-          name,
-          branch,
-          extra,
-          updatedAt: serverTimestamp()
-        },
+        { name, branch, extra, updatedAt: serverTimestamp() },
         { merge: true }
       );
     },
-
     async list() {
-      const snap = await getDocs(
-        collection(db, QUOTA_COLLECTION)
-      );
-
-      return snap.docs.map((d) => ({
-        id: d.id,
-        ...d.data()
-      }));
+      const snap = await getDocs(collection(db, QUOTA_COLLECTION));
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     },
   };
-
-
-  /* =========================================================
-     추첨 API
-     ========================================================= */
 
   window.LotteryAPI = {
-
     async listEvents() {
-      const snap = await getDocs(
-        collection(db, LOTTERY_EVENT_COLLECTION)
-      );
-
-      const list = snap.docs.map((d) => ({
-        id: d.id,
-        ...d.data()
-      }));
-
-      list.sort(
-        (a, b) =>
-          (b.createdAt?.toMillis?.() || 0) -
-          (a.createdAt?.toMillis?.() || 0)
-      );
-
+      const snap = await getDocs(collection(db, LOTTERY_EVENT_COLLECTION));
+      const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      list.sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
       return list;
     },
-
     async createEvent(data) {
-      const ref = await addDoc(
-        collection(db, LOTTERY_EVENT_COLLECTION),
-        {
-          ...data,
-          status: "응모중",
-          createdAt: serverTimestamp(),
-        }
-      );
-
+      const ref = await addDoc(collection(db, LOTTERY_EVENT_COLLECTION), {
+        ...data,
+        status: "응모중",
+        createdAt: serverTimestamp(),
+      });
       return ref.id;
     },
-
     async updateEvent(id, patch) {
-      await updateDoc(
-        doc(db, LOTTERY_EVENT_COLLECTION, id),
-        {
-          ...patch,
-          updatedAt: serverTimestamp(),
-        }
-      );
+      await updateDoc(doc(db, LOTTERY_EVENT_COLLECTION, id), {
+        ...patch,
+        updatedAt: serverTimestamp(),
+      });
     },
-
     async removeEvent(id) {
-      await deleteDoc(
-        doc(db, LOTTERY_EVENT_COLLECTION, id)
-      );
+      await deleteDoc(doc(db, LOTTERY_EVENT_COLLECTION, id));
     },
-
     async listEntriesForEvent(eventId) {
-      const q = query(
-        collection(db, LOTTERY_ENTRY_COLLECTION),
-        where("eventId", "==", eventId)
-      );
-
+      const q = query(collection(db, LOTTERY_ENTRY_COLLECTION), where("eventId", "==", eventId));
       const snap = await getDocs(q);
-
-      return snap.docs.map((d) => ({
-        id: d.id,
-        ...d.data()
-      }));
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     },
-
     async listMyEntries(employeeId) {
-      const q = query(
-        collection(db, LOTTERY_ENTRY_COLLECTION),
-        where("employeeId", "==", employeeId)
-      );
-
+      const q = query(collection(db, LOTTERY_ENTRY_COLLECTION), where("employeeId", "==", employeeId));
       const snap = await getDocs(q);
-
-      return snap.docs.map((d) => ({
-        id: d.id,
-        ...d.data()
-      }));
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     },
-
     async apply(entryId, entry) {
-      await setDoc(
-        doc(db, LOTTERY_ENTRY_COLLECTION, entryId),
-        {
-          ...entry,
-          result: "대기중",
-          appliedAt: serverTimestamp(),
-        }
-      );
-
+      await setDoc(doc(db, LOTTERY_ENTRY_COLLECTION, entryId), {
+        ...entry,
+        result: "대기중",
+        appliedAt: serverTimestamp(),
+      });
       return entryId;
     },
-
     async cancelApply(entryId) {
-      await deleteDoc(
-        doc(db, LOTTERY_ENTRY_COLLECTION, entryId)
-      );
+      await deleteDoc(doc(db, LOTTERY_ENTRY_COLLECTION, entryId));
     },
-
     async updateEntry(entryId, patch) {
-      await updateDoc(
-        doc(db, LOTTERY_ENTRY_COLLECTION, entryId),
-        patch
-      );
+      await updateDoc(doc(db, LOTTERY_ENTRY_COLLECTION, entryId), patch);
     },
   };
-
-
-  /* =========================================================
-     휴충당 API
-     ========================================================= */
 
   window.HyuchungdangAPI = {
-
     async listAll() {
-      const snap = await getDocs(
-        collection(db, HYUCHUNGDANG_COLLECTION)
-      );
-
-      return snap.docs.map((d) => ({
-        id: d.id,
-        ...d.data()
-      }));
+      const snap = await getDocs(collection(db, HYUCHUNGDANG_COLLECTION));
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     },
-
     async listByDate(dateStr) {
-      const q = query(
-        collection(db, HYUCHUNGDANG_COLLECTION),
-        where("date", "==", dateStr)
-      );
-
+      const q = query(collection(db, HYUCHUNGDANG_COLLECTION), where("date", "==", dateStr));
       const snap = await getDocs(q);
-
-      return snap.docs.map((d) => ({
-        id: d.id,
-        ...d.data()
-      }));
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     },
-
     async listMine(employeeId) {
-      const q = query(
-        collection(db, HYUCHUNGDANG_COLLECTION),
-        where("employeeId", "==", employeeId)
-      );
-
+      const q = query(collection(db, HYUCHUNGDANG_COLLECTION), where("employeeId", "==", employeeId));
       const snap = await getDocs(q);
-
-      return snap.docs.map((d) => ({
-        id: d.id,
-        ...d.data()
-      }));
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     },
-
     async request(id, data) {
-      await setDoc(
-        doc(db, HYUCHUNGDANG_COLLECTION, id),
-        {
-          ...data,
-          status: "신청중",
-          requestedAt: serverTimestamp(),
-        }
-      );
-
+      await setDoc(doc(db, HYUCHUNGDANG_COLLECTION, id), {
+        ...data,
+        status: "신청중",
+        requestedAt: serverTimestamp(),
+      });
       return id;
     },
-
     async cancel(id) {
-      await updateDoc(
-        doc(db, HYUCHUNGDANG_COLLECTION, id),
-        {
-          status: "취소됨",
-          updatedAt: serverTimestamp(),
-        }
-      );
+      await updateDoc(doc(db, HYUCHUNGDANG_COLLECTION, id), {
+        status: "취소됨",
+        updatedAt: serverTimestamp(),
+      });
     },
-
     async update(id, patch) {
-      await updateDoc(
-        doc(db, HYUCHUNGDANG_COLLECTION, id),
-        {
-          ...patch,
-          updatedAt: serverTimestamp(),
-        }
-      );
+      await updateDoc(doc(db, HYUCHUNGDANG_COLLECTION, id), {
+        ...patch,
+        updatedAt: serverTimestamp(),
+      });
     },
-
     async remove(id) {
-      await deleteDoc(
-        doc(db, HYUCHUNGDANG_COLLECTION, id)
-      );
+      await deleteDoc(doc(db, HYUCHUNGDANG_COLLECTION, id));
     },
-
-    /*
-     * ⭐ 추가된 기능
-     * 특정 소속의 휴충당 기록을 전부 삭제
-     *
-     * 예:
-     * removeAllForBranch("경산")
-     *
-     * → hyuchungdang_requests 중
-     *    branch가 "경산"인 문서만 전부 삭제
-     */
-    async removeAllForBranch(branch) {
-      const q = query(
-        collection(db, HYUCHUNGDANG_COLLECTION),
-        where("branch", "==", branch)
-      );
-
+    async deleteOlderThan(cutoffDate) {
+      const q = query(collection(db, HYUCHUNGDANG_COLLECTION), where("date", "<", cutoffDate));
       const snap = await getDocs(q);
-
-      await Promise.all(
-        snap.docs.map((d) =>
-          deleteDoc(
-            doc(db, HYUCHUNGDANG_COLLECTION, d.id)
-          )
-        )
-      );
-
+      await Promise.all(snap.docs.map((d) => deleteDoc(doc(db, HYUCHUNGDANG_COLLECTION, d.id))));
       return snap.docs.length;
     },
-
-    // 보관 기한(1년) 지난 오래된 휴충당 기록 자동 삭제
-    async deleteOlderThan(cutoffDate) {
-      const q = query(
-        collection(db, HYUCHUNGDANG_COLLECTION),
-        where("date", "<", cutoffDate)
-      );
-
+    async removeAllForBranch(branch) {
+      const q = query(collection(db, HYUCHUNGDANG_COLLECTION), where("branch", "==", branch));
       const snap = await getDocs(q);
-
-      await Promise.all(
-        snap.docs.map((d) =>
-          deleteDoc(
-            doc(db, HYUCHUNGDANG_COLLECTION, d.id)
-          )
-        )
-      );
-
+      await Promise.all(snap.docs.map((d) => deleteDoc(doc(db, HYUCHUNGDANG_COLLECTION, d.id))));
       return snap.docs.length;
     },
   };
 
-
-  /* =========================================================
-     Firestore 준비 완료
-     ========================================================= */
-
   window.__firestoreReady = true;
-  window.dispatchEvent(
-    new Event("firestore-ready")
-  );
-
+  window.dispatchEvent(new Event("firestore-ready"));
 </script>
-
 
 <!-- 실제 앱 코드 (JSX) -->
-<script
-  type="text/babel"
-  src="app.js">
-</script>
-
+<script type="text/babel" src="app.js"></script>
 
 <!-- PWA 설치를 위한 서비스워커 등록 -->
 <script>
   if ("serviceWorker" in navigator) {
     window.addEventListener("load", () => {
-      navigator.serviceWorker
-        .register("sw.js")
-        .catch((err) => {
-          console.warn(
-            "서비스워커 등록 실패:",
-            err
-          );
-        });
+      navigator.serviceWorker.register("sw.js").catch((err) => {
+        console.warn("서비스워커 등록 실패:", err);
+      });
     });
   }
 </script>
-
 </body>
 </html>
