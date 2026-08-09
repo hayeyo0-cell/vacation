@@ -5919,6 +5919,25 @@ function ImportTestPanel({ onClose, employees, managers }) {
       .finally(() => setImporting(false));
   };
 
+  // 휴충당 신청 기록 전체 삭제 (경산 전용) - 테스트 데이터를 지우고 처음부터 다시 시작할 때
+  const handleResetHyuchungdang = () => {
+    if (
+      !confirm(
+        "⚠️ 휴충당 신청/지정 기록을 전부 삭제할까요?\n\n" +
+          "지금까지 신청·확정된 휴충당 기록이 전부 사라져요 (되돌릴 수 없어요). 휴가 기록은 안 건드려요."
+      )
+    )
+      return;
+    if (!confirm("정말로 진행할까요? 한 번 더 확인할게요.")) return;
+    setImporting(true);
+    window.HyuchungdangAPI.removeAllForBranch("경산")
+      .then((count) => {
+        alert(`휴충당 기록 ${count}건을 전부 삭제했어요.`);
+      })
+      .catch((err) => alert("삭제 중 오류: " + (err && err.message ? err.message : err)))
+      .finally(() => setImporting(false));
+  };
+
   // 예전 코드로 저장된 "가져오기(자동확인)" 문구만 "확인"으로 바꿔주는 일회성 정리 (기존 기록은 그대로 유지)
   const handleFixAutoConfirmLabel = () => {
     setImporting(true);
@@ -6089,6 +6108,14 @@ function ImportTestPanel({ onClose, employees, managers }) {
                   onClick={() => handleResetAllBranchData("문양")}
                 >
                   🗑️ 문양 전체 초기화 (모든 휴가 기록 삭제)
+                </button>
+
+                <button
+                  style={{ ...styles.button, border: "1px dashed #e08a20", color: "#e08a20", marginBottom: "14px", padding: "10px" }}
+                  disabled={importing}
+                  onClick={handleResetHyuchungdang}
+                >
+                  🔁 휴충당 전체 초기화 (경산 - 신청/지정 기록 삭제)
                 </button>
 
                 {converted.length === 0 && (
