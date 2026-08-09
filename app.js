@@ -1541,12 +1541,13 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
   // 전체관리자 전용 - 실제 로그인/등록은 그대로 두고, 화면에 표시할 소속만 가상으로 바꿔치기 (Firestore 등록 불필요)
   const otherBranch = realCurrentUser.branch === "경산" ? "문양" : "경산";
   const [ghosting, setGhosting] = useState(false);
+  // 슈퍼관리자(권재림)는 "문양로 전환"처럼, "운용" 버튼으로 기관사↔운용 화면을 자유롭게 오갈 수 있어요.
+  // 운용으로 등록돼있지 않아도 이 토글로 운용 화면(대신 기록·확인·휴충당 관리 등)에 들어갈 수 있어요.
+  const [actingAsManager, setActingAsManager] = useState(false);
   const currentUser =
     isSuperAdmin && ghosting ? { ...realCurrentUser, branch: otherBranch } : realCurrentUser;
   const isAdmin = isAdminUser(currentUser);
-  // 슈퍼관리자(권재림)는 경산·문양 어느 쪽으로 전환해도, 그 소속에 운용으로 따로 등록돼있지 않아도
-  // 항상 운용 화면(대신 기록, 확인 스탬프, 휴충당 관리 등)에 자유롭게 접근할 수 있어요.
-  const isMidManager = isMidManagerUser(currentUser, managers) || isSuperAdmin;
+  const isMidManager = isMidManagerUser(currentUser, managers) || (isSuperAdmin && actingAsManager);
   const [showAdmin, setShowAdmin] = useState(false);
   const [showManagerAdmin, setShowManagerAdmin] = useState(false);
   const [showImportTest, setShowImportTest] = useState(false);
@@ -2671,6 +2672,14 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
                 onClick={() => setGhosting((v) => !v)}
               >
                 {ghosting ? `🔀 ${realCurrentUser.branch}로 복귀` : `🔀 ${otherBranch}로 전환`}
+              </button>
+            )}
+            {isSuperAdmin && (
+              <button
+                style={{ ...adminStyles.adminBtn, background: "#1a73e8", color: "#fff", borderColor: "#1a73e8" }}
+                onClick={() => setActingAsManager((v) => !v)}
+              >
+                {actingAsManager ? "🔧 기관사" : "🔧 운용"}
               </button>
             )}
           </div>
