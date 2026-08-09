@@ -1553,6 +1553,7 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
   const [showLotteryApply, setShowLotteryApply] = useState(false); // 명절 추첨 응모 (기관사)
   const [showHyuchungdangAdmin, setShowHyuchungdangAdmin] = useState(false); // 휴충당 관리 (관리자, 경산 전용)
   const [showAdminMenu, setShowAdminMenu] = useState(false); // 관리자 메뉴 모음
+  const [showDataReset, setShowDataReset] = useState(false); // 데이터 초기화 (휴충당·문양, TEST_MODE와 무관하게 항상 노출)
   const [showEtiquetteNotice, setShowEtiquetteNotice] = useState(true); // 로그인할 때마다 한 번 안내
   const [upcomingUnconfirmed, setUpcomingUnconfirmed] = useState([]); // 5일 이내 & 아직 미확인인 내 신청 건
   const [lotteryResultsToShow, setLotteryResultsToShow] = useState([]); // 아직 확인 안 한 명절 추첨 결과
@@ -1992,7 +1993,7 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
   // 날짜 모달/사이드 패널(내 휴가현황·승인 관리·운용 인원·가져오기 테스트) 공통으로 쓰는 닫기 함수.
   // 뒤로가기 버튼을 눌러도 popstate 핸들러가 똑같이 처리해서, 항상 달력 화면으로 돌아가요.
   const closeModal = () => {
-    if (selectedDate || showAdmin || showManagerAdmin || showImportTest || showMyVacations || showLotteryAdmin || showLotteryApply || showHyuchungdangAdmin || showAdminMenu) {
+    if (selectedDate || showAdmin || showManagerAdmin || showImportTest || showMyVacations || showLotteryAdmin || showLotteryApply || showHyuchungdangAdmin || showAdminMenu || showDataReset) {
       window.history.back();
     }
   };
@@ -2030,6 +2031,7 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
       setShowLotteryApply(false);
       setShowHyuchungdangAdmin(false);
       setShowAdminMenu(false);
+      setShowDataReset(false);
     };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
@@ -3403,6 +3405,15 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
                 가져오기 테스트
               </button>
             )}
+            <button
+              style={{ ...styles.button, border: "1px dashed #e08a20", color: "#e08a20" }}
+              onClick={() => {
+                setShowAdminMenu(false);
+                openPanel(setShowDataReset);
+              }}
+            >
+              🗑️ 데이터 초기화
+            </button>
             <button style={modal.closeBtn} onClick={closeModal}>닫기</button>
           </div>
         </div>
@@ -3411,6 +3422,11 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
       {showAdmin && <AdminPanel branch={currentUser.branch} isSuperAdmin={isSuperAdmin} onClose={closeModal} employees={employees} managers={managers} />}
       {showManagerAdmin && (
         <ManagerAdminPanel branch={currentUser.branch} isSuperAdmin={isSuperAdmin} onClose={closeModal} />
+      )}
+      {showDataReset && (
+        <ErrorBoundary onClose={closeModal}>
+          <DataResetPanel onClose={closeModal} />
+        </ErrorBoundary>
       )}
       {showImportTest && (
         <ErrorBoundary onClose={closeModal}>
@@ -5440,9 +5456,6 @@ function HyuchungdangAdminPanel({ branch, onClose, employees, managers, holidayS
     </div>
   );
 }
-
-
-
 function AdminPanel({ branch, isSuperAdmin, onClose, employees, managers }) {
   const [tab, setTab] = useState("pending"); // "pending" | "approved"
   const [viewBranch, setViewBranch] = useState(branch); // 전체관리자만 전환 가능, 그 외엔 항상 본인 소속
@@ -5778,6 +5791,90 @@ function parseReqDateToYMD(reqDateRaw, vacationDateStr) {
   }
 
   return null;
+}
+
+/* ------------------------------------------------------------------ */
+/* 데이터 초기화 패널 - TEST_MODE 종료 후에도 계속 남아있어요.               */
+/* 휴충당 전체 초기화(경산) / 문양 전체 초기화, 이 두 가지만 여기 있어요.      */
+/* 아직 두 소속 다 테스트 중이라 필요할 때까지 남겨두는 용도예요 - 나중에     */
+/* 필요 없어지면 요청 시 이 패널 자체를 없애면 돼요.                        */
+/* ------------------------------------------------------------------ */
+function DataResetPanel({ onClose }) {
+  const [working, setWorking] = useState(false);
+
+  const handleResetHyuchungdang = () => {
+    if (
+      !confirm(
+        "⚠️ 휴충당 신청/지정 기록을 전부 삭제할까요?\n\n" +
+          "지금까지 신청·확정된 휴충당 기록이 전부 사라져요 (되돌릴 수 없어요). 휴가 기록은 안 건드려요."
+      )
+    )
+      return;
+    if (!confirm("정말로 진행할까요? 한 번 더 확인할게요.")) return;
+    setWorking(true);
+    Promise.resolve()
+      .then(() => {
+        if (!window.HyuchungdangAPI || typeof window.HyuchungdangAPI.removeAllForBranch !== "function") {
+          throw new Error(
+            "index.html에 HyuchungdangAPI.removeAllForBranch 함수가 아직 없어요. index.html을 먼저 업데이트해주세요."
+          );
+        }
+        return window.HyuchungdangAPI.removeAllForBranch("경산");
+      })
+      .then((count) => {
+        alert(`휴충당 기록 ${count}건을 전부 삭제했어요.`);
+      })
+      .catch((err) => alert("삭제 중 오류: " + (err && err.message ? err.message : err)))
+      .finally(() => setWorking(false));
+  };
+
+  const handleResetMunyang = () => {
+    if (
+      !confirm(
+        "⚠️ 문양 소속의 휴가 기록을 전부 삭제할까요?\n\n" +
+          "문양 데이터가 전부 사라져요 (되돌릴 수 없어요). 경산 데이터는 전혀 안 건드려요."
+      )
+    )
+      return;
+    if (!confirm("정말로 진행할까요? 한 번 더 확인할게요.")) return;
+    setWorking(true);
+    Promise.resolve()
+      .then(() => window.VacationAPI.removeAllForBranch("문양"))
+      .then((count) => {
+        alert(`문양 휴가 기록 ${count}건을 전부 삭제했어요.`);
+      })
+      .catch((err) => alert("삭제 중 오류: " + (err && err.message ? err.message : err)))
+      .finally(() => setWorking(false));
+  };
+
+  return (
+    <div style={modal.overlay} onClick={onClose}>
+      <div style={{ ...modal.sheet, maxWidth: "340px" }} onClick={(e) => e.stopPropagation()}>
+        <div style={modal.dateTitle}>🗑️ 데이터 초기화</div>
+        <div style={{ ...modal.countText, marginBottom: "16px" }}>
+          아직 테스트 중인 두 가지만 모아뒀어요. 필요 없어지면 요청 주시면 없애드려요.
+        </div>
+
+        <button
+          style={{ ...styles.button, border: "1px dashed #e08a20", color: "#e08a20", padding: "10px", marginBottom: "10px" }}
+          disabled={working}
+          onClick={handleResetHyuchungdang}
+        >
+          🔁 휴충당 전체 초기화 (경산 - 신청/지정 기록 삭제)
+        </button>
+
+        <button
+          style={{ ...styles.button, border: "1px dashed #e02020", color: "#e02020", padding: "10px", marginBottom: "14px" }}
+          disabled={working}
+          onClick={handleResetMunyang}
+        >
+          🗑️ 문양 전체 초기화 (모든 휴가 기록 삭제)
+        </button>
+
+        <button style={modal.closeBtn} onClick={onClose}>닫기</button>
+      </div>
+    </div>
+  );
 }
 
 function ImportTestPanel({ onClose, employees, managers }) {
