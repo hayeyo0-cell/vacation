@@ -337,16 +337,25 @@
       const snap = await getDocs(collection(db, HYUCHUNGDANG_COLLECTION));
       return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     },
+
     async listByDate(dateStr) {
-      const q = query(collection(db, HYUCHUNGDANG_COLLECTION), where("date", "==", dateStr));
+      const q = query(
+        collection(db, HYUCHUNGDANG_COLLECTION),
+        where("date", "==", dateStr)
+      );
       const snap = await getDocs(q);
       return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     },
+
     async listMine(employeeId) {
-      const q = query(collection(db, HYUCHUNGDANG_COLLECTION), where("employeeId", "==", employeeId));
+      const q = query(
+        collection(db, HYUCHUNGDANG_COLLECTION),
+        where("employeeId", "==", employeeId)
+      );
       const snap = await getDocs(q);
       return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     },
+
     async request(id, data) {
       await setDoc(doc(db, HYUCHUNGDANG_COLLECTION, id), {
         ...data,
@@ -355,26 +364,57 @@
       });
       return id;
     },
+
     async cancel(id) {
       await updateDoc(doc(db, HYUCHUNGDANG_COLLECTION, id), {
         status: "취소됨",
         updatedAt: serverTimestamp(),
       });
     },
+
     async update(id, patch) {
       await updateDoc(doc(db, HYUCHUNGDANG_COLLECTION, id), {
         ...patch,
         updatedAt: serverTimestamp(),
       });
     },
+
     async remove(id) {
       await deleteDoc(doc(db, HYUCHUNGDANG_COLLECTION, id));
     },
-    // 보관 기한(1년) 지난 오래된 휴충당 기록 자동 삭제 - 휴가 기록과 동일한 방식
-    async deleteOlderThan(cutoffDate) {
-      const q = query(collection(db, HYUCHUNGDANG_COLLECTION), where("date", "<", cutoffDate));
+
+    // ⭐ 여기에 추가
+    // 소속 전체 휴충당 기록 삭제 (테스트 데이터 초기화용)
+    async removeAllForBranch(branch) {
+      const q = query(
+        collection(db, HYUCHUNGDANG_COLLECTION),
+        where("branch", "==", branch)
+      );
       const snap = await getDocs(q);
-      await Promise.all(snap.docs.map((d) => deleteDoc(doc(db, HYUCHUNGDANG_COLLECTION, d.id))));
+
+      await Promise.all(
+        snap.docs.map((d) =>
+          deleteDoc(doc(db, HYUCHUNGDANG_COLLECTION, d.id))
+        )
+      );
+
+      return snap.docs.length;
+    },
+
+    // 보관 기한(1년) 지난 오래된 휴충당 기록 자동 삭제
+    async deleteOlderThan(cutoffDate) {
+      const q = query(
+        collection(db, HYUCHUNGDANG_COLLECTION),
+        where("date", "<", cutoffDate)
+      );
+      const snap = await getDocs(q);
+
+      await Promise.all(
+        snap.docs.map((d) =>
+          deleteDoc(doc(db, HYUCHUNGDANG_COLLECTION, d.id))
+        )
+      );
+
       return snap.docs.length;
     },
   };
