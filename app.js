@@ -5754,15 +5754,25 @@ function ImportTestPanel({ onClose, employees, managers }) {
     // 실제 배포된 API 응답 형식(재배포 후 확인됨): { entries: { "YYYY-MM-DD": [...] }, holidays: {...} }
     // 각 항목엔 row/name/type/dia/confirmer/cancelled/note/reqDate/seq가 들어있어요.
     // 이 스크립트의 doGet은 JSONP 콜백을 감싸주지 않고 순수 JSON만 반환해서, jsonpRequest 대신
-    // 일반 fetch로 받아요.
+    // 일반 fetch로 받아요. 실패하면 실제로 뭐가 왔는지 에러 메시지에 같이 남겨서 바로 원인을 알 수 있게 해요.
     fetch(VACATION_API_URL)
       .then((res) => {
         if (!res.ok) throw new Error(`서버 응답 오류 (${res.status})`);
-        return res.json();
+        return res.text();
       })
-      .then((json) => {
+      .then((text) => {
+        console.log("VACATION_API_URL 원본 응답:", text.slice(0, 500));
+        let json;
+        try {
+          json = JSON.parse(text);
+        } catch (parseErr) {
+          throw new Error(
+            "JSON 파싱 실패 (응답이 JSON이 아니에요) - 응답 앞부분: " + text.slice(0, 150)
+          );
+        }
         if (!json || !json.entries) {
-          throw new Error((json && json.error) || "응답 형식이 예상과 달라요");
+          const keyInfo = json ? `실제로 받은 키: [${Object.keys(json).join(", ")}]` : "응답이 비어있어요";
+          throw new Error((json && json.error) || `응답 형식이 예상과 달라요 - ${keyInfo}`);
         }
         const flat = [];
         Object.keys(json.entries).forEach((dateStr) => {
