@@ -630,7 +630,7 @@ function App() {
       .then(() => window.ApprovalAPI.getStatus(emp.id))
       .then((data) => {
         if (data && data.status === "approved") {
-          alert("이미 다른 기기에서 승인받아 사용 중인 계정이에요.\n\n휴대폰을 바꾸신 거라면, 관리자(권재림)에게 '기기변경'을 요청해주세요. 관리자가 처리해주면 다시 등록하실 수 있어요.");
+          alert("이미 다른 기기에서 승인받아 사용 중인 계정이에요.\n\n휴대폰을 바꾸신 거라면, 관리자(권재림)에게 '기록삭제'를 요청해주세요. 관리자가 처리해주면 다시 등록하실 수 있어요.");
           return;
         }
         if (data && data.status === "pending") {
@@ -705,7 +705,16 @@ function App() {
     waitForFirestore()
       .then(() => window.ApprovalAPI.getStatus(loginTarget.id))
       .then((data) => {
-        if (!data || data.status === "pending") {
+        if (!data) {
+          // 승인 기록이 아예 없는 경우 - 예전에 TEST_MODE일 때 등록해서 신청 자체가
+          // 안 만들어졌던 사람이에요. 여기서 자동으로 신청을 만들어서 관리자 화면에 뜨게 해요.
+          return window.ApprovalAPI.request({
+            id: loginTarget.id,
+            name: loginTarget.name,
+            branch: loginTarget.branch,
+          }).then(() => setStep("pendingApproval"));
+        }
+        if (data.status === "pending") {
           setStep("pendingApproval");
         } else if (data.status === "rejected") {
           setStep("rejected");
@@ -916,12 +925,22 @@ function App() {
         <button
           style={styles.primaryButton}
           onClick={() => {
-            const id = (loginTarget || selectedEmp)?.id;
+            const target = loginTarget || selectedEmp;
+            const id = target?.id;
             if (!id) return;
             window.ApprovalAPI.getStatus(id).then((data) => {
-              if (data && data.status === "approved") setStep("main");
-              else if (data && data.status === "rejected") setStep("rejected");
-              else alert("아직 승인 대기중이에요");
+              if (data && data.status === "approved") {
+                setStep("main");
+              } else if (data && data.status === "rejected") {
+                setStep("rejected");
+              } else if (!data) {
+                // 승인 기록이 아예 없으면(TEST_MODE 시절 가입 등) 여기서 자동으로 신청 생성
+                window.ApprovalAPI.request({ id: target.id, name: target.name, branch: target.branch })
+                  .then(() => alert("신청을 새로 등록했어요. 관리자 확인을 기다려주세요."))
+                  .catch((err) => alert("신청 등록 실패: " + (err && err.message ? err.message : err)));
+              } else {
+                alert("아직 승인 대기중이에요");
+              }
             });
           }}
         >
@@ -1760,7 +1779,6 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
   const [managerFormDia, setManagerFormDia] = useState("");
   const [managerFormNote, setManagerFormNote] = useState("");
   const [managerSaving, setManagerSaving] = useState(false);
-
   // 휴충당 신청 (경산 전용) - 본인 교번이 "휴"로 시작하는 날짜에 한해, 언제든 신청 가능.
   // 상태는 "신청중"/"취소됨" 두 가지만 써요. 확정 처리는 별도의 "휴충당 신청 현황" 달력에서 운용이 처리해요.
   const [hyuchungdangByDate, setHyuchungdangByDate] = useState([]);
@@ -5506,7 +5524,7 @@ function AdminPanel({ branch, isSuperAdmin, onClose, employees, managers }) {
   const handleResetDevice = (p) => {
     if (
       !confirm(
-        `${p.name} (${p.branch})님의 기기변경을 허용할까요?\n기존 등록 정보가 초기화되고, 새 기기에서 다시 등록 후 재승인을 받아야 해요.`
+        `${p.name} (${p.branch})님의 승인 기록을 삭제할까요?\n삭제 후 다시 등록하면 재승인을 받아야 해요.`
       )
     )
       return;
@@ -5521,7 +5539,7 @@ function AdminPanel({ branch, isSuperAdmin, onClose, employees, managers }) {
       !confirm(
         `${p.name} (${p.branch})님은 현재 직원목록에 없어요.\n\n` +
           `접근을 차단하고, 이 사람이 신청했던 휴가 기록도 전부 삭제할까요?\n` +
-          `※ 되돌릴 수 없어요. 단순 기기변경이 필요한 거라면 이 버튼 대신 "기기변경"을 사용해주세요.`
+          `※ 되돌릴 수 없어요. 단순 승인 기록만 지우면 되는 거라면 이 버튼 대신 "기록삭제"를 사용해주세요.`
       )
     )
       return;
@@ -5620,7 +5638,7 @@ function AdminPanel({ branch, isSuperAdmin, onClose, employees, managers }) {
         {!loading && tab === "approved" && (
           <React.Fragment>
             <div style={{ ...modal.countText, marginBottom: "10px" }}>
-              폰을 바꾼 사람은 "기기변경", 인사이동·퇴사로 명단에 없는 사람은 아래 표시와 함께 삭제할 수 있어요
+              폰을 바꾼 사람은 "기록삭제", 인사이동·퇴사로 명단에 없는 사람은 아래 표시와 함께 삭제할 수 있어요
             </div>
             {approved.length === 0 && (
               <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0" }}>승인된 사용자가 없어요</div>
@@ -5636,7 +5654,7 @@ function AdminPanel({ branch, isSuperAdmin, onClose, employees, managers }) {
                       <div style={modal.name}>{p.name}</div>
                       <div style={modal.typeRow}>{p.branch} · {p.id}</div>
                     </div>
-                    <button style={adminStyles.resetBtn} onClick={() => handleResetDevice(p)}>기기변경</button>
+                    <button style={adminStyles.resetBtn} onClick={() => handleResetDevice(p)}>기록삭제</button>
                   </div>
                   {!stillInRoster && (
                     <div
