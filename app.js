@@ -5753,7 +5753,13 @@ function ImportTestPanel({ onClose, employees, managers }) {
 
     // 실제 배포된 API 응답 형식(재배포 후 확인됨): { entries: { "YYYY-MM-DD": [...] }, holidays: {...} }
     // 각 항목엔 row/name/type/dia/confirmer/cancelled/note/reqDate/seq가 들어있어요.
-    jsonpRequest(VACATION_API_URL, {})
+    // 이 스크립트의 doGet은 JSONP 콜백을 감싸주지 않고 순수 JSON만 반환해서, jsonpRequest 대신
+    // 일반 fetch로 받아요.
+    fetch(VACATION_API_URL)
+      .then((res) => {
+        if (!res.ok) throw new Error(`서버 응답 오류 (${res.status})`);
+        return res.json();
+      })
       .then((json) => {
         if (!json || !json.entries) {
           throw new Error((json && json.error) || "응답 형식이 예상과 달라요");
@@ -5939,7 +5945,8 @@ function ImportTestPanel({ onClose, employees, managers }) {
     if (importedIds.length === 0) return;
     if (!confirm(`방금 저장한 ${importedIds.length}건을 전부 삭제할까요? (되돌릴 수 없어요)`)) return;
     setImporting(true);
-    Promise.all(importedIds.map((id) => window.VacationAPI.remove(id)))
+    Promise.resolve()
+      .then(() => Promise.all(importedIds.map((id) => window.VacationAPI.remove(id))))
       .then(() => {
         setImportedIds([]);
         setImportResult(null);
@@ -5963,7 +5970,8 @@ function ImportTestPanel({ onClose, employees, managers }) {
       return;
     if (!confirm("정말로 진행할까요? 한 번 더 확인할게요.")) return;
     setImporting(true);
-    window.VacationAPI.removeAllForBranch(branch)
+    Promise.resolve()
+      .then(() => window.VacationAPI.removeAllForBranch(branch))
       .then((count) => {
         alert(`${branch} 휴가 기록 ${count}건을 전부 삭제했어요.`);
         setImportedIds([]);
@@ -5984,7 +5992,15 @@ function ImportTestPanel({ onClose, employees, managers }) {
       return;
     if (!confirm("정말로 진행할까요? 한 번 더 확인할게요.")) return;
     setImporting(true);
-    window.HyuchungdangAPI.removeAllForBranch("경산")
+    Promise.resolve()
+      .then(() => {
+        if (!window.HyuchungdangAPI || typeof window.HyuchungdangAPI.removeAllForBranch !== "function") {
+          throw new Error(
+            "index.html에 HyuchungdangAPI.removeAllForBranch 함수가 아직 없어요. index.html을 먼저 업데이트해주세요."
+          );
+        }
+        return window.HyuchungdangAPI.removeAllForBranch("경산");
+      })
       .then((count) => {
         alert(`휴충당 기록 ${count}건을 전부 삭제했어요.`);
       })
@@ -5995,7 +6011,8 @@ function ImportTestPanel({ onClose, employees, managers }) {
   // 예전 코드로 저장된 "가져오기(자동확인)" 문구만 "확인"으로 바꿔주는 일회성 정리 (기존 기록은 그대로 유지)
   const handleFixAutoConfirmLabel = () => {
     setImporting(true);
-    window.VacationAPI.fixAutoConfirmLabel()
+    Promise.resolve()
+      .then(() => window.VacationAPI.fixAutoConfirmLabel())
       .then((count) => {
         alert(`"가져오기(자동확인)" 문구 ${count}건을 "확인"으로 정리했어요.`);
       })
