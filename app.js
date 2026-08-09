@@ -1719,6 +1719,7 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
   const [managerFormDia, setManagerFormDia] = useState("");
   const [managerFormNote, setManagerFormNote] = useState("");
   const [managerSaving, setManagerSaving] = useState(false);
+
   // 휴충당 신청 (경산 전용) - 본인 교번이 "휴"로 시작하는 날짜에 한해, 언제든 신청 가능.
   // 상태는 "신청중"/"취소됨" 두 가지만 써요. 확정 처리는 별도의 "휴충당 신청 현황" 달력에서 운용이 처리해요.
   const [hyuchungdangByDate, setHyuchungdangByDate] = useState([]);
@@ -5755,7 +5756,9 @@ function ImportTestPanel({ onClose, employees, managers }) {
     // 각 항목엔 row/name/type/dia/confirmer/cancelled/note/reqDate/seq가 들어있어요.
     // 이 스크립트의 doGet은 JSONP 콜백을 감싸주지 않고 순수 JSON만 반환해서, jsonpRequest 대신
     // 일반 fetch로 받아요. 실패하면 실제로 뭐가 왔는지 에러 메시지에 같이 남겨서 바로 원인을 알 수 있게 해요.
-    fetch(VACATION_API_URL)
+    // 캐시버스팅용 쿼리(_=시각) + no-store로, 서비스워커/브라우저/구글 쪽 캐시에 걸려서 옛날 응답이
+    // 재사용되는 걸 확실히 막아요 (같은 URL을 반복 호출하면 캐시된 옛 응답이 나올 수 있어서).
+    fetch(`${VACATION_API_URL}?_=${Date.now()}`, { cache: "no-store" })
       .then((res) => {
         if (!res.ok) throw new Error(`서버 응답 오류 (${res.status})`);
         return res.text();
@@ -6156,88 +6159,4 @@ function ImportTestPanel({ onClose, employees, managers }) {
                   >
                     저장 완료: 성공 {importResult.success}건 · 실패 {importResult.fail}건 — 달력에서 확인해보세요!
                   </div>
-                )}
-
-                {importedIds.length > 0 && (
-                  <button
-                    style={{ ...styles.button, border: "1px dashed #e02020", color: "#e02020", marginBottom: "8px", padding: "10px" }}
-                    disabled={importing}
-                    onClick={handleUndoImport}
-                  >
-                    🔄 방금 저장한 {importedIds.length}건 되돌리기(삭제)
-                  </button>
-                )}
-
-                <button
-                  style={{ ...styles.button, border: "1px dashed #1b3a5c", color: "#1b3a5c", marginBottom: "8px", padding: "10px" }}
-                  disabled={importing}
-                  onClick={handleFixAutoConfirmLabel}
-                >
-                  ✏️ "가져오기(자동확인)" → "확인"으로 문구만 정리
-                </button>
-
-                <button
-                  style={{ ...styles.button, border: "1px dashed #e02020", color: "#e02020", marginBottom: "8px", padding: "10px" }}
-                  disabled={importing}
-                  onClick={() => handleResetAllBranchData("경산")}
-                >
-                  🗑️ 경산 전체 초기화 (모든 휴가 기록 삭제)
-                </button>
-
-                <button
-                  style={{ ...styles.button, border: "1px dashed #e02020", color: "#e02020", marginBottom: "14px", padding: "10px" }}
-                  disabled={importing}
-                  onClick={() => handleResetAllBranchData("문양")}
-                >
-                  🗑️ 문양 전체 초기화 (모든 휴가 기록 삭제)
-                </button>
-
-                <button
-                  style={{ ...styles.button, border: "1px dashed #e08a20", color: "#e08a20", marginBottom: "14px", padding: "10px" }}
-                  disabled={importing}
-                  onClick={handleResetHyuchungdang}
-                >
-                  🔁 휴충당 전체 초기화 (경산 - 신청/지정 기록 삭제)
-                </button>
-
-                {converted.length === 0 && (
-                  <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0" }}>가져올 기록이 없어요</div>
-                )}
-                {converted.map((c, idx) => (
-                  <div key={idx} style={{ ...modal.card, flexDirection: "column", alignItems: "stretch" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between" }}>
-                      <div style={modal.name}>{c.date} · {c.name}</div>
-                      <div style={modal.dia}>{c.dia}</div>
-                    </div>
-                    <div style={modal.typeRow}>
-                      {c.vacationType} · {c.status}
-                      {c.confirmedBy ? " · ✅확인됨" : " · 확인 대기중"}
-                    </div>
-                    {c.createdAt ? (
-                      <div style={{ fontSize: "11px", color: "#1b3a5c", marginTop: "2px" }}>
-                        📅 신청일 인식됨: {formatEntryTime(c.createdAt, true)}
-                      </div>
-                    ) : (
-                      <div style={{ fontSize: "11px", color: "#e02020", marginTop: "2px" }}>
-                        ⚠️ 신청일 인식 실패 - 가져온 시각으로 기록돼요
-                      </div>
-                    )}
-                    {c.isDeparted && (
-                      <div style={{ fontSize: "11px", color: "#e08a20", marginTop: "2px" }}>
-                        ⚠️ 현재 명단에 없는 사람 (집계 제외)
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </React.Fragment>
-            )}
-          </React.Fragment>
-        )}
-
-        <button style={modal.closeBtn} onClick={onClose}>닫기</button>
-      </div>
-    </div>
-  );
-}
-
-ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+               
