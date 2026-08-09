@@ -427,7 +427,7 @@ class ErrorBoundary extends React.Component {
                   : this.state.error
               )}
             </div>
-            <button style={modal.closeBtn} onClick={this.props.onClose}>닫기</button>
+            <button style={modal.closeBtn} onClick={this.props.onClose}>{this.props.closeLabel || "닫기"}</button>
           </div>
         </div>
       );
@@ -1397,7 +1397,7 @@ function cancelNightPairIfAny(record, onPairCancelled) {
 function gyeongsanCapacity(branch, dateStr, activeRecords, holidaySet, prevDayActiveRecords) {
   const table = GUARANTEE_BY_BRANCH[branch] || GUARANTEE_BY_BRANCH["경산"];
   let base = table[getDayType(dateStr, holidaySet)];
-  const hasOffDutyToday = activeRecords.some((r) => (r.dia || "").includes("비번"));
+  const hasOffDutyToday = activeRecords.some((r) => String(r.dia || "").includes("비번"));
   const hasNightFromYesterday = (prevDayActiveRecords || []).some((r) => isNightShiftCode(r.dia, branch));
   if (hasOffDutyToday || hasNightFromYesterday) base += 1;
   return base;
@@ -5440,6 +5440,9 @@ function HyuchungdangAdminPanel({ branch, onClose, employees, managers, holidayS
     </div>
   );
 }
+
+
+
 function AdminPanel({ branch, isSuperAdmin, onClose, employees, managers }) {
   const [tab, setTab] = useState("pending"); // "pending" | "approved"
   const [viewBranch, setViewBranch] = useState(branch); // 전체관리자만 전환 가능, 그 외엔 항상 본인 소속
@@ -6283,4 +6286,8 @@ function ImportTestPanel({ onClose, employees, managers }) {
   );
 }
 
-ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+ReactDOM.createRoot(document.getElementById("root")).render(
+  <ErrorBoundary onClose={() => window.location.reload()} closeLabel="새로고침">
+    <App />
+  </ErrorBoundary>
+);
