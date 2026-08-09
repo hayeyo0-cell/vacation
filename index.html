@@ -196,9 +196,9 @@
       );
       return snap.docs.length;
     },
-    async timestampFromDate(year, month, day) {
-      return Timestamp.fromDate(new Date(year, month - 1, day));
-    },
+    timestampFromDate(year, month, day) {
+  return Timestamp.fromDate(new Date(year, month - 1, day));
+},
   };
 
   window.ApprovalAPI = {
