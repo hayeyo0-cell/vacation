@@ -5826,7 +5826,9 @@ function ImportTestPanel({ onClose, employees, managers }) {
               date: dateStr,
               name: String(item.name).trim(),
               type: item.type ? String(item.type).trim() : "",
-              dia: item.dia == null ? "" : item.dia,
+              // 스프레드시트 셀이 "숫자" 형식이면 dia가 숫자로 넘어와서, 문자열 메서드를 쓰는
+              // 다른 코드에서 예상 못한 오류가 날 수 있어요. 여기서 무조건 문자열로 통일해요.
+              dia: item.dia == null ? "" : String(item.dia).trim(),
               cancelled: !!item.cancelled,
               confirmer: item.confirmer || null,
               reqDate: item.reqDate || null, // "M.d" 또는 ISO 시각 - parseReqDateToYMD로 해석
