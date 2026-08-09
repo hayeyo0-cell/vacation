@@ -5440,9 +5440,6 @@ function HyuchungdangAdminPanel({ branch, onClose, employees, managers, holidayS
     </div>
   );
 }
-
-
-
 function AdminPanel({ branch, isSuperAdmin, onClose, employees, managers }) {
   const [tab, setTab] = useState("pending"); // "pending" | "approved"
   const [viewBranch, setViewBranch] = useState(branch); // 전체관리자만 전환 가능, 그 외엔 항상 본인 소속
@@ -6200,4 +6197,88 @@ function ImportTestPanel({ onClose, employees, managers }) {
                   >
                     저장 완료: 성공 {importResult.success}건 · 실패 {importResult.fail}건 — 달력에서 확인해보세요!
                   </div>
-               
+                )}
+
+                {importedIds.length > 0 && (
+                  <button
+                    style={{ ...styles.button, border: "1px dashed #e02020", color: "#e02020", marginBottom: "8px", padding: "10px" }}
+                    disabled={importing}
+                    onClick={handleUndoImport}
+                  >
+                    🔄 방금 저장한 {importedIds.length}건 되돌리기(삭제)
+                  </button>
+                )}
+
+                <button
+                  style={{ ...styles.button, border: "1px dashed #1b3a5c", color: "#1b3a5c", marginBottom: "8px", padding: "10px" }}
+                  disabled={importing}
+                  onClick={handleFixAutoConfirmLabel}
+                >
+                  ✏️ "가져오기(자동확인)" → "확인"으로 문구만 정리
+                </button>
+
+                <button
+                  style={{ ...styles.button, border: "1px dashed #e02020", color: "#e02020", marginBottom: "8px", padding: "10px" }}
+                  disabled={importing}
+                  onClick={() => handleResetAllBranchData("경산")}
+                >
+                  🗑️ 경산 전체 초기화 (모든 휴가 기록 삭제)
+                </button>
+
+                <button
+                  style={{ ...styles.button, border: "1px dashed #e02020", color: "#e02020", marginBottom: "14px", padding: "10px" }}
+                  disabled={importing}
+                  onClick={() => handleResetAllBranchData("문양")}
+                >
+                  🗑️ 문양 전체 초기화 (모든 휴가 기록 삭제)
+                </button>
+
+                <button
+                  style={{ ...styles.button, border: "1px dashed #e08a20", color: "#e08a20", marginBottom: "14px", padding: "10px" }}
+                  disabled={importing}
+                  onClick={handleResetHyuchungdang}
+                >
+                  🔁 휴충당 전체 초기화 (경산 - 신청/지정 기록 삭제)
+                </button>
+
+                {converted.length === 0 && (
+                  <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0" }}>가져올 기록이 없어요</div>
+                )}
+                {converted.map((c, idx) => (
+                  <div key={idx} style={{ ...modal.card, flexDirection: "column", alignItems: "stretch" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                      <div style={modal.name}>{c.date} · {c.name}</div>
+                      <div style={modal.dia}>{c.dia}</div>
+                    </div>
+                    <div style={modal.typeRow}>
+                      {c.vacationType} · {c.status}
+                      {c.confirmedBy ? " · ✅확인됨" : " · 확인 대기중"}
+                    </div>
+                    {c.createdAt ? (
+                      <div style={{ fontSize: "11px", color: "#1b3a5c", marginTop: "2px" }}>
+                        📅 신청일 인식됨: {formatEntryTime(c.createdAt, true)}
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: "11px", color: "#e02020", marginTop: "2px" }}>
+                        ⚠️ 신청일 인식 실패 - 가져온 시각으로 기록돼요
+                      </div>
+                    )}
+                    {c.isDeparted && (
+                      <div style={{ fontSize: "11px", color: "#e08a20", marginTop: "2px" }}>
+                        ⚠️ 현재 명단에 없는 사람 (집계 제외)
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </React.Fragment>
+            )}
+          </React.Fragment>
+        )}
+
+        <button style={modal.closeBtn} onClick={onClose}>닫기</button>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
