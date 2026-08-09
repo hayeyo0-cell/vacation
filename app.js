@@ -25,7 +25,7 @@ const BAND_URL = "https://band.us/band/51746678/chat/C4U1ay";
 const TEAM_MAP = { ks: "경산", my: "문양" }; // 안심(as)/월배(wb)는 이 앱 대상 아님
 // ⚠️ 테스트 모드: true면 누구나 교번확인/승인 없이 바로 들어갈 수 있어요.
 // 실제 운영 시작하면 반드시 false로 바꿔주세요!
-const TEST_MODE = true;
+const TEST_MODE = false;
 
 const REVERSE_TEAM_MAP = { 경산: "ks", 문양: "my" };
 
