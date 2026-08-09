@@ -400,6 +400,43 @@ function InstallBanner({ installPrompt, onInstall, showIosHint, dismissed, onDis
 }
 
 /* ------------------------------------------------------------------ */
+/* 에러 경계 - 특정 화면(주로 실험적인 관리자 도구)에서 예상 못한 오류가 나도  */
+/* 앱 전체가 하얗게 죽지 않고, 그 화면만 에러 안내로 대체되도록 막아줘요.     */
+/* ------------------------------------------------------------------ */
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error, info) {
+    console.error("ErrorBoundary가 잡은 오류:", error, info);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={modal.overlay} onClick={this.props.onClose}>
+          <div style={{ ...modal.sheet, maxWidth: "340px" }} onClick={(e) => e.stopPropagation()}>
+            <div style={modal.dateTitle}>⚠️ 오류가 발생했어요</div>
+            <div style={{ fontSize: "13px", color: "#e02020", whiteSpace: "pre-wrap", marginBottom: "14px" }}>
+              {String(
+                this.state.error && this.state.error.message
+                  ? this.state.error.message
+                  : this.state.error
+              )}
+            </div>
+            <button style={modal.closeBtn} onClick={this.props.onClose}>닫기</button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /* 메인 앱                                                              */
 /* ------------------------------------------------------------------ */
 function App() {
@@ -3376,7 +3413,9 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
         <ManagerAdminPanel branch={currentUser.branch} isSuperAdmin={isSuperAdmin} onClose={closeModal} />
       )}
       {showImportTest && (
-        <ImportTestPanel onClose={closeModal} employees={employees} managers={managers} />
+        <ErrorBoundary onClose={closeModal}>
+          <ImportTestPanel onClose={closeModal} employees={employees} managers={managers} />
+        </ErrorBoundary>
       )}
       {showMyVacations && (
         <MyVacationsPanel currentUser={currentUser} onClose={closeModal} employees={employees} />
@@ -3388,7 +3427,9 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
         <LotteryApplyPanel currentUser={currentUser} onClose={closeModal} employees={employees} />
       )}
       {showHyuchungdangAdmin && (
-        <HyuchungdangAdminPanel branch={currentUser.branch} onClose={closeModal} employees={employees} managers={managers} holidaySet={holidaySet} />
+        <ErrorBoundary onClose={closeModal}>
+          <HyuchungdangAdminPanel branch={currentUser.branch} onClose={closeModal} employees={employees} managers={managers} holidaySet={holidaySet} />
+        </ErrorBoundary>
       )}
       {!isMidManager && hyuchungdangResultsToShow.length > 0 && (
         <div style={{ ...modal.overlay, alignItems: "safe center", justifyContent: "center" }}>
