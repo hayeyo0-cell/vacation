@@ -5957,37 +5957,39 @@ function ImportTestPanel({ onClose, employees, managers }) {
 
     setImporting(true);
     setImportResult(null);
-    const newIds = [];
-    let successCount = 0;
-    let failCount = 0;
 
-    const importOne = (c) =>
-      window.VacationAPI.add({
-        name: c.name,
-        branch: c.branch,
-        employeeId: c.employeeId,
-        vacationType: c.vacationType,
-        dia: c.dia,
-        date: c.date,
-        ...(c.priority != null ? { priority: c.priority } : {}),
-        ...(c.createdAt ? { createdAt: c.createdAt, createdAtDateOnly: true } : {}),
-      })
-        .then((id) => {
-          newIds.push(id);
-          successCount += 1;
-          if (c.status === "취소됨") return window.VacationAPI.cancel(id);
-          if (c.confirmedBy) return window.VacationAPI.confirm(id, c.confirmedBy);
-        })
-        .catch((err) => {
-          console.error(err);
-          failCount += 1;
-        });
+    // 한 건씩 저장하면 실시간 리스너가 매번 다시 그려지면서 (특히 건수가 많을 때) 화면이
+    // 버벅이거나 멈출 수 있어서, 여러 건을 묶어서 한 번에 저장하는 방식으로 처리해요.
+    const payload = converted.map((c) => ({
+      name: c.name,
+      branch: c.branch,
+      employeeId: c.employeeId,
+      vacationType: c.vacationType,
+      dia: c.dia,
+      date: c.date,
+      status: c.status,
+      ...(c.priority != null ? { priority: c.priority } : {}),
+      ...(c.confirmedBy ? { confirmedBy: c.confirmedBy } : {}),
+      ...(c.createdAt ? { createdAt: c.createdAt, createdAtDateOnly: true } : {}),
+    }));
 
-    converted
-      .reduce((chain, c) => chain.then(() => importOne(c)), Promise.resolve())
+    Promise.resolve()
       .then(() => {
-        setImportedIds((prev) => [...prev, ...newIds]);
-        setImportResult({ success: successCount, fail: failCount });
+        if (!window.VacationAPI || typeof window.VacationAPI.bulkImport !== "function") {
+          throw new Error(
+            "index.html에 VacationAPI.bulkImport 함수가 아직 없어요. index.html을 먼저 업데이트해주세요."
+          );
+        }
+        return window.VacationAPI.bulkImport(payload);
+      })
+      .then((ids) => {
+        setImportedIds((prev) => [...prev, ...ids]);
+        setImportResult({ success: ids.length, fail: converted.length - ids.length });
+      })
+      .catch((err) => {
+        console.error(err);
+        alert("저장 실패: " + (err && err.message ? err.message : err));
+        setImportResult({ success: 0, fail: converted.length });
       })
       .finally(() => setImporting(false));
   };
