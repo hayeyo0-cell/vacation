@@ -1408,6 +1408,45 @@ function cancelNightPairIfAny(record, onPairCancelled) {
     });
 }
 
+// 야간+비번 짝 기록을 찾아서 반대쪽도 같이 확인(승인) 처리해요 (한쪽을 확인하면 반대쪽도 자동 확인).
+// - record가 "야간"(연차/분지/장재 + 야간교번)이면 → 다음날 비번(연차비 등) 짝을 찾아 확인
+// - record가 "비번"(연차비 등)이면 → 전날 야간 짝을 찾아 확인
+// 이미 확인된 짝이거나 취소된 짝이면 건드리지 않아요.
+// onPairConfirmed(pairRecord)는 짝이 실제로 확인됐을 때 호출되는 콜백 (화면 상태 갱신용).
+function confirmNightPairIfAny(record, managerName, onPairConfirmed) {
+  let pairDate = null;
+  let expectCompanion = null;
+  if (NIGHT_COMPANION_TYPE_MAP[record.vacationType]) {
+    pairDate = shiftDateStr_(record.date, 1);
+    expectCompanion = true;
+  } else if (NIGHT_COMPANION_TYPES_REVERSE[record.vacationType]) {
+    pairDate = shiftDateStr_(record.date, -1);
+    expectCompanion = false;
+  }
+  if (!pairDate) return Promise.resolve(null);
+
+  return window.VacationAPI.getByDate(pairDate)
+    .then((records) => {
+      const pairRecord = (records || []).find(
+        (r) => r.employeeId === record.employeeId && r.status !== "취소됨"
+      );
+      if (!pairRecord || pairRecord.confirmedBy) return null;
+      const valid = expectCompanion
+        ? !!NIGHT_COMPANION_TYPES_REVERSE[pairRecord.vacationType]
+        : !!NIGHT_COMPANION_TYPE_MAP[pairRecord.vacationType];
+      if (!valid) return null;
+      return window.VacationAPI.confirm(pairRecord.id, managerName).then(() => {
+        const confirmedPair = { ...pairRecord, confirmedBy: managerName };
+        if (onPairConfirmed) onPairConfirmed(confirmedPair);
+        return confirmedPair;
+      });
+    })
+    .catch((err) => {
+      console.error("야간 짝 확인 실패:", err);
+      return null;
+    });
+}
+
 // activeRecords: 취소 아닌 전체 기록 (비번 감지는 전체 기록 대상)
 // prevDayActiveRecords: 전날의 취소 아닌 전체 기록 (전날 야간 신청으로 인한 비번 자리 자동 오픈 판별용)
 // branch: "경산" | "문양"
@@ -2407,6 +2446,10 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
           v.id === record.id ? { ...v, confirmedBy: managerName } : v
         );
         return next;
+      });
+      // 야간/비번 짝이 있으면 반대쪽도 같이 확인 처리 (신청·취소가 짝으로 묶이는 것과 동일한 방식)
+      confirmNightPairIfAny(record, managerName, (pairRecord) => {
+        loadMonth(viewYear, viewMonth);
       });
     });
   };
