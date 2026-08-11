@@ -1818,7 +1818,7 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
   const [managerFormDia, setManagerFormDia] = useState("");
   const [managerFormNote, setManagerFormNote] = useState("");
   const [managerSaving, setManagerSaving] = useState(false);
-  // 휴충당 신청 (경산 전용) - 본인 교번이 "휴"로 시작하는 날짜에 한해, 언제든 신청 가능.
+    // 휴충당 신청 (경산 전용) - 본인 교번이 "휴"로 시작하는 날짜에 한해, 언제든 신청 가능.
   // 상태는 "신청중"/"취소됨" 두 가지만 써요. 확정 처리는 별도의 "휴충당 신청 현황" 달력에서 운용이 처리해요.
   const [hyuchungdangByDate, setHyuchungdangByDate] = useState([]);
   useEffect(() => {
@@ -1893,6 +1893,44 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
       })
       .catch((err) => console.error("확인 대기 알림 조회 실패:", err));
   }, [currentUser.id]);
+
+  // 주 1회 자동 백업 - 관리자/운용이 앱을 열 때마다 확인해서, 마지막 백업 이후 7일이 지났으면
+  // 그 시점에 전체 휴가 데이터를 스프레드시트("앱_자동백업" 탭)로 백업해요. 서버 스케줄러가
+  // 없는 구조라 "누군가 앱을 열 때 확인"하는 방식이에요 - 관리자는 자주 접속하니 사실상 매주 돌아가요.
+  useEffect(() => {
+    if (!isAdmin && !isMidManager) return;
+    waitForFirestore()
+      .then(() => window.SystemAPI.getBackupMeta())
+      .then((meta) => {
+        const lastMs = meta?.lastBackupAt?.toMillis ? meta.lastBackupAt.toMillis() : 0;
+        const weekMs = 7 * 24 * 60 * 60 * 1000;
+        if (Date.now() - lastMs < weekMs) return null;
+        return window.VacationAPI.getAll().then((records) => {
+          const payload = (records || []).map((r) => ({
+            date: r.date || "",
+            name: r.name || "",
+            branch: r.branch || "",
+            employeeId: r.employeeId || "",
+            vacationType: r.vacationType || "",
+            dia: r.dia == null ? "" : String(r.dia),
+            status: r.status || "",
+            confirmedBy: r.confirmedBy || "",
+            priority: r.priority == null ? "" : r.priority,
+          }));
+          return fetch(VACATION_API_URL, {
+            method: "POST",
+            headers: { "Content-Type": "text/plain;charset=utf-8" },
+            body: JSON.stringify({ action: "backup", records: payload }),
+          })
+            .then((res) => res.json())
+            .then((json) => {
+              if (!json || !json.ok) throw new Error((json && json.error) || "백업 실패");
+              return window.SystemAPI.markBackupDone();
+            });
+        });
+      })
+      .catch((err) => console.error("자동 백업 실패:", err));
+  }, [currentUser.id, isAdmin, isMidManager]);
 
   // 앱 접속(로그인) 시 한 번 - 경산 기관사, 오늘 추첨된 이벤트의 결과만 하루 동안 알림 (매너팝업 대신 단독으로)
   useEffect(() => {
@@ -5576,24 +5614,6 @@ function AdminPanel({ branch, isSuperAdmin, onClose, employees, managers }) {
     });
   };
 
-  // 인사이동/퇴사로 현재 직원목록에 없는 사람 - 접근 차단 + 그동안의 휴가 기록까지 완전 삭제 (되돌릴 수 없음)
-  const handleRemoveDeparted = (p) => {
-    if (
-      !confirm(
-        `${p.name} (${p.branch})님은 현재 직원목록에 없어요.\n\n` +
-          `접근을 차단하고, 이 사람이 신청했던 휴가 기록도 전부 삭제할까요?\n` +
-          `※ 되돌릴 수 없어요. 단순 승인 기록만 지우면 되는 거라면 이 버튼 대신 "기록삭제"를 사용해주세요.`
-      )
-    )
-      return;
-    Promise.all([window.ApprovalAPI.reset(p.id), window.VacationAPI.removeAllForEmployee(p.id)])
-      .then(([, deletedCount]) => {
-        alert(`${p.name}님의 접근을 차단하고, 휴가 기록 ${deletedCount}건을 삭제했어요.`);
-        setApproved((prev) => prev.filter((a) => a.id !== p.id));
-      })
-      .catch((err) => alert("처리 실패: " + (err && err.message ? err.message : err)));
-  };
-
   const handleDeleteAll = () => {
     if (
       !confirm(
@@ -5681,15 +5701,12 @@ function AdminPanel({ branch, isSuperAdmin, onClose, employees, managers }) {
         {!loading && tab === "approved" && (
           <React.Fragment>
             <div style={{ ...modal.countText, marginBottom: "10px" }}>
-              폰을 바꾼 사람은 "기록삭제", 인사이동·퇴사로 명단에 없는 사람은 아래 표시와 함께 삭제할 수 있어요
+              폰을 바꾼 사람이나, 다시 등록시켜야 하는 사람은 "기록삭제"를 눌러주세요
             </div>
             {approved.length === 0 && (
               <div style={{ textAlign: "center", color: "#aaa", padding: "20px 0" }}>승인된 사용자가 없어요</div>
             )}
             {approved.map((p) => {
-              const stillInRoster =
-                (employees || []).some((e) => e.id === p.id) ||
-                (managers || []).some((m) => m.name === p.name && m.branch === p.branch);
               return (
                 <div key={p.id} style={{ ...modal.card, flexDirection: "column", alignItems: "stretch" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -5699,25 +5716,6 @@ function AdminPanel({ branch, isSuperAdmin, onClose, employees, managers }) {
                     </div>
                     <button style={adminStyles.resetBtn} onClick={() => handleResetDevice(p)}>기록삭제</button>
                   </div>
-                  {!stillInRoster && (
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        marginTop: "8px",
-                        paddingTop: "8px",
-                        borderTop: "1px dashed #e6e0d0",
-                      }}
-                    >
-                      <div style={{ fontSize: "12px", color: "#e02020", fontWeight: 700 }}>
-                        ⚠️ 현재 명단에 없음 (인사이동/퇴사 추정)
-                      </div>
-                      <button style={adminStyles.rejectBtn} onClick={() => handleRemoveDeparted(p)}>
-                        접근 차단+기록 삭제
-                      </button>
-                    </div>
-                  )}
                 </div>
               );
             })}
@@ -5926,6 +5924,43 @@ function DataResetPanel({ onClose }) {
       .finally(() => setWorking(false));
   };
 
+  const handleBackupNow = () => {
+    setWorking(true);
+    Promise.resolve()
+      .then(() => {
+        if (!window.SystemAPI || typeof window.SystemAPI.markBackupDone !== "function") {
+          throw new Error("index.html에 SystemAPI가 아직 없어요. index.html을 먼저 업데이트해주세요.");
+        }
+        return window.VacationAPI.getAll();
+      })
+      .then((records) => {
+        const payload = (records || []).map((r) => ({
+          date: r.date || "",
+          name: r.name || "",
+          branch: r.branch || "",
+          employeeId: r.employeeId || "",
+          vacationType: r.vacationType || "",
+          dia: r.dia == null ? "" : String(r.dia),
+          status: r.status || "",
+          confirmedBy: r.confirmedBy || "",
+          priority: r.priority == null ? "" : r.priority,
+        }));
+        return fetch(VACATION_API_URL, {
+          method: "POST",
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
+          body: JSON.stringify({ action: "backup", records: payload }),
+        })
+          .then((res) => res.json())
+          .then((json) => {
+            if (!json || !json.ok) throw new Error((json && json.error) || "백업 실패");
+            return window.SystemAPI.markBackupDone().then(() => json);
+          });
+      })
+      .then((json) => alert(`백업 완료! 총 ${json.count}건을 스프레드시트로 보냈어요.`))
+      .catch((err) => alert("백업 실패: " + (err && err.message ? err.message : err)))
+      .finally(() => setWorking(false));
+  };
+
   return (
     <div style={modal.overlay} onClick={onClose}>
       <div style={{ ...modal.sheet, maxWidth: "340px" }} onClick={(e) => e.stopPropagation()}>
@@ -5933,6 +5968,14 @@ function DataResetPanel({ onClose }) {
         <div style={{ ...modal.countText, marginBottom: "16px" }}>
           아직 테스트 중인 두 가지만 모아뒀어요. 필요 없어지면 요청 주시면 없애드려요.
         </div>
+
+        <button
+          style={{ ...styles.button, border: "1px dashed #1a73e8", color: "#1a73e8", padding: "10px", marginBottom: "10px" }}
+          disabled={working}
+          onClick={handleBackupNow}
+        >
+          📤 지금 바로 스프레드시트로 백업 (테스트용)
+        </button>
 
         <button
           style={{ ...styles.button, border: "1px dashed #e08a20", color: "#e08a20", padding: "10px", marginBottom: "10px" }}
