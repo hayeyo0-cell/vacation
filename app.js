@@ -1917,6 +1917,11 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
               status: r.status || "",
               confirmedBy: r.confirmedBy || "",
               priority: r.priority == null ? "" : r.priority,
+              // 신청일(YYYY-MM-DD) - "가져오기"에서 신청일을 읽던 것과 반대로, 나중에 이 백업을
+              // 다시 불러올(복구) 기능을 만들 때 그대로 재사용할 수 있도록 남겨둬요.
+              reqDate: r.createdAt ? formatEntryDateOnly(r.createdAt) : "",
+              note: r.note || "",
+              recordedBy: r.recordedBy || "",
             }))
             .sort((a, b) => {
               if (a.date !== b.date) return a.date.localeCompare(b.date);
@@ -5953,6 +5958,9 @@ function DataResetPanel({ onClose }) {
             status: r.status || "",
             confirmedBy: r.confirmedBy || "",
             priority: r.priority == null ? "" : r.priority,
+            reqDate: r.createdAt ? formatEntryDateOnly(r.createdAt) : "",
+            note: r.note || "",
+            recordedBy: r.recordedBy || "",
           }))
           .sort((a, b) => {
             if (a.date !== b.date) return a.date.localeCompare(b.date);
