@@ -1615,6 +1615,39 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
   const [showHyuchungdangAdmin, setShowHyuchungdangAdmin] = useState(false); // 휴충당 관리 (관리자, 경산 전용)
   const [showAdminMenu, setShowAdminMenu] = useState(false); // 관리자 메뉴 모음
   const [showDataReset, setShowDataReset] = useState(false); // 데이터 초기화 (휴충당·문양, TEST_MODE와 무관하게 항상 노출)
+  const [lastBackupText, setLastBackupText] = useState("확인 중...");
+
+  // 관리자 메뉴를 열 때마다 마지막 백업 시각을 최신으로 다시 확인해요
+  useEffect(() => {
+    if (!showAdminMenu) return;
+    let cancelled = false;
+    waitForFirestore()
+      .then(() => {
+        if (!window.SystemAPI || typeof window.SystemAPI.getBackupMeta !== "function") {
+          throw new Error("no-system-api");
+        }
+        return window.SystemAPI.getBackupMeta();
+      })
+      .then((meta) => {
+        if (cancelled) return;
+        const ms = meta?.lastBackupAt?.toMillis ? meta.lastBackupAt.toMillis() : null;
+        if (!ms) {
+          setLastBackupText("아직 백업된 적 없어요");
+          return;
+        }
+        const diffDays = Math.floor((Date.now() - ms) / (24 * 60 * 60 * 1000));
+        const d = new Date(ms);
+        const dateStr = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+        setLastBackupText(diffDays <= 0 ? `${dateStr} (오늘)` : `${dateStr} (${diffDays}일 전)`);
+      })
+      .catch(() => {
+        if (!cancelled) setLastBackupText("확인 실패");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [showAdminMenu]);
+
   const [showEtiquetteNotice, setShowEtiquetteNotice] = useState(true); // 로그인할 때마다 한 번 안내
   const [upcomingUnconfirmed, setUpcomingUnconfirmed] = useState([]); // 5일 이내 & 아직 미확인인 내 신청 건
   const [lotteryResultsToShow, setLotteryResultsToShow] = useState([]); // 아직 확인 안 한 명절 추첨 결과
@@ -3488,6 +3521,18 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
         <div style={modal.overlay} onClick={closeModal}>
           <div style={{ ...modal.sheet, maxWidth: "340px" }} onClick={(e) => e.stopPropagation()}>
             <div style={modal.dateTitle}>⚙️ 관리자 메뉴</div>
+            <div
+              style={{
+                background: "#f8f9fb",
+                borderRadius: "10px",
+                padding: "8px 12px",
+                marginBottom: "14px",
+                fontSize: "12px",
+                color: "#666",
+              }}
+            >
+              📤 마지막 백업: <strong style={{ color: "#1b3a5c" }}>{lastBackupText}</strong>
+            </div>
             <button
               style={styles.button}
               onClick={() => {
@@ -3542,9 +3587,15 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
         </div>
       )}
 
-      {showAdmin && <AdminPanel branch={currentUser.branch} isSuperAdmin={isSuperAdmin} onClose={closeModal} employees={employees} managers={managers} />}
+      {showAdmin && (
+        <ErrorBoundary onClose={closeModal}>
+          <AdminPanel branch={currentUser.branch} isSuperAdmin={isSuperAdmin} onClose={closeModal} employees={employees} managers={managers} />
+        </ErrorBoundary>
+      )}
       {showManagerAdmin && (
-        <ManagerAdminPanel branch={currentUser.branch} isSuperAdmin={isSuperAdmin} onClose={closeModal} />
+        <ErrorBoundary onClose={closeModal}>
+          <ManagerAdminPanel branch={currentUser.branch} isSuperAdmin={isSuperAdmin} onClose={closeModal} />
+        </ErrorBoundary>
       )}
       {showDataReset && (
         <ErrorBoundary onClose={closeModal}>
@@ -3557,13 +3608,19 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
         </ErrorBoundary>
       )}
       {showMyVacations && (
-        <MyVacationsPanel currentUser={currentUser} onClose={closeModal} employees={employees} />
+        <ErrorBoundary onClose={closeModal}>
+          <MyVacationsPanel currentUser={currentUser} onClose={closeModal} employees={employees} />
+        </ErrorBoundary>
       )}
       {showLotteryAdmin && (
-        <LotteryAdminPanel branch={currentUser.branch} isSuperAdmin={isSuperAdmin} onClose={closeModal} employees={employees} managers={managers} holidaySet={holidaySet} />
+        <ErrorBoundary onClose={closeModal}>
+          <LotteryAdminPanel branch={currentUser.branch} isSuperAdmin={isSuperAdmin} onClose={closeModal} employees={employees} managers={managers} holidaySet={holidaySet} />
+        </ErrorBoundary>
       )}
       {showLotteryApply && (
-        <LotteryApplyPanel currentUser={currentUser} onClose={closeModal} employees={employees} />
+        <ErrorBoundary onClose={closeModal}>
+          <LotteryApplyPanel currentUser={currentUser} onClose={closeModal} employees={employees} />
+        </ErrorBoundary>
       )}
       {showHyuchungdangAdmin && (
         <ErrorBoundary onClose={closeModal}>
