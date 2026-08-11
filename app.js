@@ -1818,7 +1818,7 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
   const [managerFormDia, setManagerFormDia] = useState("");
   const [managerFormNote, setManagerFormNote] = useState("");
   const [managerSaving, setManagerSaving] = useState(false);
-    // 휴충당 신청 (경산 전용) - 본인 교번이 "휴"로 시작하는 날짜에 한해, 언제든 신청 가능.
+  // 휴충당 신청 (경산 전용) - 본인 교번이 "휴"로 시작하는 날짜에 한해, 언제든 신청 가능.
   // 상태는 "신청중"/"취소됨" 두 가지만 써요. 확정 처리는 별도의 "휴충당 신청 현황" 달력에서 운용이 처리해요.
   const [hyuchungdangByDate, setHyuchungdangByDate] = useState([]);
   useEffect(() => {
@@ -1906,17 +1906,25 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
         const weekMs = 7 * 24 * 60 * 60 * 1000;
         if (Date.now() - lastMs < weekMs) return null;
         return window.VacationAPI.getAll().then((records) => {
-          const payload = (records || []).map((r) => ({
-            date: r.date || "",
-            name: r.name || "",
-            branch: r.branch || "",
-            employeeId: r.employeeId || "",
-            vacationType: r.vacationType || "",
-            dia: r.dia == null ? "" : String(r.dia),
-            status: r.status || "",
-            confirmedBy: r.confirmedBy || "",
-            priority: r.priority == null ? "" : r.priority,
-          }));
+          const payload = (records || [])
+            .map((r) => ({
+              date: r.date || "",
+              name: r.name || "",
+              branch: r.branch || "",
+              employeeId: r.employeeId || "",
+              vacationType: r.vacationType || "",
+              dia: r.dia == null ? "" : String(r.dia),
+              status: r.status || "",
+              confirmedBy: r.confirmedBy || "",
+              priority: r.priority == null ? "" : r.priority,
+            }))
+            .sort((a, b) => {
+              if (a.date !== b.date) return a.date.localeCompare(b.date);
+              const pa = a.priority === "" ? Infinity : a.priority;
+              const pb = b.priority === "" ? Infinity : b.priority;
+              if (pa !== pb) return pa - pb;
+              return a.name.localeCompare(b.name, "ko");
+            });
           return fetch(VACATION_API_URL, {
             method: "POST",
             headers: { "Content-Type": "text/plain;charset=utf-8" },
@@ -5934,17 +5942,25 @@ function DataResetPanel({ onClose }) {
         return window.VacationAPI.getAll();
       })
       .then((records) => {
-        const payload = (records || []).map((r) => ({
-          date: r.date || "",
-          name: r.name || "",
-          branch: r.branch || "",
-          employeeId: r.employeeId || "",
-          vacationType: r.vacationType || "",
-          dia: r.dia == null ? "" : String(r.dia),
-          status: r.status || "",
-          confirmedBy: r.confirmedBy || "",
-          priority: r.priority == null ? "" : r.priority,
-        }));
+        const payload = (records || [])
+          .map((r) => ({
+            date: r.date || "",
+            name: r.name || "",
+            branch: r.branch || "",
+            employeeId: r.employeeId || "",
+            vacationType: r.vacationType || "",
+            dia: r.dia == null ? "" : String(r.dia),
+            status: r.status || "",
+            confirmedBy: r.confirmedBy || "",
+            priority: r.priority == null ? "" : r.priority,
+          }))
+          .sort((a, b) => {
+            if (a.date !== b.date) return a.date.localeCompare(b.date);
+            const pa = a.priority === "" ? Infinity : a.priority;
+            const pb = b.priority === "" ? Infinity : b.priority;
+            if (pa !== pb) return pa - pb;
+            return a.name.localeCompare(b.name, "ko");
+          });
         return fetch(VACATION_API_URL, {
           method: "POST",
           headers: { "Content-Type": "text/plain;charset=utf-8" },
