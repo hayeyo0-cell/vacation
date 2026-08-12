@@ -19,6 +19,15 @@ const VACATION_API_URL =
 // 가져오기 테스트에서 이 날짜 이전 기록은 제외 (필요하면 이 값만 바꾸면 돼요)
 const IMPORT_FROM_DATE = "2026-07-01";
 
+// 자동 백업 주기 - 마지막 백업 이후 이 시간이 지나면 관리자/운용이 앱을 열 때 자동으로 백업돼요.
+const BACKUP_INTERVAL_MS = 3 * 24 * 60 * 60 * 1000; // 3일
+// 서버 스케줄러가 없어서 "정확히 몇 시"는 보장 못 하지만, 이 시간대(한국시간)에 누군가 앱을
+// 열면 그때 우선 백업을 실행해요 (사람이 안 쓰는 새벽 시간대를 노려서 조용히 실행하려는 목적).
+const BACKUP_PREFERRED_HOUR_START = 1; // 새벽 1시부터
+const BACKUP_PREFERRED_HOUR_END = 4; // 새벽 4시까지 (이 시각 전까지)
+// 그 시간대에 아무도 접속을 안 해서 계속 못 돌면, 이만큼 밀렸을 때는 시간 상관없이 강제로 실행해요
+const BACKUP_FORCE_OVERDUE_MS = 4 * 24 * 60 * 60 * 1000; // 4일
+
 // 밴드 채팅방 바로가기 (경산승무팀)
 const BAND_URL = "https://band.us/band/51746678/chat/C4U1ay";
 
@@ -82,6 +91,14 @@ function koreaTodayStr() {
   const m = String(kst.getMonth() + 1).padStart(2, "0");
   const d = String(kst.getDate()).padStart(2, "0");
   return `${y}-${m}-${d}`;
+}
+
+// 한국 시간 기준 현재 시(0~23) - 자동 백업을 새벽 시간대에 우선 실행하기 위한 용도
+function koreaCurrentHour() {
+  const now = new Date();
+  const utcTime = now.getTime() + now.getTimezoneOffset() * 60000;
+  const kst = new Date(utcTime + 9 * 60 * 60000);
+  return kst.getHours();
 }
 
 // 오늘이 "짝수달 1일"인지 확인 (경산 - 다음 두 달 휴가를 선착순으로 신청받는 날, 순번 조정 가능일)
@@ -1722,6 +1739,39 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
   const [showHyuchungdangAdmin, setShowHyuchungdangAdmin] = useState(false); // 휴충당 관리 (관리자, 경산 전용)
   const [showAdminMenu, setShowAdminMenu] = useState(false); // 관리자 메뉴 모음
   const [showDataReset, setShowDataReset] = useState(false); // 데이터 초기화 (휴충당·문양, TEST_MODE와 무관하게 항상 노출)
+  const [lastBackupText, setLastBackupText] = useState("확인 중...");
+
+  // 관리자 메뉴를 열 때마다 마지막 백업 시각을 최신으로 다시 확인해요
+  useEffect(() => {
+    if (!showAdminMenu) return;
+    let cancelled = false;
+    waitForFirestore()
+      .then(() => {
+        if (!window.SystemAPI || typeof window.SystemAPI.getBackupMeta !== "function") {
+          throw new Error("no-system-api");
+        }
+        return window.SystemAPI.getBackupMeta();
+      })
+      .then((meta) => {
+        if (cancelled) return;
+        const ms = meta?.lastBackupAt?.toMillis ? meta.lastBackupAt.toMillis() : null;
+        if (!ms) {
+          setLastBackupText("아직 백업된 적 없어요");
+          return;
+        }
+        const diffDays = Math.floor((Date.now() - ms) / (24 * 60 * 60 * 1000));
+        const d = new Date(ms);
+        const dateStr = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+        setLastBackupText(diffDays <= 0 ? `${dateStr} (오늘)` : `${dateStr} (${diffDays}일 전)`);
+      })
+      .catch(() => {
+        if (!cancelled) setLastBackupText("확인 실패");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [showAdminMenu]);
+
 
   const [showEtiquetteNotice, setShowEtiquetteNotice] = useState(true); // 로그인할 때마다 한 번 안내
   const [upcomingUnconfirmed, setUpcomingUnconfirmed] = useState([]); // 5일 이내 & 아직 미확인인 내 신청 건
@@ -2006,6 +2056,67 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
       })
       .catch((err) => console.error("확인 대기 알림 조회 실패:", err));
   }, [currentUser.id]);
+
+  // 3일 1회 자동 백업 - 관리자/운용이 앱을 열 때마다 확인해서, 마지막 백업 이후 3일(BACKUP_INTERVAL_MS)이
+  // 지났으면 그 시점에 전체 휴가 데이터를 스프레드시트("앱_자동백업" 탭)로 백업해요. 서버 스케줄러가
+  // 없는 구조라 "누군가 앱을 열 때 확인"하는 방식이에요. 새벽 1~4시(한국시간)에 누군가 접속하면
+  // 그때 우선 실행하고, 그 시간대를 계속 못 만나서 4일 이상 밀리면 시간 상관없이 강제 실행해요.
+  // ⚠️ 앱을 켜자마자 바로 실행하지 않고, 초기 화면(교번 등)이 다 자리잡은 뒤(15초 후)로 늦춰서
+  // 실행해요 - 교번 데이터는 이제 별도 캐시로 즉시 뜨긴 하지만, 혹시 모를 자원 경합을 피하려고요.
+  useEffect(() => {
+    if ((!isAdmin && !isMidManager) || currentUser.branch !== "경산") return;
+    const timer = setTimeout(() => {
+      waitForFirestore()
+        .then(() => window.SystemAPI.getBackupMeta())
+        .then((meta) => {
+          const lastMs = meta?.lastBackupAt?.toMillis ? meta.lastBackupAt.toMillis() : 0;
+          const overdueMs = Date.now() - lastMs;
+          if (overdueMs < BACKUP_INTERVAL_MS) return null; // 아직 3일 안 지남
+          const hour = koreaCurrentHour();
+          const isPreferredWindow = hour >= BACKUP_PREFERRED_HOUR_START && hour < BACKUP_PREFERRED_HOUR_END;
+          const isForceOverdue = overdueMs >= BACKUP_FORCE_OVERDUE_MS;
+          if (!isPreferredWindow && !isForceOverdue) return null; // 새벽 시간대도 아니고 많이 밀리지도 않았으면 기다림
+          return window.VacationAPI.getAll().then((records) => {
+            const payload = (records || [])
+              .map((r) => ({
+                date: r.date || "",
+                name: r.name || "",
+                branch: r.branch || "",
+                employeeId: r.employeeId || "",
+                vacationType: r.vacationType || "",
+                dia: r.dia == null ? "" : String(r.dia),
+                status: r.status || "",
+                confirmedBy: r.confirmedBy || "",
+                priority: r.priority == null ? "" : r.priority,
+                // 신청일(YYYY-MM-DD) - "가져오기"에서 신청일을 읽던 것과 반대로, 나중에 이 백업을
+                // 다시 불러올(복구) 기능을 만들 때 그대로 재사용할 수 있도록 남겨둬요.
+                reqDate: r.createdAt ? formatEntryDateOnly(r.createdAt) : "",
+                note: r.note || "",
+                recordedBy: r.recordedBy || "",
+              }))
+              .sort((a, b) => {
+                if (a.date !== b.date) return a.date.localeCompare(b.date);
+                const pa = a.priority === "" ? Infinity : a.priority;
+                const pb = b.priority === "" ? Infinity : b.priority;
+                if (pa !== pb) return pa - pb;
+                return a.name.localeCompare(b.name, "ko");
+              });
+            return fetch(VACATION_API_URL, {
+              method: "POST",
+              headers: { "Content-Type": "text/plain;charset=utf-8" },
+              body: JSON.stringify({ action: "backup", records: payload }),
+            })
+              .then((res) => res.json())
+              .then((json) => {
+                if (!json || !json.ok) throw new Error((json && json.error) || "백업 실패");
+                return window.SystemAPI.markBackupDone();
+              });
+          });
+        })
+        .catch((err) => console.error("자동 백업 실패:", err));
+    }, 15000);
+    return () => clearTimeout(timer);
+  }, [currentUser.id, currentUser.branch, isAdmin, isMidManager]);
 
   // 앱 접속(로그인) 시 한 번 - 경산 기관사, 오늘 추첨된 이벤트의 결과만 하루 동안 알림 (매너팝업 대신 단독으로)
   useEffect(() => {
@@ -3550,6 +3661,20 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
         <div style={modal.overlay} onClick={closeModal}>
           <div style={{ ...modal.sheet, maxWidth: "340px" }} onClick={(e) => e.stopPropagation()}>
             <div style={modal.dateTitle}>⚙️ 관리자 메뉴</div>
+            {currentUser.branch === "경산" && (
+              <div
+                style={{
+                  background: "#f8f9fb",
+                  borderRadius: "10px",
+                  padding: "8px 12px",
+                  marginBottom: "14px",
+                  fontSize: "12px",
+                  color: "#666",
+                }}
+              >
+                📤 마지막 백업: <strong style={{ color: "#1b3a5c" }}>{lastBackupText}</strong>
+              </div>
+            )}
             <button
               style={styles.button}
               onClick={() => {
@@ -3616,7 +3741,7 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
       )}
       {showDataReset && (
         <ErrorBoundary onClose={closeModal}>
-          <DataResetPanel onClose={closeModal} />
+          <DataResetPanel onClose={closeModal} branch={currentUser.branch} />
         </ErrorBoundary>
       )}
       {showImportTest && (
@@ -5966,7 +6091,7 @@ function parseReqDateToYMD(reqDateRaw, vacationDateStr) {
 /* 아직 두 소속 다 테스트 중이라 필요할 때까지 남겨두는 용도예요 - 나중에     */
 /* 필요 없어지면 요청 시 이 패널 자체를 없애면 돼요.                        */
 /* ------------------------------------------------------------------ */
-function DataResetPanel({ onClose }) {
+function DataResetPanel({ onClose, branch }) {
   const [working, setWorking] = useState(false);
 
   const handleResetHyuchungdang = () => {
@@ -6014,6 +6139,54 @@ function DataResetPanel({ onClose }) {
       .finally(() => setWorking(false));
   };
 
+  const handleBackupNow = () => {
+    setWorking(true);
+    Promise.resolve()
+      .then(() => {
+        if (!window.SystemAPI || typeof window.SystemAPI.markBackupDone !== "function") {
+          throw new Error("index.html에 SystemAPI가 아직 없어요. index.html을 먼저 업데이트해주세요.");
+        }
+        return window.VacationAPI.getAll();
+      })
+      .then((records) => {
+        const payload = (records || [])
+          .map((r) => ({
+            date: r.date || "",
+            name: r.name || "",
+            branch: r.branch || "",
+            employeeId: r.employeeId || "",
+            vacationType: r.vacationType || "",
+            dia: r.dia == null ? "" : String(r.dia),
+            status: r.status || "",
+            confirmedBy: r.confirmedBy || "",
+            priority: r.priority == null ? "" : r.priority,
+            reqDate: r.createdAt ? formatEntryDateOnly(r.createdAt) : "",
+            note: r.note || "",
+            recordedBy: r.recordedBy || "",
+          }))
+          .sort((a, b) => {
+            if (a.date !== b.date) return a.date.localeCompare(b.date);
+            const pa = a.priority === "" ? Infinity : a.priority;
+            const pb = b.priority === "" ? Infinity : b.priority;
+            if (pa !== pb) return pa - pb;
+            return a.name.localeCompare(b.name, "ko");
+          });
+        return fetch(VACATION_API_URL, {
+          method: "POST",
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
+          body: JSON.stringify({ action: "backup", records: payload }),
+        })
+          .then((res) => res.json())
+          .then((json) => {
+            if (!json || !json.ok) throw new Error((json && json.error) || "백업 실패");
+            return window.SystemAPI.markBackupDone().then(() => json);
+          });
+      })
+      .then((json) => alert(`백업 완료! 총 ${json.count}건을 스프레드시트로 보냈어요.`))
+      .catch((err) => alert("백업 실패: " + (err && err.message ? err.message : err)))
+      .finally(() => setWorking(false));
+  };
+
   return (
     <div style={modal.overlay} onClick={onClose}>
       <div style={{ ...modal.sheet, maxWidth: "340px" }} onClick={(e) => e.stopPropagation()}>
@@ -6021,6 +6194,16 @@ function DataResetPanel({ onClose }) {
         <div style={{ ...modal.countText, marginBottom: "16px" }}>
           아직 테스트 중인 두 가지만 모아뒀어요. 필요 없어지면 요청 주시면 없애드려요.
         </div>
+
+        {branch === "경산" && (
+          <button
+            style={{ ...styles.button, border: "1px dashed #1a73e8", color: "#1a73e8", padding: "10px", marginBottom: "10px" }}
+            disabled={working}
+            onClick={handleBackupNow}
+          >
+            📤 지금 바로 스프레드시트로 백업 (테스트용)
+          </button>
+        )}
 
         <button
           style={{ ...styles.button, border: "1px dashed #e08a20", color: "#e08a20", padding: "10px", marginBottom: "10px" }}
