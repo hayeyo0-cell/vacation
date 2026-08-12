@@ -150,7 +150,7 @@ function fetchEmployees() {
 }
 
 // 네트워크 순간 오류 등으로 직원 데이터 로드가 실패하면, 조용히 포기하지 않고 몇 번 더 재시도해요.
-function fetchEmployeesWithRetry(retries = 3, delayMs = 1500) {
+function fetchEmployeesWithRetry(retries = 3, delayMs = 700) {
   return fetchEmployees().catch((err) => {
     if (retries <= 0) throw err;
     console.warn(`직원 데이터 로드 실패, ${delayMs}ms 후 재시도 (남은 재시도: ${retries})`, err);
@@ -1974,51 +1974,56 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
   // 하루 1회 자동 백업 - 관리자/운용이 앱을 열 때마다 확인해서, 마지막 백업 이후 하루(BACKUP_INTERVAL_MS)가
   // 지났으면 그 시점에 전체 휴가 데이터를 스프레드시트("앱_자동백업" 탭)로 백업해요. 서버 스케줄러가
   // 없는 구조라 "누군가 앱을 열 때 확인"하는 방식이에요 - 관리자는 자주 접속하니 사실상 매일 돌아가요.
+  // ⚠️ 앱을 켜자마자 바로 실행하면, 그 순간 딱 필요한 직원명단(교번) 불러오기랑 네트워크 자원을
+  // 다투게 될 수 있어서, 초기 화면이 다 자리잡은 뒤(15초 후)로 일부러 늦춰서 실행해요.
   useEffect(() => {
     if ((!isAdmin && !isMidManager) || currentUser.branch !== "경산") return;
-    waitForFirestore()
-      .then(() => window.SystemAPI.getBackupMeta())
-      .then((meta) => {
-        const lastMs = meta?.lastBackupAt?.toMillis ? meta.lastBackupAt.toMillis() : 0;
-        if (Date.now() - lastMs < BACKUP_INTERVAL_MS) return null;
-        return window.VacationAPI.getAll().then((records) => {
-          const payload = (records || [])
-            .map((r) => ({
-              date: r.date || "",
-              name: r.name || "",
-              branch: r.branch || "",
-              employeeId: r.employeeId || "",
-              vacationType: r.vacationType || "",
-              dia: r.dia == null ? "" : String(r.dia),
-              status: r.status || "",
-              confirmedBy: r.confirmedBy || "",
-              priority: r.priority == null ? "" : r.priority,
-              // 신청일(YYYY-MM-DD) - "가져오기"에서 신청일을 읽던 것과 반대로, 나중에 이 백업을
-              // 다시 불러올(복구) 기능을 만들 때 그대로 재사용할 수 있도록 남겨둬요.
-              reqDate: r.createdAt ? formatEntryDateOnly(r.createdAt) : "",
-              note: r.note || "",
-              recordedBy: r.recordedBy || "",
-            }))
-            .sort((a, b) => {
-              if (a.date !== b.date) return a.date.localeCompare(b.date);
-              const pa = a.priority === "" ? Infinity : a.priority;
-              const pb = b.priority === "" ? Infinity : b.priority;
-              if (pa !== pb) return pa - pb;
-              return a.name.localeCompare(b.name, "ko");
-            });
-          return fetch(VACATION_API_URL, {
-            method: "POST",
-            headers: { "Content-Type": "text/plain;charset=utf-8" },
-            body: JSON.stringify({ action: "backup", records: payload }),
-          })
-            .then((res) => res.json())
-            .then((json) => {
-              if (!json || !json.ok) throw new Error((json && json.error) || "백업 실패");
-              return window.SystemAPI.markBackupDone();
-            });
-        });
-      })
-      .catch((err) => console.error("자동 백업 실패:", err));
+    const timer = setTimeout(() => {
+      waitForFirestore()
+        .then(() => window.SystemAPI.getBackupMeta())
+        .then((meta) => {
+          const lastMs = meta?.lastBackupAt?.toMillis ? meta.lastBackupAt.toMillis() : 0;
+          if (Date.now() - lastMs < BACKUP_INTERVAL_MS) return null;
+          return window.VacationAPI.getAll().then((records) => {
+            const payload = (records || [])
+              .map((r) => ({
+                date: r.date || "",
+                name: r.name || "",
+                branch: r.branch || "",
+                employeeId: r.employeeId || "",
+                vacationType: r.vacationType || "",
+                dia: r.dia == null ? "" : String(r.dia),
+                status: r.status || "",
+                confirmedBy: r.confirmedBy || "",
+                priority: r.priority == null ? "" : r.priority,
+                // 신청일(YYYY-MM-DD) - "가져오기"에서 신청일을 읽던 것과 반대로, 나중에 이 백업을
+                // 다시 불러올(복구) 기능을 만들 때 그대로 재사용할 수 있도록 남겨둬요.
+                reqDate: r.createdAt ? formatEntryDateOnly(r.createdAt) : "",
+                note: r.note || "",
+                recordedBy: r.recordedBy || "",
+              }))
+              .sort((a, b) => {
+                if (a.date !== b.date) return a.date.localeCompare(b.date);
+                const pa = a.priority === "" ? Infinity : a.priority;
+                const pb = b.priority === "" ? Infinity : b.priority;
+                if (pa !== pb) return pa - pb;
+                return a.name.localeCompare(b.name, "ko");
+              });
+            return fetch(VACATION_API_URL, {
+              method: "POST",
+              headers: { "Content-Type": "text/plain;charset=utf-8" },
+              body: JSON.stringify({ action: "backup", records: payload }),
+            })
+              .then((res) => res.json())
+              .then((json) => {
+                if (!json || !json.ok) throw new Error((json && json.error) || "백업 실패");
+                return window.SystemAPI.markBackupDone();
+              });
+          });
+        })
+        .catch((err) => console.error("자동 백업 실패:", err));
+    }, 15000);
+    return () => clearTimeout(timer);
   }, [currentUser.id, currentUser.branch, isAdmin, isMidManager]);
 
   // 앱 접속(로그인) 시 한 번 - 경산 기관사, 오늘 추첨된 이벤트의 결과만 하루 동안 알림 (매너팝업 대신 단독으로)
@@ -2943,7 +2948,9 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
             <div key={i} style={cal.dayCell(key === todayKey)} onClick={() => openDate(d)}>
               <div style={cal.dayNum(dayType)}>{d}</div>
               <div style={cal.dayDivider} />
-              <div style={cal.dayCode(dayType)}>{codeForDate(key)}</div>
+              <div style={cal.dayCode(dayType)}>
+                {(employees || []).length === 0 ? "···" : codeForDate(key)}
+              </div>
               {badge}
             </div>
           );
