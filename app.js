@@ -35,25 +35,38 @@ function isMidManagerUser(user, managers) {
   return (managers || []).some((m) => m.name === user.name && m.branch === user.branch);
 }
 
-function jsonpRequest(url, params) {
+function jsonpRequest(url, params, timeoutMs = 6000) {
   return new Promise((resolve, reject) => {
     const callbackName = "jsonp_cb_" + Math.random().toString(36).slice(2);
     const query = new URLSearchParams({ ...params, callback: callbackName }).toString();
     const script = document.createElement("script");
     script.src = url + "?" + query;
 
+    let settled = false;
     const cleanup = () => {
       delete window[callbackName];
       script.remove();
+      clearTimeout(timer);
     };
 
-    window[callbackName] = (data) => {
-      resolve(data);
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
       cleanup();
+      reject(new Error("응답이 늦어져서(타임아웃) 요청을 다시 시도해요"));
+    }, timeoutMs);
+
+    window[callbackName] = (data) => {
+      if (settled) return; // 타임아웃으로 이미 포기한 뒤에 뒤늦게 응답이 와도 무시
+      settled = true;
+      cleanup();
+      resolve(data);
     };
     script.onerror = () => {
-      reject(new Error("네트워크 오류로 직원 데이터를 불러오지 못했어요"));
+      if (settled) return;
+      settled = true;
       cleanup();
+      reject(new Error("네트워크 오류로 직원 데이터를 불러오지 못했어요"));
     };
 
     document.body.appendChild(script);
@@ -2868,9 +2881,7 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
             <div key={i} style={cal.dayCell(key === todayKey)} onClick={() => openDate(d)}>
               <div style={cal.dayNum(dayType)}>{d}</div>
               <div style={cal.dayDivider} />
-              <div style={cal.dayCode(dayType)}>
-                {(employees || []).length === 0 ? "···" : codeForDate(key)}
-              </div>
+              <div style={cal.dayCode(dayType)}>{codeForDate(key)}</div>
               {badge}
             </div>
           );
