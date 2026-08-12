@@ -149,6 +149,17 @@ function fetchEmployees() {
   });
 }
 
+// 네트워크 순간 오류 등으로 직원 데이터 로드가 실패하면, 조용히 포기하지 않고 몇 번 더 재시도해요.
+function fetchEmployeesWithRetry(retries = 3, delayMs = 1500) {
+  return fetchEmployees().catch((err) => {
+    if (retries <= 0) throw err;
+    console.warn(`직원 데이터 로드 실패, ${delayMs}ms 후 재시도 (남은 재시도: ${retries})`, err);
+    return new Promise((resolve) => setTimeout(resolve, delayMs)).then(() =>
+      fetchEmployeesWithRetry(retries - 1, delayMs)
+    );
+  });
+}
+
 /* ------------------------------------------------------------------ */
 /* 로컬 저장소 헬퍼 (PIN은 기기에만 저장)                                */
 /* ------------------------------------------------------------------ */
@@ -512,8 +523,8 @@ function App() {
     }
 
     // 직원 데이터는 신규 등록 시 필요하고, 재로그인 사용자도 달력의 날짜별 교번 표시에 필요해서
-    // 어차피 백그라운드로 가져옴
-    fetchEmployees()
+    // 어차피 백그라운드로 가져옴. 실패하면 조용히 포기하지 않고 자동으로 재시도해요.
+    fetchEmployeesWithRetry()
       .then((list) => {
         setEmployees(list);
         if (auth.length === 0) setStep("chooseBranch");
@@ -524,7 +535,7 @@ function App() {
           alert("직원 데이터를 불러오지 못했어요: " + (err && err.message ? err.message : err));
           setStep("chooseBranch");
         }
-        // 재로그인 사용자는 이미 화면이 떠 있으니 조용히 재시도만 실패 처리 (콘솔 로그만)
+        // 재로그인 사용자는 이미 화면이 떠 있으니, 재시도까지 다 실패한 경우에만 조용히 콘솔 로그만 남겨요.
       });
 
     // 운용(중간관리자) 명단은 Firestore에서 불러옴
@@ -1830,8 +1841,13 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
     }
   }, [selectedDate]);
 
-  const myCode = (employees || []).find((e) => e.id === currentUser.id)?.code || "";
-  const myBaseCode = (employees || []).find((e) => e.id === currentUser.id)?.baseCode || "";
+  // 본인 기록 찾기 - ID로 우선 찾고, 혹시 ID가 안 맞으면(등록 경로에 따라 ID가 다르게 저장된 경우 등)
+  // 이름+소속으로도 한 번 더 찾아봐요. 이러면 ID가 어떤 이유로든 안 맞아도 이름은 그대로라 찾아져요.
+  const myRosterEntry =
+    (employees || []).find((e) => e.id === currentUser.id) ||
+    (employees || []).find((e) => e.name === currentUser.name && e.branch === currentUser.branch);
+  const myCode = myRosterEntry?.code || "";
+  const myBaseCode = myRosterEntry?.baseCode || "";
   const myTeamKey = REVERSE_TEAM_MAP[currentUser.branch];
   const myOrder = GYOBUN_ORDER[myTeamKey] || [];
 
@@ -4286,7 +4302,10 @@ function LotteryApplyPanel({ currentUser, onClose, employees }) {
   const [saving, setSaving] = useState(false);
 
   // 본인 교번틀 기준으로 그 날짜의 실제 교번을 계산 (자기 휴가 신청 폼과 동일한 방식)
-  const myEmp = (employees || []).find((e) => e.id === currentUser.id);
+  // ID로 못 찾으면 이름+소속으로도 재시도 (안전한 폴백)
+  const myEmp =
+    (employees || []).find((e) => e.id === currentUser.id) ||
+    (employees || []).find((e) => e.name === currentUser.name && e.branch === currentUser.branch);
   const myBaseCode = myEmp ? myEmp.baseCode : "";
   const myTeamKey = REVERSE_TEAM_MAP[currentUser.branch];
   const myOrder = GYOBUN_ORDER[myTeamKey] || [];
