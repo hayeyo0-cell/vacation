@@ -20,8 +20,16 @@ const VACATION_API_URL =
 const IMPORT_FROM_DATE = "2026-07-01";
 
 // 자동 백업 주기 - 마지막 백업 이후 이 시간이 지나면 관리자/운용이 앱을 열 때 자동으로 백업돼요.
-// 필요하면 이 값만 바꾸면 돼요 (예: 3일마다 → 3 * 24 * 60 * 60 * 1000)
-const BACKUP_INTERVAL_MS = 24 * 60 * 60 * 1000; // 하루
+// 필요하면 이 값만 바꾸면 돼요 (예: 하루마다 → 24 * 60 * 60 * 1000)
+const BACKUP_INTERVAL_MS = 3 * 24 * 60 * 60 * 1000; // 3일
+// 서버 스케줄러가 없어서 "정확히 몇 시"는 보장 못 하지만, 이 시간대(한국시간)에 누군가 앱을
+// 열면 그때 우선 백업을 실행해요 (사람이 안 쓰는 새벽 시간대를 노려서, 다른 데이터 로딩이랑
+// 안 겹치게 하려는 목적이에요).
+const BACKUP_PREFERRED_HOUR_START = 1; // 새벽 1시부터
+const BACKUP_PREFERRED_HOUR_END = 4; // 새벽 4시까지 (이 시각 전까지)
+// 그 시간대에 아무도 접속을 안 해서 계속 못 돌면, 이만큼 밀렸을 때는 시간 상관없이 강제로 실행해요
+// (백업이 무한정 밀리는 일이 없도록 하는 안전장치)
+const BACKUP_FORCE_OVERDUE_MS = 4 * 24 * 60 * 60 * 1000; // 4일
 
 // 밴드 채팅방 바로가기 (경산승무팀)
 const BAND_URL = "https://band.us/band/51746678/chat/C4U1ay";
@@ -73,6 +81,14 @@ function koreaTodayStr() {
   const m = String(kst.getMonth() + 1).padStart(2, "0");
   const d = String(kst.getDate()).padStart(2, "0");
   return `${y}-${m}-${d}`;
+}
+
+// 한국 시간 기준 현재 시(0~23) - 자동 백업을 새벽 시간대에 우선 실행하기 위한 용도
+function koreaCurrentHour() {
+  const now = new Date();
+  const utcTime = now.getTime() + now.getTimezoneOffset() * 60000;
+  const kst = new Date(utcTime + 9 * 60 * 60000);
+  return kst.getHours();
 }
 
 // 오늘이 "짝수달 1일"인지 확인 (경산 - 다음 두 달 휴가를 선착순으로 신청받는 날, 순번 조정 가능일)
@@ -1983,7 +1999,12 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
         .then(() => window.SystemAPI.getBackupMeta())
         .then((meta) => {
           const lastMs = meta?.lastBackupAt?.toMillis ? meta.lastBackupAt.toMillis() : 0;
-          if (Date.now() - lastMs < BACKUP_INTERVAL_MS) return null;
+          const overdueMs = Date.now() - lastMs;
+          if (overdueMs < BACKUP_INTERVAL_MS) return null; // 아직 3일 안 지남
+          const hour = koreaCurrentHour();
+          const isPreferredWindow = hour >= BACKUP_PREFERRED_HOUR_START && hour < BACKUP_PREFERRED_HOUR_END;
+          const isForceOverdue = overdueMs >= BACKUP_FORCE_OVERDUE_MS;
+          if (!isPreferredWindow && !isForceOverdue) return null; // 새벽 시간대도 아니고 많이 밀리지도 않았으면 기다림
           return window.VacationAPI.getAll().then((records) => {
             const payload = (records || [])
               .map((r) => ({
