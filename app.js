@@ -19,6 +19,10 @@ const VACATION_API_URL =
 // 가져오기 테스트에서 이 날짜 이전 기록은 제외 (필요하면 이 값만 바꾸면 돼요)
 const IMPORT_FROM_DATE = "2026-07-01";
 
+// 자동 백업 주기 - 마지막 백업 이후 이 시간이 지나면 관리자/운용이 앱을 열 때 자동으로 백업돼요.
+// 필요하면 이 값만 바꾸면 돼요 (예: 3일마다 → 3 * 24 * 60 * 60 * 1000)
+const BACKUP_INTERVAL_MS = 24 * 60 * 60 * 1000; // 하루
+
 // 밴드 채팅방 바로가기 (경산승무팀)
 const BAND_URL = "https://band.us/band/51746678/chat/C4U1ay";
 
@@ -735,6 +739,24 @@ function App() {
     setStep("chooseBranch");
   };
 
+  // PIN을 잊었을 때 - 이 기기에 저장된 "본인 것만" 지우고 처음부터 다시 등록하게 해요.
+  // (다른 사람이 같은 기기에 같이 등록되어 있어도 그 사람 건 안 건드려요)
+  const handleForgotPin = () => {
+    if (!loginTarget) return;
+    if (
+      !confirm(
+        `${loginTarget.name}님의 이 기기 등록 정보를 지우고 처음부터 다시 등록할까요?\n(다시 등록하면 관리자 승인을 다시 받아야 해요)`
+      )
+    )
+      return;
+    const updated = localAuth.filter((a) => a.id !== loginTarget.id);
+    saveLocalAuth(updated);
+    setLocalAuth(updated);
+    setLoginTarget(null);
+    setPinError("");
+    setStep("chooseBranch");
+  };
+
   // 공용 PC 등, 이 기기에 운용 인원을 추가로 등록할 때 사용 (기존 등록자는 유지됨, 기관사는 등록 불가)
   const handleAddAnother = () => {
     setBranch(null);
@@ -970,6 +992,12 @@ function App() {
       <div style={styles.screen}>
         <div style={styles.title}>{loginTarget.name}님, PIN을 입력해주세요</div>
         <PinPad onComplete={handleLoginPin} error={pinError} />
+        <button
+          style={{ ...styles.button, border: "none", color: "#888", marginTop: "20px" }}
+          onClick={handleForgotPin}
+        >
+          PIN을 잊으셨나요? 다시 등록하기
+        </button>
       </div>
     );
   }
@@ -1927,17 +1955,16 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
       .catch((err) => console.error("확인 대기 알림 조회 실패:", err));
   }, [currentUser.id]);
 
-  // 주 1회 자동 백업 - 관리자/운용이 앱을 열 때마다 확인해서, 마지막 백업 이후 7일이 지났으면
-  // 그 시점에 전체 휴가 데이터를 스프레드시트("앱_자동백업" 탭)로 백업해요. 서버 스케줄러가
-  // 없는 구조라 "누군가 앱을 열 때 확인"하는 방식이에요 - 관리자는 자주 접속하니 사실상 매주 돌아가요.
+  // 하루 1회 자동 백업 - 관리자/운용이 앱을 열 때마다 확인해서, 마지막 백업 이후 하루(BACKUP_INTERVAL_MS)가
+  // 지났으면 그 시점에 전체 휴가 데이터를 스프레드시트("앱_자동백업" 탭)로 백업해요. 서버 스케줄러가
+  // 없는 구조라 "누군가 앱을 열 때 확인"하는 방식이에요 - 관리자는 자주 접속하니 사실상 매일 돌아가요.
   useEffect(() => {
-    if (!isAdmin && !isMidManager) return;
+    if ((!isAdmin && !isMidManager) || currentUser.branch !== "경산") return;
     waitForFirestore()
       .then(() => window.SystemAPI.getBackupMeta())
       .then((meta) => {
         const lastMs = meta?.lastBackupAt?.toMillis ? meta.lastBackupAt.toMillis() : 0;
-        const weekMs = 7 * 24 * 60 * 60 * 1000;
-        if (Date.now() - lastMs < weekMs) return null;
+        if (Date.now() - lastMs < BACKUP_INTERVAL_MS) return null;
         return window.VacationAPI.getAll().then((records) => {
           const payload = (records || [])
             .map((r) => ({
@@ -1976,7 +2003,7 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
         });
       })
       .catch((err) => console.error("자동 백업 실패:", err));
-  }, [currentUser.id, isAdmin, isMidManager]);
+  }, [currentUser.id, currentUser.branch, isAdmin, isMidManager]);
 
   // 앱 접속(로그인) 시 한 번 - 경산 기관사, 오늘 추첨된 이벤트의 결과만 하루 동안 알림 (매너팝업 대신 단독으로)
   useEffect(() => {
@@ -3521,18 +3548,20 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
         <div style={modal.overlay} onClick={closeModal}>
           <div style={{ ...modal.sheet, maxWidth: "340px" }} onClick={(e) => e.stopPropagation()}>
             <div style={modal.dateTitle}>⚙️ 관리자 메뉴</div>
-            <div
-              style={{
-                background: "#f8f9fb",
-                borderRadius: "10px",
-                padding: "8px 12px",
-                marginBottom: "14px",
-                fontSize: "12px",
-                color: "#666",
-              }}
-            >
-              📤 마지막 백업: <strong style={{ color: "#1b3a5c" }}>{lastBackupText}</strong>
-            </div>
+            {currentUser.branch === "경산" && (
+              <div
+                style={{
+                  background: "#f8f9fb",
+                  borderRadius: "10px",
+                  padding: "8px 12px",
+                  marginBottom: "14px",
+                  fontSize: "12px",
+                  color: "#666",
+                }}
+              >
+                📤 마지막 백업: <strong style={{ color: "#1b3a5c" }}>{lastBackupText}</strong>
+              </div>
+            )}
             <button
               style={styles.button}
               onClick={() => {
@@ -3599,7 +3628,7 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
       )}
       {showDataReset && (
         <ErrorBoundary onClose={closeModal}>
-          <DataResetPanel onClose={closeModal} />
+          <DataResetPanel onClose={closeModal} branch={currentUser.branch} />
         </ErrorBoundary>
       )}
       {showImportTest && (
@@ -5946,7 +5975,7 @@ function parseReqDateToYMD(reqDateRaw, vacationDateStr) {
 /* 아직 두 소속 다 테스트 중이라 필요할 때까지 남겨두는 용도예요 - 나중에     */
 /* 필요 없어지면 요청 시 이 패널 자체를 없애면 돼요.                        */
 /* ------------------------------------------------------------------ */
-function DataResetPanel({ onClose }) {
+function DataResetPanel({ onClose, branch }) {
   const [working, setWorking] = useState(false);
 
   const handleResetHyuchungdang = () => {
@@ -6050,13 +6079,15 @@ function DataResetPanel({ onClose }) {
           아직 테스트 중인 두 가지만 모아뒀어요. 필요 없어지면 요청 주시면 없애드려요.
         </div>
 
-        <button
-          style={{ ...styles.button, border: "1px dashed #1a73e8", color: "#1a73e8", padding: "10px", marginBottom: "10px" }}
-          disabled={working}
-          onClick={handleBackupNow}
-        >
-          📤 지금 바로 스프레드시트로 백업 (테스트용)
-        </button>
+        {branch === "경산" && (
+          <button
+            style={{ ...styles.button, border: "1px dashed #1a73e8", color: "#1a73e8", padding: "10px", marginBottom: "10px" }}
+            disabled={working}
+            onClick={handleBackupNow}
+          >
+            📤 지금 바로 스프레드시트로 백업 (테스트용)
+          </button>
+        )}
 
         <button
           style={{ ...styles.button, border: "1px dashed #e08a20", color: "#e08a20", padding: "10px", marginBottom: "10px" }}
