@@ -551,7 +551,18 @@ function App() {
           alert("직원 데이터를 불러오지 못했어요: " + (err && err.message ? err.message : err));
           setStep("chooseBranch");
         }
-        // 재로그인 사용자는 이미 화면이 떠 있으니, 재시도까지 다 실패한 경우에만 조용히 콘솔 로그만 남겨요.
+        // 재로그인 사용자는 이미 화면이 떠 있어요. 빠른 재시도(fetchEmployeesWithRetry)까지 다
+        // 실패했어도 완전히 포기하지 않고, 좀 더 여유 있는 간격으로 배경에서 계속 시도해요
+        // (네트워크가 잠깐 불안정해도 결국엔 알아서 채워지도록 - "···"에 영영 갇히는 것 방지).
+        const keepTryingInBackground = (attemptsLeft) => {
+          if (attemptsLeft <= 0) return;
+          setTimeout(() => {
+            fetchEmployees()
+              .then((list) => setEmployees(list))
+              .catch(() => keepTryingInBackground(attemptsLeft - 1));
+          }, 8000);
+        };
+        keepTryingInBackground(15); // 8초 간격으로 최대 15번 더 (약 2분)
       });
 
     // 운용(중간관리자) 명단은 Firestore에서 불러옴
@@ -1911,6 +1922,7 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
   const [managerFormDia, setManagerFormDia] = useState("");
   const [managerFormNote, setManagerFormNote] = useState("");
   const [managerSaving, setManagerSaving] = useState(false);
+
   // 휴충당 신청 (경산 전용) - 본인 교번이 "휴"로 시작하는 날짜에 한해, 언제든 신청 가능.
   // 상태는 "신청중"/"취소됨" 두 가지만 써요. 확정 처리는 별도의 "휴충당 신청 현황" 달력에서 운용이 처리해요.
   const [hyuchungdangByDate, setHyuchungdangByDate] = useState([]);
