@@ -124,6 +124,43 @@ function shiftCodeByDays_(order, baseCode, dayOffset) {
 let GYOBUN_ORDER = { ks: [], my: [] }; // 달력 교번 계산용
 let BASE_DATE = ""; // 달력 교번 계산용 (기준일)
 
+const LS_EMPLOYEES_CACHE = "gyeongsan_employees_cache";
+
+// 직전에 성공적으로 받아온 직원/교번 데이터를 저장해둬요 - 다음에 앱을 켰을 때
+// 네트워크 응답을 기다리지 않고 일단 이걸로 즉시 화면을 채우고, 최신 데이터는 뒤에서 조용히 갱신해요.
+function saveEmployeesCache(list) {
+  try {
+    localStorage.setItem(
+      LS_EMPLOYEES_CACHE,
+      JSON.stringify({ employees: list, gyobunOrder: GYOBUN_ORDER, baseDate: BASE_DATE, savedAt: Date.now() })
+    );
+  } catch (_) {}
+}
+
+function loadEmployeesCache() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(LS_EMPLOYEES_CACHE) || "null");
+    if (!raw || !Array.isArray(raw.employees) || !raw.employees.length) return null;
+    return raw;
+  } catch {
+    return null;
+  }
+}
+
+// 캐시에 저장된 기준일 기준 코드를, "오늘" 기준으로 다시 밀어서 계산해요.
+// (캐시가 며칠 전에 저장된 거라도, baseCode+교번틀만 있으면 오늘자 코드를 정확히 다시 계산할 수 있어요)
+function recomputeTodayCodesFromCache(cache) {
+  const gyobunOrder = cache.gyobunOrder || { ks: [], my: [] };
+  const baseDate = cache.baseDate || "";
+  const today = koreaTodayStr();
+  const dayOffset = baseDate ? diffDays_(baseDate, today) : 0;
+  return (cache.employees || []).map((e) => {
+    const teamKey = REVERSE_TEAM_MAP[e.branch];
+    const order = gyobunOrder[teamKey] || [];
+    return { ...e, code: shiftCodeByDays_(order, e.baseCode, dayOffset) };
+  });
+}
+
 function fetchEmployees() {
   return Promise.all([
     jsonpRequest(GAS_URL, { mode: "roster" }),
@@ -142,7 +179,7 @@ function fetchEmployees() {
     const today = koreaTodayStr();
     const dayOffset = BASE_DATE ? diffDays_(BASE_DATE, today) : 0;
 
-    return rosterRes.rows
+    const list = rosterRes.rows
       .filter((r) => r.team === "ks" || r.team === "my")
       .map((r) => {
         const order = orderRes[r.team] || [];
@@ -155,6 +192,8 @@ function fetchEmployees() {
           baseCode: r.gyobun, // 기준일(4/1) 원본 (참고용)
         };
       });
+    saveEmployeesCache(list);
+    return list;
   });
 }
 
@@ -529,6 +568,15 @@ function App() {
     // 재로그인(이미 등록된) 사용자는 직원 데이터를 기다릴 필요 없이 바로 진입
     if (auth.length > 0) {
       setStep("loginName");
+    }
+
+    // 캐시가 있으면 네트워크 응답을 기다리지 않고 일단 이걸로 즉시 채워요 (오늘 날짜 기준으로 다시 계산).
+    // 최신 데이터는 바로 아래에서 어차피 새로 받아와서 덮어써요 - 이건 그 사이의 "대기시간"만 없애는 용도예요.
+    const cache = loadEmployeesCache();
+    if (cache) {
+      GYOBUN_ORDER = cache.gyobunOrder || { ks: [], my: [] };
+      BASE_DATE = cache.baseDate || "";
+      setEmployees(recomputeTodayCodesFromCache(cache));
     }
 
     // 직원 데이터는 신규 등록 시 필요하고, 재로그인 사용자도 달력의 날짜별 교번 표시에 필요해서
