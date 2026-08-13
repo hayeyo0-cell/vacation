@@ -1519,6 +1519,17 @@ function withSLabel(branch, dateStr, rawCode, holidaySet) {
   return `${clean}(S${idx + 1})`;
 }
 
+// 달력칸처럼 좁은 곳에서 쓸 때 - "S4"만 따로 반환해서, 코드보다 작은 글씨로 붙여 넣을 수 있게 해요.
+// (withSLabel처럼 한 문자열로 합치면 "20d(S4)"가 칸 너비보다 길어져서 "20d..."로 잘려버려요)
+function getSLabelOnly(branch, dateStr, rawCode, holidaySet) {
+  const clean = String(rawCode || "").trim();
+  if (!clean) return null;
+  const dayType = getDayType(dateStr, holidaySet);
+  const sDiaOrder = (S_CODE_MAP[branch] && S_CODE_MAP[branch][dayType]) || [];
+  const idx = sDiaOrder.indexOf(clean);
+  return idx === -1 ? null : `S${idx + 1}`;
+}
+
 // 날짜 헤더 표시용 색상 - 토요일은 파란색, 휴일(공휴일·일요일)은 빨간색, 평일은 기본색
 function dateHeaderColor(dateStr, holidaySet) {
   const type = getDayType(dateStr, holidaySet);
@@ -3138,7 +3149,14 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
             <div key={i} style={cal.dayCell(key === todayKey)} onClick={() => openDate(d)}>
               <div style={cal.dayNum(dayType)}>{d}</div>
               <div style={cal.dayDivider} />
-              <div style={cal.dayCode(dayType)}>{withSLabel(currentUser.branch, key, codeForDate(key), holidaySet)}</div>
+              <div style={cal.dayCode(dayType)}>
+                {codeForDate(key)}
+                {getSLabelOnly(currentUser.branch, key, codeForDate(key), holidaySet) && (
+                  <span style={{ fontSize: "9px", fontWeight: 600 }}>
+                    ({getSLabelOnly(currentUser.branch, key, codeForDate(key), holidaySet)})
+                  </span>
+                )}
+              </div>
               {badge}
             </div>
           );
