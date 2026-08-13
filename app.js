@@ -243,6 +243,18 @@ function loadLocalAuth() {
   }
 }
 
+// 🆕 PIN을 그대로 서버에 저장하지 않고, "직원ID+PIN"을 변형(해시)한 값만 저장해요.
+// 이러면 Firestore를 누가 열어봐도 진짜 PIN 자체는 알 수 없고, 같은 PIN이어도 사람마다
+// 다른 값으로 저장돼요 (직원ID가 "소금" 역할). 로그인할 때도 이 변형값끼리만 비교해요.
+async function hashPin(id, pin) {
+  const enc = new TextEncoder();
+  const data = enc.encode(`${id}:${pin}`);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(hashBuffer))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 /* ------------------------------------------------------------------ */
 /* 공통 스타일                                                          */
 /* ------------------------------------------------------------------ */
@@ -730,7 +742,10 @@ function App() {
       .then(() => window.ApprovalAPI.getStatus(emp.id))
       .then((data) => {
         if (data && data.status === "approved") {
-          alert("이미 다른 기기에서 승인받아 사용 중인 계정이에요.\n\n휴대폰을 바꾸신 거라면, 관리자(권재림)에게 '기록삭제'를 요청해주세요. 관리자가 처리해주면 다시 등록하실 수 있어요.");
+          // 🆕 무조건 막지 않고, 이 계정 PIN을 알고 있으면 이 자리에서 바로 로그인할 수 있게 해요.
+          setSelectedEmp(emp);
+          setPinError("");
+          setStep("crossBrowserPin");
           return;
         }
         if (data && data.status === "pending") {
@@ -768,6 +783,12 @@ function App() {
     saveLocalAuth(updated);
     setLocalAuth(updated);
 
+    // 🆕 PIN 해시를 서버에도 저장해둬요 - 나중에 다른 브라우저에서 로그인할 때 대조용으로 써요.
+    // 실패해도(오프라인 등) 등록 자체는 계속 진행시켜요 (로컬 저장은 이미 됐으니까).
+    hashPin(selectedEmp.id, pin)
+      .then((pinHash) => waitForFirestore().then(() => window.AuthAPI.setPinHash(selectedEmp.id, pinHash)))
+      .catch((err) => console.error("PIN 해시 저장 실패:", err));
+
     if (TEST_MODE || isAdminUser(selectedEmp) || isMidManagerUser(selectedEmp, managers)) {
       // 관리자는 승인 절차 없이 바로 진입 (본인이 승인권자니까)
       setStep("main");
@@ -797,6 +818,13 @@ function App() {
       return;
     }
 
+    // 🆕 예전(이 기능 생기기 전)에 등록한 사람은 서버에 PIN 해시가 없을 수 있어요.
+    // 정상적으로 로그인에 성공한 이 순간, 조용히 백그라운드로 해시를 채워둬서
+    // 이 사람도 다음부터는 다른 브라우저에서 로그인할 수 있게 해요.
+    hashPin(loginTarget.id, pin)
+      .then((pinHash) => waitForFirestore().then(() => window.AuthAPI.setPinHash(loginTarget.id, pinHash)))
+      .catch((err) => console.error("PIN 해시 백필 실패:", err));
+
     if (TEST_MODE || isAdminUser(loginTarget) || isMidManagerUser(loginTarget, managers)) {
       setStep("main");
       return;
@@ -825,6 +853,35 @@ function App() {
       .catch((err) => {
         console.error(err);
         alert("승인 상태 확인 중 오류가 발생했어요: " + (err && err.message ? err.message : err));
+      });
+  };
+
+  // 🆕 다른 브라우저(새 기기 취급되는 상황)에서 이미 승인된 계정으로 로그인 - 서버에 저장된
+  // PIN 해시랑 대조해서 확인해요. 성공하면 이 브라우저에도 로컬로 저장해서 다음부턴 빠르게 써요.
+  const handleCrossBrowserPin = (pin) => {
+    hashPin(selectedEmp.id, pin)
+      .then((pinHash) =>
+        waitForFirestore()
+          .then(() => window.AuthAPI.getPinHash(selectedEmp.id))
+          .then((storedHash) => {
+            if (!storedHash) {
+              setPinError("이 계정은 아직 이 방법으로 로그인할 수 없어요. 원래 쓰던 기기에서 한 번 로그인해주시면 다음부터 가능해져요.");
+              return;
+            }
+            if (storedHash !== pinHash) {
+              setPinError("PIN이 일치하지 않아요");
+              return;
+            }
+            const updated = [...localAuth, { id: selectedEmp.id, name: selectedEmp.name, branch: selectedEmp.branch, pin }];
+            saveLocalAuth(updated);
+            setLocalAuth(updated);
+            setPinError("");
+            setStep("main");
+          })
+      )
+      .catch((err) => {
+        console.error(err);
+        setPinError("확인 중 오류가 발생했어요");
       });
   };
 
@@ -1094,6 +1151,29 @@ function App() {
         >
           PIN을 잊으셨나요? 다시 등록하기
         </button>
+      </div>
+    );
+  }
+
+  // 🆕 다른 브라우저(새 기기 취급)에서, 이미 승인된 계정이면 PIN만 확인하고 바로 로그인
+  if (step === "crossBrowserPin") {
+    return (
+      <div style={styles.screen}>
+        <div style={styles.title}>{selectedEmp?.name}님, 이미 승인된 계정이에요</div>
+        <div style={styles.subText}>원래 쓰시던 PIN을 입력하면 이 브라우저에서도 바로 로그인돼요</div>
+        <PinPad onComplete={handleCrossBrowserPin} error={pinError} />
+        <button
+          style={{ ...styles.button, border: "none", color: "#888", marginTop: "20px" }}
+          onClick={() => {
+            setPinError("");
+            setStep("chooseBranch");
+          }}
+        >
+          취소하고 처음으로
+        </button>
+        <div style={{ ...styles.subText, marginTop: "16px", fontSize: "13px" }}>
+          PIN이 기억 안 나시면, 관리자에게 '기록삭제'를 요청해주세요.
+        </div>
       </div>
     );
   }
