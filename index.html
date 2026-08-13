@@ -418,6 +418,21 @@
     },
   };
 
+  // 다른 브라우저 로그인용 - PIN을 그대로 저장하지 않고 변형(해시)된 값만 저장/대조해요
+  window.AuthAPI = {
+    async setPinHash(id, pinHash) {
+      await setDoc(
+        doc(db, APPROVAL_COLLECTION, id),
+        { pinHash },
+        { merge: true }
+      );
+    },
+    async getPinHash(id) {
+      const snap = await getDoc(doc(db, APPROVAL_COLLECTION, id));
+      return snap.exists() ? snap.data().pinHash || null : null;
+    },
+  };
+
   window.__firestoreReady = true;
   window.dispatchEvent(new Event("firestore-ready"));
 </script>
