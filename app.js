@@ -3145,17 +3145,14 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
           const remain = capacity - capacityCount;
           const badge = <div style={cal.dayBadge(gyeongsanColor(remain))}>{activeRecords.length}</div>;
 
+          const rawCodeForCell = codeForDate(key);
+          const sLabelForCell = getSLabelOnly(currentUser.branch, key, rawCodeForCell, holidaySet);
           return (
             <div key={i} style={cal.dayCell(key === todayKey)} onClick={() => openDate(d)}>
               <div style={cal.dayNum(dayType)}>{d}</div>
               <div style={cal.dayDivider} />
-              <div style={cal.dayCode(dayType)}>
-                {codeForDate(key)}
-                {getSLabelOnly(currentUser.branch, key, codeForDate(key), holidaySet) && (
-                  <span style={{ fontSize: "9px", fontWeight: 600 }}>
-                    ({getSLabelOnly(currentUser.branch, key, codeForDate(key), holidaySet)})
-                  </span>
-                )}
+              <div style={{ ...cal.dayCode(dayType), fontSize: sLabelForCell ? "10px" : cal.dayCode(dayType).fontSize }}>
+                {sLabelForCell ? `${rawCodeForCell}(${sLabelForCell})` : rawCodeForCell}
               </div>
               {badge}
             </div>
