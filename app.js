@@ -1501,6 +1501,24 @@ function getDayType(dateStr, holidaySet) {
   return "평일";
 }
 
+// 토요일/휴일엔 일부 DIA가 운휴(운행이 없음)라서 그 사람은 비게 돼요 - 이걸 S1,S2...로 불러요.
+const S_CODE_MAP = {
+  경산: { 토요일: ["20d"], 휴일: ["17d", "18d", "19d", "20d"] },
+  문양: { 토요일: ["9d", "10d"], 휴일: ["7d", "8d", "9d", "10d"] },
+};
+
+// 안내문구에 "20d(S4)"처럼 참고용으로 같이 보여줄 때 쓰는 함수 - 실제 신청/저장되는 값은
+// 절대 안 건드리고, 순전히 "사람이 읽는 문구"에만 괄호로 덧붙여요.
+function withSLabel(branch, dateStr, rawCode, holidaySet) {
+  const clean = String(rawCode || "").trim();
+  if (!clean) return clean;
+  const dayType = getDayType(dateStr, holidaySet);
+  const sDiaOrder = (S_CODE_MAP[branch] && S_CODE_MAP[branch][dayType]) || [];
+  const idx = sDiaOrder.indexOf(clean);
+  if (idx === -1) return clean;
+  return `${clean}(S${idx + 1})`;
+}
+
 // 날짜 헤더 표시용 색상 - 토요일은 파란색, 휴일(공휴일·일요일)은 빨간색, 평일은 기본색
 function dateHeaderColor(dateStr, holidaySet) {
   const type = getDayType(dateStr, holidaySet);
@@ -3120,7 +3138,7 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
             <div key={i} style={cal.dayCell(key === todayKey)} onClick={() => openDate(d)}>
               <div style={cal.dayNum(dayType)}>{d}</div>
               <div style={cal.dayDivider} />
-              <div style={cal.dayCode(dayType)}>{codeForDate(key)}</div>
+              <div style={cal.dayCode(dayType)}>{withSLabel(currentUser.branch, key, codeForDate(key), holidaySet)}</div>
               {badge}
             </div>
           );
@@ -3317,7 +3335,7 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
               <React.Fragment>
                 <div style={{ ...modal.dateTitle, color: dateHeaderColor(selectedDate, holidaySet) }}>{formatDateHeader(selectedDate)} 휴가 신청</div>
                 <div style={{ ...modal.countText, marginBottom: "20px" }}>
-                  {currentUser.name}님 이름으로 등록돼요 · 내 교번: <strong>{codeForDate(selectedDate) || "-"}</strong>
+                  {currentUser.name}님 이름으로 등록돼요 · 내 교번: <strong>{withSLabel(currentUser.branch, selectedDate, codeForDate(selectedDate), holidaySet) || "-"}</strong>
                 </div>
 
                 <div style={modal.formRow}>
@@ -3343,12 +3361,16 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
 
                 <div style={modal.formRow}>
                   <label style={modal.label}>DIA</label>
-                  <input
+                  <select
                     style={modal.input}
                     value={formDia}
                     onChange={(e) => setFormDia(e.target.value)}
-                    placeholder="예: 22, 대1, 27~"
-                  />
+                  >
+                    <option value="">교번을 선택해주세요</option>
+                    {managerBranchCodes.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
                   {currentUser.branch === "경산" &&
                     isThreeRoundTripCode(selectedDate, formDia, holidaySet) && (
                       <div style={{ fontSize: "12px", marginTop: "6px", color: "#e08a20", fontWeight: 600 }}>
@@ -3418,7 +3440,7 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
                     </div>
                     {!isMidManager && (
                       <div style={{ fontSize: "13px", color: "#1b3a5c", fontWeight: 700, marginTop: "2px", marginBottom: "6px" }}>
-                        내 교번: {codeForDate(selectedDate) || "-"}
+                        내 교번: {withSLabel(currentUser.branch, selectedDate, codeForDate(selectedDate), holidaySet) || "-"}
                       </div>
                     )}
                   </React.Fragment>
@@ -4486,6 +4508,14 @@ function LotteryApplyPanel({ currentUser, onClose, employees }) {
   const myBaseCode = myEmp ? myEmp.baseCode : "";
   const myTeamKey = REVERSE_TEAM_MAP[currentUser.branch];
   const myOrder = GYOBUN_ORDER[myTeamKey] || [];
+
+  // DIA 드롭다운용 - 소속 교번틀 코드 목록 (자유입력으로 인한 오타/이상값 방지)
+  const branchEmployeesForDia = (employees || []).filter((e) => e.branch === currentUser.branch);
+  const templateCodesForDia = myOrder.filter((c) => branchEmployeesForDia.some((e) => e.code === c));
+  const otherCodesForDia = [...new Set(branchEmployeesForDia.map((e) => e.code))].filter(
+    (c) => !templateCodesForDia.includes(c)
+  );
+  const branchCodesForDia = [...templateCodesForDia, ...otherCodesForDia];
   const codeForDate = (dateStr) => {
     if (!BASE_DATE || !myBaseCode || !myOrder.length) return "";
     const offset = diffDays_(BASE_DATE, dateStr);
@@ -4707,9 +4737,8 @@ function LotteryApplyPanel({ currentUser, onClose, employees }) {
                               <option key={t} value={t}>{t}</option>
                             ))}
                           </select>
-                          <input
+                          <select
                             style={{ ...styles.select, flex: "0 0 90px", marginBottom: 0 }}
-                            placeholder="DIA"
                             value={
                               formState[date] && formState[date].dia !== undefined
                                 ? formState[date].dia
@@ -4718,7 +4747,12 @@ function LotteryApplyPanel({ currentUser, onClose, employees }) {
                             onChange={(e) =>
                               setFormState((prev) => ({ ...prev, [date]: { ...prev[date], dia: e.target.value } }))
                             }
-                          />
+                          >
+                            <option value="">교번 선택</option>
+                            {branchCodesForDia.map((c) => (
+                              <option key={c} value={c}>{c}</option>
+                            ))}
+                          </select>
                           {!st.linkNext && (
                             <button
                               style={{ ...adminStyles.approveBtn, flexShrink: 0 }}
@@ -4765,16 +4799,20 @@ function LotteryApplyPanel({ currentUser, onClose, employees }) {
                                 <option key={t} value={t}>{t}</option>
                               ))}
                             </select>
-                            <input
+                            <select
                               style={{ ...styles.select, flex: "0 0 90px", marginBottom: 0 }}
-                              placeholder="2일차 DIA"
                               value={
                                 st.nextDia !== undefined ? st.nextDia : codeForDate(nextDateInfo.date)
                               }
                               onChange={(e) =>
                                 setFormState((prev) => ({ ...prev, [date]: { ...prev[date], nextDia: e.target.value } }))
                               }
-                            />
+                            >
+                              <option value="">2일차 교번</option>
+                              {branchCodesForDia.map((c) => (
+                                <option key={c} value={c}>{c}</option>
+                              ))}
+                            </select>
                             <button
                               style={{ ...adminStyles.approveBtn, flexShrink: 0, background: "#7a4fd1" }}
                               disabled={saving}
