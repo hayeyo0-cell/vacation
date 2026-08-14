@@ -833,9 +833,18 @@ function App() {
     waitForFirestore()
       .then(() => window.ApprovalAPI.getStatus(loginTarget.id))
       .then((data) => {
+        // 명단(직원목록)에 아직 이 사람 이름이 있는지 확인 - ID가 아니라 이름 기준이에요.
+        // (자리 바꿀 때 ID는 고정, 이름을 서로 바꾸는 방식으로 운영하고 계셔서, 그 사람이
+        // "진짜로 없어졌는지"는 이름으로 찾아야 정확해요)
+        const stillInRoster = (employees || []).some(
+          (e) => e.name === loginTarget.name && e.branch === loginTarget.branch
+        );
         if (!data) {
-          // 승인 기록이 아예 없는 경우 - 예전에 TEST_MODE일 때 등록해서 신청 자체가
-          // 안 만들어졌던 사람이에요. 여기서 자동으로 신청을 만들어서 관리자 화면에 뜨게 해요.
+          // 승인 기록이 없어졌어요 - 관리자가 "기록삭제"를 눌렀거나, 예전 TEST_MODE 가입자예요.
+          if (!stillInRoster) {
+            setStep("notInRoster");
+            return null;
+          }
           return window.ApprovalAPI.request({
             id: loginTarget.id,
             name: loginTarget.name,
@@ -846,6 +855,10 @@ function App() {
           setStep("pendingApproval");
         } else if (data.status === "rejected") {
           setStep("rejected");
+        } else if (!stillInRoster) {
+          // 🆕 승인 기록은 그대로 있지만(관리자가 "기록삭제"를 안 눌렀어도), 정상 로그인할
+          // 때마다 명단에 아직 있는지 슬쩍 확인해요 - 인사이동으로 명단에서만 빠진 경우를 잡아내요.
+          setStep("notInRoster");
         } else {
           setStep("main");
         }
@@ -862,14 +875,26 @@ function App() {
     hashPin(selectedEmp.id, pin)
       .then((pinHash) =>
         waitForFirestore()
-          .then(() => window.AuthAPI.getPinHash(selectedEmp.id))
-          .then((storedHash) => {
+          .then(() => Promise.all([window.AuthAPI.getPinHash(selectedEmp.id), window.ApprovalAPI.getStatus(selectedEmp.id)]))
+          .then(([storedHash, approvalData]) => {
+            if (!approvalData || approvalData.status !== "approved") {
+              setPinError("이 계정은 지금 승인된 상태가 아니에요. 관리자에게 문의해주세요.");
+              return;
+            }
             if (!storedHash) {
               setPinError("이 계정은 아직 이 방법으로 로그인할 수 없어요. 원래 쓰던 기기에서 한 번 로그인해주시면 다음부터 가능해져요.");
               return;
             }
             if (storedHash !== pinHash) {
               setPinError("PIN이 일치하지 않아요");
+              return;
+            }
+            // 🆕 여기서도 명단에 아직 있는지 확인해요 (이름 기준)
+            const stillInRoster = (employees || []).some(
+              (e) => e.name === selectedEmp.name && e.branch === selectedEmp.branch
+            );
+            if (!stillInRoster) {
+              setStep("notInRoster");
               return;
             }
             const updated = [...localAuth, { id: selectedEmp.id, name: selectedEmp.name, branch: selectedEmp.branch, pin }];
@@ -1134,6 +1159,18 @@ function App() {
       <div style={styles.screen}>
         <div style={styles.title}>승인이 거절됐어요</div>
         <div style={styles.subText}>본인이 맞다면 관리자에게 직접 문의해주세요</div>
+        <button style={{ ...styles.button, border: "none", color: "#888" }} onClick={() => setStep("loginName")}>
+          나가기
+        </button>
+      </div>
+    );
+  }
+  // 🆕 승인 기록이 없어졌고, 직원명단(스프레드시트)에서도 이름이 사라진 경우 - 인사이동/퇴사로 추정돼요.
+  if (step === "notInRoster") {
+    return (
+      <div style={styles.screen}>
+        <div style={styles.title}>현재 직원명단에서 확인되지 않아요</div>
+        <div style={styles.subText}>인사이동·퇴사 등의 사유로 명단에서 빠진 것으로 보여요.<br />문의사항은 관리자에게 연락해주세요.</div>
         <button style={{ ...styles.button, border: "none", color: "#888" }} onClick={() => setStep("loginName")}>
           나가기
         </button>
@@ -2036,11 +2073,12 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
     }
   }, [selectedDate]);
 
-  // 본인 기록 찾기 - ID로 우선 찾고, 혹시 ID가 안 맞으면(등록 경로에 따라 ID가 다르게 저장된 경우 등)
-  // 이름+소속으로도 한 번 더 찾아봐요. 이러면 ID가 어떤 이유로든 안 맞아도 이름은 그대로라 찾아져요.
+  // 본인 기록 찾기 - 이름+소속으로 우선 찾아요 (스프레드시트에서 "직원ID는 고정, 이름을 서로
+  // 바꿔서 자리를 교체하는" 운영 방식과 맞추기 위해서예요 - 교번앱도 이 방식으로 동작해요).
+  // 혹시 이름이 명단에서 아예 안 보이면 ID로도 한 번 더 찾아봐요 (최후의 안전장치).
   const myRosterEntry =
-    (employees || []).find((e) => e.id === currentUser.id) ||
-    (employees || []).find((e) => e.name === currentUser.name && e.branch === currentUser.branch);
+    (employees || []).find((e) => e.name === currentUser.name && e.branch === currentUser.branch) ||
+    (employees || []).find((e) => e.id === currentUser.id);
   const myCode = myRosterEntry?.code || "";
   const myBaseCode = myRosterEntry?.baseCode || "";
   const myTeamKey = REVERSE_TEAM_MAP[currentUser.branch];
@@ -4516,10 +4554,10 @@ function LotteryApplyPanel({ currentUser, onClose, employees }) {
   const [saving, setSaving] = useState(false);
 
   // 본인 교번틀 기준으로 그 날짜의 실제 교번을 계산 (자기 휴가 신청 폼과 동일한 방식)
-  // ID로 못 찾으면 이름+소속으로도 재시도 (안전한 폴백)
+  // 이름+소속 우선, ID는 보조로 찾아요 (본인 신청 폼과 동일한 방식 - 위 주석 참고)
   const myEmp =
-    (employees || []).find((e) => e.id === currentUser.id) ||
-    (employees || []).find((e) => e.name === currentUser.name && e.branch === currentUser.branch);
+    (employees || []).find((e) => e.name === currentUser.name && e.branch === currentUser.branch) ||
+    (employees || []).find((e) => e.id === currentUser.id);
   const myBaseCode = myEmp ? myEmp.baseCode : "";
   const myTeamKey = REVERSE_TEAM_MAP[currentUser.branch];
   const myOrder = GYOBUN_ORDER[myTeamKey] || [];
