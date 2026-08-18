@@ -2853,7 +2853,7 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
 
   // 대상자 미정이면 DIA도 미지정으로 자동 처리
   // 대상자가 지정된 경우에는 DIA 선택 필수
-  if (!managerFormUnassigned && !managerFormDia.trim()) {
+ if (!managerFormUnassigned && !managerFormDia.trim()) {
   alert("DIA를 입력해주세요");
   return;
 }
@@ -2868,7 +2868,7 @@ const finalVacationType =
     ? `기타: ${managerFormOtherReason.trim()}`
     : managerFormType;
 
-// 대상자 미정이면 이름과 DIA 모두 미지정
+// ★ 대상자 미정이면 이름과 DIA 모두 미지정
 const finalName = managerFormUnassigned
   ? "미지정"
   : target.name;
@@ -2884,7 +2884,10 @@ window.VacationAPI.add({
   branch: currentUser.branch,
   employeeId: managerFormUnassigned ? "" : target.id,
   vacationType: finalVacationType,
+
+  // ★ 대상자 미정이면 미지정
   dia: finalDia,
+
   date: selectedDate,
   recordedBy: currentUser.name,
   ...(managerFormUnassigned ? { unassigned: true } : {}),
