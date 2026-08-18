@@ -2920,7 +2920,7 @@ window.VacationAPI.add({
 
   if (!confirm(`이 기록에 ${target.name}님을 배정할까요?`)) return;
 
-  // 배정하는 사람의 해당 날짜 실제 DIA 계산
+  // ★ 선택한 직원의 해당 날짜 실제 DIA를 계산
   const assignedDia = codeForEmployeeOnDate(
     target.id,
     record.date
@@ -2934,7 +2934,8 @@ window.VacationAPI.add({
         employeeId: target.id,
         vacationType: record.vacationType,
 
-        // ★ 실제 대상자의 해당 날짜 DIA
+        // ★ 기존 record.dia("미지정")를 사용하지 않음
+        // ★ 선택한 사람의 해당 날짜 DIA를 사용
         dia: assignedDia || "미지정",
 
         date: record.date,
