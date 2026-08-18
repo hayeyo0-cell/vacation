@@ -3622,10 +3622,22 @@ window.VacationAPI.add({
                         ›
                       </button>
                     </div>
-                    <div style={{ fontSize: "12px", color: "#1a1a1a", fontWeight: 600 }}>
+                    <div style={{ fontSize: "12px", color: "#1a1a1a", fontWeight: 600, display: "flex", alignItems: "center", gap: "8px" }}>
                       휴가자 {activeCount}명
                       {gyeongsanInfo &&
                         ` · 보장대상 ${gyeongsanInfo.capacityCount}/${gyeongsanInfo.capacity}명 (여유 ${gyeongsanInfo.remain}명)`}
+                      {isMidManager && (
+                        <span
+                          style={{ color: "#1a73e8", textDecoration: "underline", cursor: "pointer", fontWeight: 700 }}
+                          onClick={() =>
+                            renumberDayPriorities_(selectedDate, currentUser.branch, (freshRecords) => {
+                              setMonthMap((prev) => ({ ...prev, [selectedDate]: freshRecords }));
+                            })
+                          }
+                        >
+                          🔄 순번 정리
+                        </span>
+                      )}
                     </div>
                   </div>
                 )}
@@ -3646,10 +3658,22 @@ window.VacationAPI.add({
                         ›
                       </button>
                     </div>
-                    <div style={{ ...modal.countText, marginBottom: "4px" }}>
+                    <div style={{ ...modal.countText, marginBottom: "4px", display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
                       휴가자 {activeCount}명
                       {gyeongsanInfo &&
                         ` · 보장대상 ${gyeongsanInfo.capacityCount}/${gyeongsanInfo.capacity}명 (여유 ${gyeongsanInfo.remain}명)`}
+                      {isMidManager && (
+                        <span
+                          style={{ color: "#1a73e8", textDecoration: "underline", cursor: "pointer", fontWeight: 700, fontSize: "12px" }}
+                          onClick={() =>
+                            renumberDayPriorities_(selectedDate, currentUser.branch, (freshRecords) => {
+                              setMonthMap((prev) => ({ ...prev, [selectedDate]: freshRecords }));
+                            })
+                          }
+                        >
+                          🔄 순번 정리
+                        </span>
+                      )}
                     </div>
                     {!isMidManager && (
                       <div style={{ fontSize: "13px", color: "#1b3a5c", fontWeight: 700, marginTop: "2px", marginBottom: "6px" }}>
