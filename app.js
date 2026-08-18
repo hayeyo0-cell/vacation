@@ -2912,31 +2912,50 @@ window.VacationAPI.add({
   // employeeId는 보안규칙상 수정이 안 돼서, 기존 기록을 지우고 그 내용 그대로 새로 등록하는 방식이에요.
   const [assigningRecordId, setAssigningRecordId] = useState(null);
   const handleAssignUnassignedRecord = (record, targetId) => {
-    const target = branchAllEmployees.find((e) => e.id === targetId);
-    if (!target) return;
-    if (!confirm(`이 기록에 ${target.name}님을 배정할까요?`)) return;
-    window.VacationAPI.remove(record.id)
-      .then(() =>
-        window.VacationAPI.add({
-          name: target.name,
-          branch: currentUser.branch,
-          employeeId: target.id,
-          vacationType: record.vacationType,
-          dia: record.dia,
-          date: record.date,
-          recordedBy: currentUser.name,
-          ...(record.note ? { note: record.note } : {}),
-        })
-      )
-      .then(() => {
-        setAssigningRecordId(null);
-        loadMonth(viewYear, viewMonth);
+  const target = branchAllEmployees.find((e) => e.id === targetId);
+  if (!target) return;
+
+  if (!confirm(`이 기록에 ${target.name}님을 배정할까요?`)) return;
+
+  // 배정하는 사람의 해당 날짜 실제 DIA 계산
+  const assignedDia = codeForEmployeeOnDate(
+    target.id,
+    record.date
+  );
+
+  window.VacationAPI.remove(record.id)
+    .then(() =>
+      window.VacationAPI.add({
+        name: target.name,
+        branch: currentUser.branch,
+        employeeId: target.id,
+        vacationType: record.vacationType,
+
+        // ★ 실제 대상자의 해당 날짜 DIA
+        dia: assignedDia || "미지정",
+
+        date: record.date,
+        recordedBy: currentUser.name,
+
+        ...(record.note
+          ? { note: record.note }
+          : {}),
       })
-      .catch((err) => {
-        console.error(err);
-        alert("배정에 실패했어요: " + (err && err.message ? err.message : err));
-      });
-  };
+    )
+    .then(() => {
+      setAssigningRecordId(null);
+      loadMonth(viewYear, viewMonth);
+    })
+    .catch((err) => {
+      console.error(err);
+      alert(
+        "배정에 실패했어요: " +
+        (err && err.message
+          ? err.message
+          : err)
+      );
+    });
+};
 
   const touchStartX = useRef(null);
   const dayTouchStartX = useRef(null); // 날짜 상세 모달 스와이프용
