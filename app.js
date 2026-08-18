@@ -1765,7 +1765,7 @@ const TYPE_ICON = {
 // 보장인원에 포함되지 않는(휴충당 처리) 휴가 종류
 const NON_CAPACITY_TYPES = [
   "청휴", "청휴비", "청휴(탈상)", "병가", "병가비",
-  "노조", "공란", "교육", "출장", "교휴(공휴)",
+  "노조", "공란", "교육", "출장", "교휴(공휴)", "기타",
 ];
 
 const modal = {
@@ -2127,6 +2127,7 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
   const [managerFormType, setManagerFormType] = useState(NON_CAPACITY_TYPES[0]);
   const [managerFormDia, setManagerFormDia] = useState("");
   const [managerFormNote, setManagerFormNote] = useState("");
+  const [managerFormOtherReason, setManagerFormOtherReason] = useState(""); // "기타" 선택 시 사유
   const [managerSaving, setManagerSaving] = useState(false);
   // 휴충당 신청 (경산 전용) - 본인 교번이 "휴"로 시작하는 날짜에 한해, 언제든 신청 가능.
   // 상태는 "신청중"/"취소됨" 두 가지만 써요. 확정 처리는 별도의 "휴충당 신청 현황" 달력에서 운용이 처리해요.
@@ -2831,6 +2832,7 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
     setManagerFormType(NON_CAPACITY_TYPES[0]);
     setManagerFormDia("");
     setManagerFormNote("");
+    setManagerFormOtherReason("");
     setShowManagerForm(true);
   };
 
@@ -2846,12 +2848,18 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
       alert("DIA를 입력해주세요");
       return;
     }
+    if (managerFormType === "기타" && !managerFormOtherReason.trim()) {
+      alert("기타 사유를 입력해주세요");
+      return;
+    }
+    const finalVacationType =
+      managerFormType === "기타" ? `기타: ${managerFormOtherReason.trim()}` : managerFormType;
     setManagerSaving(true);
     window.VacationAPI.add({
       name: target.name,
       branch: target.branch,
       employeeId: target.id,
-      vacationType: managerFormType,
+      vacationType: finalVacationType,
       dia: managerFormDia.trim(),
       date: selectedDate,
       recordedBy: currentUser.name,
@@ -3354,6 +3362,18 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
                     </optgroup>
                   </select>
                 </div>
+
+                {managerFormType === "기타" && (
+                  <div style={modal.formRow}>
+                    <label style={modal.label}>기타 사유</label>
+                    <input
+                      style={modal.input}
+                      value={managerFormOtherReason}
+                      onChange={(e) => setManagerFormOtherReason(e.target.value)}
+                      placeholder="예: 예비군훈련, 법원 출석 등"
+                    />
+                  </div>
+                )}
 
                 <div style={modal.formRow}>
                   <label style={modal.label}>DIA</label>
