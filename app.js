@@ -1260,11 +1260,28 @@ function formatDateHeader(dateStr) {
   return `${dateStr} ${WEEKDAYS[d.getDay()]}요일`;
 }
 
+// Firestore Timestamp 객체든, 캐시/저장을 거치면서 일반 객체({seconds, nanoseconds})로 바뀐 것이든,
+// 문자열/Date든 상관없이 안전하게 밀리초 값으로 변환해요. 하나라도 형태가 안 맞으면 못 구해서
+// 정렬이 꼬이는 걸 방지하려고, formatEntryTime 표시 로직이랑 정렬 로직이 똑같이 이 함수를 써요.
+function timestampToMillis_(ts) {
+  if (!ts) return null;
+  if (typeof ts.toMillis === "function") return ts.toMillis();
+  if (typeof ts.toDate === "function") {
+    const d = ts.toDate();
+    return isNaN(d.getTime()) ? null : d.getTime();
+  }
+  if (typeof ts === "object" && typeof ts.seconds === "number") {
+    return ts.seconds * 1000 + (typeof ts.nanoseconds === "number" ? ts.nanoseconds / 1e6 : 0);
+  }
+  const d = new Date(ts);
+  return isNaN(d.getTime()) ? null : d.getTime();
+}
+
 // dateOnly가 true면(가져오기로 들어와 실제 신청 "시각" 정보가 없는 기록) 시간 없이 날짜만 표시해요.
 function formatEntryTime(ts, dateOnly) {
-  if (!ts) return "";
-  const date = typeof ts.toDate === "function" ? ts.toDate() : new Date(ts);
-  if (isNaN(date.getTime())) return "";
+  const millis = timestampToMillis_(ts);
+  if (millis == null) return "";
+  const date = new Date(millis);
   const mo = String(date.getMonth() + 1).padStart(2, "0");
   const dd = String(date.getDate()).padStart(2, "0");
   if (dateOnly) {
@@ -1468,16 +1485,22 @@ function isCapacityType(type) {
 function renumberDayPriorities_(dateStr, branch, onDone) {
   window.VacationAPI.getByDate(dateStr)
     .then((records) => {
-      const capacityActive = (records || [])
-        .filter((v) => v.branch === branch && v.status !== "취소됨" && isCapacityType(v.vacationType))
+      // 취소된 기록도 그 번호를 계속 차지해요 (취소됐다고 뒷사람이 번호를 당겨쓰지 않아요) -
+      // 그래서 취소 여부와 상관없이, 그날 전체 기록을 입력 시각 순서로 쭉 번호 매겨요.
+      const capacityAll = (records || [])
+        .filter((v) => v.branch === branch && isCapacityType(v.vacationType))
         .sort((a, b) => {
-          const pa = a.priority != null ? a.priority : Infinity;
-          const pb = b.priority != null ? b.priority : Infinity;
-          if (pa !== pb) return pa - pb;
+          // 입력 날짜/시간(createdAt) 순서가 기준이에요. 없는 기록(옛날 가져오기 등)은 맨 뒤로.
+          const ta = timestampToMillis_(a.createdAt);
+          const tb = timestampToMillis_(b.createdAt);
+          if (ta == null && tb == null) return (a.name || "").localeCompare(b.name || "");
+          if (ta == null) return 1;
+          if (tb == null) return -1;
+          if (ta !== tb) return ta - tb;
           return (a.name || "").localeCompare(b.name || "");
         });
       const updates = [];
-      capacityActive.forEach((v, idx) => {
+      capacityAll.forEach((v, idx) => {
         const newPriority = idx + 1;
         if (v.priority !== newPriority) {
           updates.push(window.VacationAPI.update(v.id, { priority: newPriority }));
@@ -2898,20 +2921,36 @@ const finalDia = managerFormUnassigned
 
 setManagerSaving(true);
 
-window.VacationAPI.add({
-  name: finalName,
-  branch: currentUser.branch,
-  employeeId: managerFormUnassigned ? "" : target.id,
-  vacationType: finalVacationType,
+// 본인 신청과 동일한 방식으로 순번을 자동 부여해요 - 그날 그 소속의 보장휴가 기록 수(취소 포함)
+// 다음 번호로. "대상자 미정"이나 보장인원 미포함 항목(기타 등)은 순번 자체가 필요 없어요.
+const assignPriority = () => {
+  if (managerFormUnassigned || !isCapacityType(finalVacationType)) return Promise.resolve(null);
+  return window.VacationAPI.getByDate(selectedDate).then((dayRecords) => {
+    const count = (dayRecords || []).filter(
+      (v) => v.branch === currentUser.branch && isCapacityType(v.vacationType)
+    ).length;
+    return count + 1;
+  });
+};
 
-  // ★ 대상자 미정이면 미지정
-  dia: finalDia,
+assignPriority()
+  .then((priority) =>
+    window.VacationAPI.add({
+      name: finalName,
+      branch: currentUser.branch,
+      employeeId: managerFormUnassigned ? "" : target.id,
+      vacationType: finalVacationType,
 
-  date: selectedDate,
-  recordedBy: currentUser.name,
-  ...(managerFormUnassigned ? { unassigned: true } : {}),
-  ...(managerFormNote.trim() ? { note: managerFormNote.trim() } : {}),
-})
+      // ★ 대상자 미정이면 미지정
+      dia: finalDia,
+
+      date: selectedDate,
+      recordedBy: currentUser.name,
+      ...(priority != null ? { priority } : {}),
+      ...(managerFormUnassigned ? { unassigned: true } : {}),
+      ...(managerFormNote.trim() ? { note: managerFormNote.trim() } : {}),
+    })
+  )
     .then(() => {
       setShowManagerForm(false);
       loadMonth(viewYear, viewMonth);
@@ -3627,8 +3666,20 @@ window.VacationAPI.add({
                       {gyeongsanInfo &&
                         ` · 보장대상 ${gyeongsanInfo.capacityCount}/${gyeongsanInfo.capacity}명 (여유 ${gyeongsanInfo.remain}명)`}
                       {isMidManager && (
-                        <span
-                          style={{ color: "#1a73e8", textDecoration: "underline", cursor: "pointer", fontWeight: 700 }}
+                        <button
+                          type="button"
+                          style={{
+                            color: "#1a73e8",
+                            fontWeight: 700,
+                            background: "none",
+                            border: "none",
+                            padding: 0,
+                            fontFamily: "inherit",
+                            textDecoration: "underline",
+                            cursor: "pointer",
+                            userSelect: "none",
+                            WebkitUserSelect: "none",
+                          }}
                           onClick={() =>
                             renumberDayPriorities_(selectedDate, currentUser.branch, (freshRecords) => {
                               setMonthMap((prev) => ({ ...prev, [selectedDate]: freshRecords }));
@@ -3636,7 +3687,7 @@ window.VacationAPI.add({
                           }
                         >
                           🔄 순번 정리
-                        </span>
+                        </button>
                       )}
                     </div>
                   </div>
@@ -3663,8 +3714,21 @@ window.VacationAPI.add({
                       {gyeongsanInfo &&
                         ` · 보장대상 ${gyeongsanInfo.capacityCount}/${gyeongsanInfo.capacity}명 (여유 ${gyeongsanInfo.remain}명)`}
                       {isMidManager && (
-                        <span
-                          style={{ color: "#1a73e8", textDecoration: "underline", cursor: "pointer", fontWeight: 700, fontSize: "12px" }}
+                        <button
+                          type="button"
+                          style={{
+                            color: "#1a73e8",
+                            fontWeight: 700,
+                            fontSize: "12px",
+                            background: "none",
+                            border: "none",
+                            padding: 0,
+                            fontFamily: "inherit",
+                            textDecoration: "underline",
+                            cursor: "pointer",
+                            userSelect: "none",
+                            WebkitUserSelect: "none",
+                          }}
                           onClick={() =>
                             renumberDayPriorities_(selectedDate, currentUser.branch, (freshRecords) => {
                               setMonthMap((prev) => ({ ...prev, [selectedDate]: freshRecords }));
@@ -3672,7 +3736,7 @@ window.VacationAPI.add({
                           }
                         >
                           🔄 순번 정리
-                        </span>
+                        </button>
                       )}
                     </div>
                     {!isMidManager && (
