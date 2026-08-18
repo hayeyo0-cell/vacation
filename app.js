@@ -2911,53 +2911,69 @@ window.VacationAPI.add({
       setManagerSaving(false);
     });
 };
-  // "대상자 미정"으로 먼저 등록해둔 기록에, 나중에 실제 사람을 배정해요.
+  // "대상자 미정"으로 먼저 등록해둔 기록에, 나중에 실제 사람+DIA를 같이 배정해요.
   // employeeId는 보안규칙상 수정이 안 돼서, 기존 기록을 지우고 그 내용 그대로 새로 등록하는 방식이에요.
   const [assigningRecordId, setAssigningRecordId] = useState(null);
-  const handleAssignUnassignedRecord = (record, targetId) => {
-  const target = branchAllEmployees.find((e) => e.id === targetId);
-  if (!target) return;
+  const [assignPersonId, setAssignPersonId] = useState("");
+  const [assignDia, setAssignDia] = useState("");
 
-  if (!confirm(`이 기록에 ${target.name}님을 배정할까요?`)) return;
+  // 선택한 직원의 그 날짜 원래(평소) 교번을 자동으로 계산 - DIA 기본값 채워주기용
+  const codeForEmployeeOnDate = (empId, dateStr) => {
+    const emp = branchAllEmployees.find((e) => e.id === empId);
+    const teamKey = REVERSE_TEAM_MAP[currentUser.branch];
+    const order = GYOBUN_ORDER[teamKey] || [];
+    if (!emp || !BASE_DATE || !emp.baseCode || !order.length) return "";
+    const offset = diffDays_(BASE_DATE, dateStr);
+    return shiftCodeByDays_(order, emp.baseCode, offset);
+  };
 
-  // ★ 선택한 직원의 해당 날짜 실제 DIA를 계산
-  const assignedDia = codeForEmployeeOnDate(
-    target.id,
-    record.date
-  );
+  const startAssigning = (record) => {
+    setAssigningRecordId(record.id);
+    setAssignPersonId("");
+    setAssignDia("");
+  };
 
-  window.VacationAPI.remove(record.id)
-    .then(() =>
-      window.VacationAPI.add({
-        name: target.name,
-        branch: currentUser.branch,
-        employeeId: target.id,
-        vacationType: record.vacationType,
+  const handleAssignPersonSelect = (record, personId) => {
+    setAssignPersonId(personId);
+    // 사람을 고르면, 그 사람의 그날 원래 교번을 DIA 기본값으로 자동으로 채워줘요 (원하면 아래에서 바꿀 수 있어요)
+    const autoDia = personId ? codeForEmployeeOnDate(personId, record.date) : "";
+    setAssignDia(autoDia || "");
+  };
 
-        // ★ 기존 record.dia("미지정")를 사용하지 않음
-        // ★ 선택한 사람의 해당 날짜 DIA를 사용
-        dia: assignedDia || "미지정",
+  const handleConfirmAssign = (record) => {
+    const target = branchAllEmployees.find((e) => e.id === assignPersonId);
+    if (!target) {
+      alert("사람을 선택해주세요");
+      return;
+    }
+    if (!assignDia.trim()) {
+      alert("DIA를 선택해주세요");
+      return;
+    }
+    if (!confirm(`${target.name}님 / ${assignDia}(으)로 배정할까요?`)) return;
 
-        date: record.date,
-        recordedBy: currentUser.name,
-
-        ...(record.note
-          ? { note: record.note }
-          : {}),
+    window.VacationAPI.remove(record.id)
+      .then(() =>
+        window.VacationAPI.add({
+          name: target.name,
+          branch: currentUser.branch,
+          employeeId: target.id,
+          vacationType: record.vacationType,
+          dia: assignDia.trim(),
+          date: record.date,
+          recordedBy: currentUser.name,
+          ...(record.note ? { note: record.note } : {}),
+        })
+      )
+      .then(() => {
+        setAssigningRecordId(null);
+        setAssignPersonId("");
+        setAssignDia("");
+        loadMonth(viewYear, viewMonth);
       })
-    )
-    .then(() => {
-      setAssigningRecordId(null);
-      loadMonth(viewYear, viewMonth);
-    })
-    .catch((err) => {
-      console.error(err);
-      alert(
-        "배정에 실패했어요: " +
-        (err && err.message
-          ? err.message
-          : err)
-      );
+      .catch((err) => {
+        console.error(err);
+        alert("배정에 실패했어요: " + (err && err.message ? err.message : err));
     });
 };
 
@@ -3715,26 +3731,61 @@ window.VacationAPI.add({
                                 </div>
                                 {v.unassigned && isMidManager && (
                                   assigningRecordId === v.id ? (
-                                    <select
-                                      value=""
-                                      onChange={(e) => {
-                                        if (e.target.value) handleAssignUnassignedRecord(v, e.target.value);
+                                    <div
+                                      style={{
+                                        marginTop: "4px",
+                                        padding: "8px",
+                                        background: "#fff7e6",
+                                        border: "1px solid #f5cf7a",
+                                        borderRadius: "8px",
+                                        display: "flex",
+                                        flexDirection: "column",
+                                        gap: "4px",
+                                        maxWidth: "150px",
                                       }}
-                                      onBlur={() => setAssigningRecordId(null)}
-                                      style={{ fontSize: "11px", padding: "2px", maxWidth: "100px", marginTop: "2px" }}
-                                      autoFocus
                                     >
-                                      <option value="">사람 선택</option>
-                                      {[...branchAllEmployees]
-                                        .sort((a, b) => a.name.localeCompare(b.name, "ko"))
-                                        .map((emp) => (
-                                          <option key={emp.id} value={emp.id}>{emp.name}</option>
+                                      <select
+                                        value={assignPersonId}
+                                        onChange={(e) => handleAssignPersonSelect(v, e.target.value)}
+                                        style={{ fontSize: "11px", padding: "3px" }}
+                                        autoFocus
+                                      >
+                                        <option value="">사람 선택</option>
+                                        {[...branchAllEmployees]
+                                          .sort((a, b) => a.name.localeCompare(b.name, "ko"))
+                                          .map((emp) => (
+                                            <option key={emp.id} value={emp.id}>{emp.name}</option>
+                                          ))}
+                                      </select>
+                                      <select
+                                        value={assignDia}
+                                        onChange={(e) => setAssignDia(e.target.value)}
+                                        style={{ fontSize: "11px", padding: "3px" }}
+                                      >
+                                        <option value="">DIA 선택</option>
+                                        {managerBranchCodes.map((c) => (
+                                          <option key={c} value={c}>{c}</option>
                                         ))}
-                                    </select>
+                                      </select>
+                                      <div style={{ display: "flex", gap: "4px" }}>
+                                        <button
+                                          style={{ ...modal.smallCancelBtn, margin: 0, flex: 1, color: "#1caa5c" }}
+                                          onClick={() => handleConfirmAssign(v)}
+                                        >
+                                          확정
+                                        </button>
+                                        <button
+                                          style={{ ...modal.smallCancelBtn, margin: 0, flex: 1 }}
+                                          onClick={() => setAssigningRecordId(null)}
+                                        >
+                                          취소
+                                        </button>
+                                      </div>
+                                    </div>
                                   ) : (
                                     <span
                                       style={{ fontSize: "11px", color: "#e08a20", textDecoration: "underline", cursor: "pointer" }}
-                                      onClick={() => setAssigningRecordId(v.id)}
+                                      onClick={() => startAssigning(v)}
                                     >
                                       배정하기
                                     </span>
@@ -3749,7 +3800,7 @@ window.VacationAPI.add({
                               <td style={{ ...tbl.td, textAlign: "left" }}>
                                 {v.vacationType}
                               </td>
-                              <td style={{ ...tbl.td, fontWeight: 700, color: "#1b3a5c" }}>{v.dia}</td>
+                              <td style={{ ...tbl.td, fontWeight: 700, color: v.unassigned ? "#e08a20" : "#1b3a5c" }}>{v.dia}</td>
                               <td style={{ ...tbl.td, textAlign: "left" }}>
                                 {cancelled ? (
                                   "-"
