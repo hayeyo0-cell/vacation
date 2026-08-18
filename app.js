@@ -2128,6 +2128,7 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
   const [managerFormDia, setManagerFormDia] = useState("");
   const [managerFormNote, setManagerFormNote] = useState("");
   const [managerFormOtherReason, setManagerFormOtherReason] = useState(""); // "기타" 선택 시 사유
+  const [managerFormUnassigned, setManagerFormUnassigned] = useState(false); // 대상자 미정으로 먼저 등록
   const [managerSaving, setManagerSaving] = useState(false);
   // 휴충당 신청 (경산 전용) - 본인 교번이 "휴"로 시작하는 날짜에 한해, 언제든 신청 가능.
   // 상태는 "신청중"/"취소됨" 두 가지만 써요. 확정 처리는 별도의 "휴충당 신청 현황" 달력에서 운용이 처리해요.
@@ -2833,6 +2834,7 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
     setManagerFormDia("");
     setManagerFormNote("");
     setManagerFormOtherReason("");
+    setManagerFormUnassigned(false);
     setShowManagerForm(true);
   };
 
@@ -2840,7 +2842,7 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
 
   const handleSubmitManagerRecord = () => {
     const target = branchAllEmployees.find((e) => e.id === managerTargetId);
-    if (!target) {
+    if (!managerFormUnassigned && !target) {
       alert("대상자를 선택해주세요");
       return;
     }
@@ -2856,13 +2858,14 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
       managerFormType === "기타" ? `기타: ${managerFormOtherReason.trim()}` : managerFormType;
     setManagerSaving(true);
     window.VacationAPI.add({
-      name: target.name,
-      branch: target.branch,
-      employeeId: target.id,
+      name: managerFormUnassigned ? "(미정)" : target.name,
+      branch: currentUser.branch,
+      employeeId: managerFormUnassigned ? "" : target.id,
       vacationType: finalVacationType,
       dia: managerFormDia.trim(),
       date: selectedDate,
       recordedBy: currentUser.name,
+      ...(managerFormUnassigned ? { unassigned: true } : {}),
       ...(managerFormNote.trim() ? { note: managerFormNote.trim() } : {}),
     })
       .then(() => {
@@ -2874,6 +2877,36 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
         alert("등록에 실패했어요: " + (err && err.message ? err.message : err));
       })
       .finally(() => setManagerSaving(false));
+  };
+
+  // "대상자 미정"으로 먼저 등록해둔 기록에, 나중에 실제 사람을 배정해요.
+  // employeeId는 보안규칙상 수정이 안 돼서, 기존 기록을 지우고 그 내용 그대로 새로 등록하는 방식이에요.
+  const [assigningRecordId, setAssigningRecordId] = useState(null);
+  const handleAssignUnassignedRecord = (record, targetId) => {
+    const target = branchAllEmployees.find((e) => e.id === targetId);
+    if (!target) return;
+    if (!confirm(`이 기록에 ${target.name}님을 배정할까요?`)) return;
+    window.VacationAPI.remove(record.id)
+      .then(() =>
+        window.VacationAPI.add({
+          name: target.name,
+          branch: currentUser.branch,
+          employeeId: target.id,
+          vacationType: record.vacationType,
+          dia: record.dia,
+          date: record.date,
+          recordedBy: currentUser.name,
+          ...(record.note ? { note: record.note } : {}),
+        })
+      )
+      .then(() => {
+        setAssigningRecordId(null);
+        loadMonth(viewYear, viewMonth);
+      })
+      .catch((err) => {
+        console.error(err);
+        alert("배정에 실패했어요: " + (err && err.message ? err.message : err));
+      });
   };
 
   const touchStartX = useRef(null);
@@ -3044,7 +3077,9 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
                     >
                       <td style={{ ...tbl.td, padding: "6px 3px" }}>{v.priority != null ? v.priority : idx + 1}</td>
                       <td style={{ ...tbl.td, textAlign: "left", padding: "6px 3px" }}>
-                        {TYPE_ICON[v.vacationType] || "📌"} {v.name}
+                        <span style={{ color: v.unassigned ? "#e08a20" : undefined, fontWeight: v.unassigned ? 700 : undefined }}>
+                          {v.unassigned ? "🔔" : TYPE_ICON[v.vacationType] || "📌"} {v.name}
+                        </span>
                       </td>
                       <td style={{ ...tbl.td, textAlign: "left", padding: "6px 3px" }}>{v.vacationType}</td>
                       <td style={{ ...tbl.td, fontWeight: 700, color: "#1b3a5c", padding: "6px 3px" }}>{v.dia}</td>
@@ -3328,20 +3363,38 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
                 <div style={{ ...modal.countText, marginBottom: "20px" }}>중간관리자({currentUser.name}) 기록</div>
 
                 <div style={modal.formRow}>
-                  <label style={modal.label}>대상자</label>
-                  <select
-                    style={modal.input}
-                    value={managerTargetId}
-                    onChange={(e) => setManagerTargetId(e.target.value)}
+                  <label
+                    style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px", color: "#555", marginBottom: "8px", cursor: "pointer" }}
                   >
-                    <option value="">이름 선택</option>
-                    {[...branchAllEmployees]
-                      .sort((a, b) => a.name.localeCompare(b.name, "ko"))
-                      .map((emp) => (
-                        <option key={emp.id} value={emp.id}>{emp.name}</option>
-                      ))}
-                  </select>
+                    <input
+                      type="checkbox"
+                      checked={managerFormUnassigned}
+                      onChange={(e) => {
+                        setManagerFormUnassigned(e.target.checked);
+                        if (e.target.checked) setManagerTargetId("");
+                      }}
+                    />
+                    대상자 미정으로 먼저 등록 (시운전 등 - 나중에 사람 배정)
+                  </label>
                 </div>
+
+                {!managerFormUnassigned && (
+                  <div style={modal.formRow}>
+                    <label style={modal.label}>대상자</label>
+                    <select
+                      style={modal.input}
+                      value={managerTargetId}
+                      onChange={(e) => setManagerTargetId(e.target.value)}
+                    >
+                      <option value="">이름 선택</option>
+                      {[...branchAllEmployees]
+                        .sort((a, b) => a.name.localeCompare(b.name, "ko"))
+                        .map((emp) => (
+                          <option key={emp.id} value={emp.id}>{emp.name}</option>
+                        ))}
+                    </select>
+                  </div>
+                )}
 
                 <div style={modal.formRow}>
                   <label style={modal.label}>휴가명</label>
@@ -3605,9 +3658,36 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
                                 )}
                               </td>
                               <td style={{ ...tbl.td, textAlign: "left" }}>
-                                <div style={{ fontWeight: 700, fontSize: "13px" }}>
-                                  {TYPE_ICON[v.vacationType] || "📌"} {v.name}
+                                <div style={{ fontWeight: 700, fontSize: "13px", color: v.unassigned ? "#e08a20" : undefined }}>
+                                  {v.unassigned ? "🔔" : TYPE_ICON[v.vacationType] || "📌"} {v.name}
                                 </div>
+                                {v.unassigned && isMidManager && (
+                                  assigningRecordId === v.id ? (
+                                    <select
+                                      value=""
+                                      onChange={(e) => {
+                                        if (e.target.value) handleAssignUnassignedRecord(v, e.target.value);
+                                      }}
+                                      onBlur={() => setAssigningRecordId(null)}
+                                      style={{ fontSize: "11px", padding: "2px", maxWidth: "100px", marginTop: "2px" }}
+                                      autoFocus
+                                    >
+                                      <option value="">사람 선택</option>
+                                      {[...branchAllEmployees]
+                                        .sort((a, b) => a.name.localeCompare(b.name, "ko"))
+                                        .map((emp) => (
+                                          <option key={emp.id} value={emp.id}>{emp.name}</option>
+                                        ))}
+                                    </select>
+                                  ) : (
+                                    <span
+                                      style={{ fontSize: "11px", color: "#e08a20", textDecoration: "underline", cursor: "pointer" }}
+                                      onClick={() => setAssigningRecordId(v.id)}
+                                    >
+                                      배정하기
+                                    </span>
+                                  )
+                                )}
                                 {v.createdAt && (
                                   <div style={{ fontSize: "12px", color: "#333" }}>
                                     {formatEntryTime(v.createdAt, v.createdAtDateOnly)}
