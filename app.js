@@ -2841,44 +2841,93 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
   const branchAllEmployees = employees.filter((e) => e.branch === currentUser.branch);
 
   const handleSubmitManagerRecord = () => {
-    const target = branchAllEmployees.find((e) => e.id === managerTargetId);
-    if (!managerFormUnassigned && !target) {
-      alert("대상자를 선택해주세요");
-      return;
-    }
-    if (!managerFormDia.trim()) {
-      alert("DIA를 입력해주세요");
-      return;
-    }
-    if (managerFormType === "기타" && !managerFormOtherReason.trim()) {
-      alert("기타 사유를 입력해주세요");
-      return;
-    }
-    const finalVacationType =
-      managerFormType === "기타" ? `기타: ${managerFormOtherReason.trim()}` : managerFormType;
-    setManagerSaving(true);
-    window.VacationAPI.add({
-      name: managerFormUnassigned ? "(미정)" : target.name,
-      branch: currentUser.branch,
-      employeeId: managerFormUnassigned ? "" : target.id,
-      vacationType: finalVacationType,
-      dia: managerFormDia.trim(),
-      date: selectedDate,
-      recordedBy: currentUser.name,
-      ...(managerFormUnassigned ? { unassigned: true } : {}),
-      ...(managerFormNote.trim() ? { note: managerFormNote.trim() } : {}),
-    })
-      .then(() => {
-        setShowManagerForm(false);
-        loadMonth(viewYear, viewMonth);
-      })
-      .catch((err) => {
-        console.error(err);
-        alert("등록에 실패했어요: " + (err && err.message ? err.message : err));
-      })
-      .finally(() => setManagerSaving(false));
-  };
+  const target = branchAllEmployees.find(
+    (e) => e.id === managerTargetId
+  );
 
+  // 대상자를 지정하는 경우에만 대상자 선택 확인
+  if (!managerFormUnassigned && !target) {
+    alert("대상자를 선택해주세요");
+    return;
+  }
+
+  // 대상자 미정이면 DIA도 미지정으로 자동 처리
+  // 대상자가 지정된 경우에는 DIA 선택 필수
+  if (!managerFormUnassigned && !managerFormDia.trim()) {
+    alert("DIA를 입력해주세요");
+    return;
+  }
+
+  // 기타 선택 시 기타 사유 필수
+  if (
+    managerFormType === "기타" &&
+    !managerFormOtherReason.trim()
+  ) {
+    alert("기타 사유를 입력해주세요");
+    return;
+  }
+
+  const finalVacationType =
+    managerFormType === "기타"
+      ? `기타: ${managerFormOtherReason.trim()}`
+      : managerFormType;
+
+  // 대상자 미정이면 이름 = 미지정
+  const finalName = managerFormUnassigned
+    ? "미지정"
+    : target.name;
+
+  // 대상자 미정이면 DIA = 미지정
+  const finalDia = managerFormUnassigned
+    ? "미지정"
+    : managerFormDia.trim();
+
+  setManagerSaving(true);
+
+  window.VacationAPI.add({
+    name: finalName,
+    branch: currentUser.branch,
+
+    // 대상자 미정이면 직원 ID 없음
+    employeeId: managerFormUnassigned
+      ? ""
+      : target.id,
+
+    vacationType: finalVacationType,
+
+    // 대상자 미정이면 DIA도 미지정
+    dia: finalDia,
+
+    date: selectedDate,
+
+    recordedBy: currentUser.name,
+
+    ...(managerFormUnassigned
+      ? { unassigned: true }
+      : {}),
+
+    ...(managerFormNote.trim()
+      ? { note: managerFormNote.trim() }
+      : {}),
+  })
+    .then(() => {
+      setShowManagerForm(false);
+      loadMonth(viewYear, viewMonth);
+    })
+    .catch((err) => {
+      console.error(err);
+
+      alert(
+        "등록에 실패했어요: " +
+        (err && err.message
+          ? err.message
+          : err)
+      );
+    })
+    .finally(() => {
+      setManagerSaving(false);
+    });
+};
   // "대상자 미정"으로 먼저 등록해둔 기록에, 나중에 실제 사람을 배정해요.
   // employeeId는 보안규칙상 수정이 안 돼서, 기존 기록을 지우고 그 내용 그대로 새로 등록하는 방식이에요.
   const [assigningRecordId, setAssigningRecordId] = useState(null);
