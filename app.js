@@ -2854,62 +2854,42 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
   // 대상자 미정이면 DIA도 미지정으로 자동 처리
   // 대상자가 지정된 경우에는 DIA 선택 필수
   if (!managerFormUnassigned && !managerFormDia.trim()) {
-    alert("DIA를 입력해주세요");
-    return;
-  }
+  alert("DIA를 입력해주세요");
+  return;
+}
 
-  // 기타 선택 시 기타 사유 필수
-  if (
-    managerFormType === "기타" &&
-    !managerFormOtherReason.trim()
-  ) {
-    alert("기타 사유를 입력해주세요");
-    return;
-  }
+if (managerFormType === "기타" && !managerFormOtherReason.trim()) {
+  alert("기타 사유를 입력해주세요");
+  return;
+}
 
-  const finalVacationType =
-    managerFormType === "기타"
-      ? `기타: ${managerFormOtherReason.trim()}`
-      : managerFormType;
+const finalVacationType =
+  managerFormType === "기타"
+    ? `기타: ${managerFormOtherReason.trim()}`
+    : managerFormType;
 
-  // 대상자 미정이면 이름 = 미지정
-  const finalName = managerFormUnassigned
-    ? "미지정"
-    : target.name;
+// 대상자 미정이면 이름과 DIA 모두 미지정
+const finalName = managerFormUnassigned
+  ? "미지정"
+  : target.name;
 
-  // 대상자 미정이면 DIA = 미지정
-  const finalDia = managerFormUnassigned
-    ? "미지정"
-    : managerFormDia.trim();
+const finalDia = managerFormUnassigned
+  ? "미지정"
+  : managerFormDia.trim();
 
-  setManagerSaving(true);
+setManagerSaving(true);
 
-  window.VacationAPI.add({
-    name: finalName,
-    branch: currentUser.branch,
-
-    // 대상자 미정이면 직원 ID 없음
-    employeeId: managerFormUnassigned
-      ? ""
-      : target.id,
-
-    vacationType: finalVacationType,
-
-    // 대상자 미정이면 DIA도 미지정
-    dia: finalDia,
-
-    date: selectedDate,
-
-    recordedBy: currentUser.name,
-
-    ...(managerFormUnassigned
-      ? { unassigned: true }
-      : {}),
-
-    ...(managerFormNote.trim()
-      ? { note: managerFormNote.trim() }
-      : {}),
-  })
+window.VacationAPI.add({
+  name: finalName,
+  branch: currentUser.branch,
+  employeeId: managerFormUnassigned ? "" : target.id,
+  vacationType: finalVacationType,
+  dia: finalDia,
+  date: selectedDate,
+  recordedBy: currentUser.name,
+  ...(managerFormUnassigned ? { unassigned: true } : {}),
+  ...(managerFormNote.trim() ? { note: managerFormNote.trim() } : {}),
+})
     .then(() => {
       setShowManagerForm(false);
       loadMonth(viewYear, viewMonth);
