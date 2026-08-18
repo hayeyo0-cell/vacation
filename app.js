@@ -1463,6 +1463,35 @@ function isCapacityType(type) {
   return CAPACITY_TYPES.includes(type);
 }
 
+// 삭제/취소 등으로 생긴 순번 구멍을 없애기 위해, 특정 날짜의 남은 보장휴가 순번을 1번부터 다시 매김
+// (여러 화면에서 같이 쓰는 공용 함수라 모듈 레벨에 둠 - MainScreen, MyVacationsPanel 등)
+function renumberDayPriorities_(dateStr, branch, onDone) {
+  window.VacationAPI.getByDate(dateStr)
+    .then((records) => {
+      const capacityActive = (records || [])
+        .filter((v) => v.branch === branch && v.status !== "취소됨" && isCapacityType(v.vacationType))
+        .sort((a, b) => {
+          const pa = a.priority != null ? a.priority : Infinity;
+          const pb = b.priority != null ? b.priority : Infinity;
+          if (pa !== pb) return pa - pb;
+          return (a.name || "").localeCompare(b.name || "");
+        });
+      const updates = [];
+      capacityActive.forEach((v, idx) => {
+        const newPriority = idx + 1;
+        if (v.priority !== newPriority) {
+          updates.push(window.VacationAPI.update(v.id, { priority: newPriority }));
+        }
+      });
+      return Promise.all(updates).then(() => window.VacationAPI.getByDate(dateStr));
+    })
+    .then((freshRecords) => {
+      if (freshRecords && onDone) onDone(freshRecords);
+    })
+    .catch((err) => console.error("순번 재정렬 실패:", err));
+}
+
+
 // 보장휴가(연차·분지 등)를 순번(priority) 순서로 먼저, 미보장(청휴·병가·노조 등)은 그 아래로 정렬 - 여러 곳에서 재사용
 function sortRecordsForDisplay(records) {
   return [...records].sort((a, b) => {
@@ -2584,6 +2613,10 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
         );
         return next;
       });
+      // 취소로 순번에 구멍이 생기니, 남은 보장휴가 기록들 순번을 1번부터 다시 매겨요
+      if (isCapacityType(record.vacationType)) {
+        renumberDayPriorities(record.date || selectedDate, record.branch);
+      }
       // 야간/비번 짝이 있으면 반대쪽도 같이 취소
       cancelNightPairIfAny(record, () => loadMonth(viewYear, viewMonth));
     });
@@ -2637,32 +2670,11 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
       .catch((err) => alert("메모 저장 실패: " + (err && err.message ? err.message : err)));
   };
 
-  // 삭제 등으로 생긴 순번 구멍을 없애기 위해, 특정 날짜의 남은 보장휴가 순번을 1번부터 다시 매김
+  // 삭제/취소 등으로 생긴 순번 구멍 정리 - 공용 함수를 불러다 쓰고, 화면(monthMap) 갱신만 여기서 해요
   const renumberDayPriorities = (dateStr, branch) => {
-    window.VacationAPI.getByDate(dateStr)
-      .then((records) => {
-        const capacityActive = (records || [])
-          .filter((v) => v.branch === branch && v.status !== "취소됨" && isCapacityType(v.vacationType))
-          .sort((a, b) => {
-            const pa = a.priority != null ? a.priority : Infinity;
-            const pb = b.priority != null ? b.priority : Infinity;
-            if (pa !== pb) return pa - pb;
-            return (a.name || "").localeCompare(b.name || "");
-          });
-        const updates = [];
-        capacityActive.forEach((v, idx) => {
-          const newPriority = idx + 1;
-          if (v.priority !== newPriority) {
-            updates.push(window.VacationAPI.update(v.id, { priority: newPriority }));
-          }
-        });
-        return Promise.all(updates).then(() => window.VacationAPI.getByDate(dateStr));
-      })
-      .then((freshRecords) => {
-        if (!freshRecords) return;
-        setMonthMap((prev) => ({ ...prev, [dateStr]: freshRecords }));
-      })
-      .catch((err) => console.error("순번 재정렬 실패:", err));
+    renumberDayPriorities_(dateStr, branch, (freshRecords) => {
+      setMonthMap((prev) => ({ ...prev, [dateStr]: freshRecords }));
+    });
   };
 
   const handleAdminDelete = (record) => {
@@ -4520,6 +4532,10 @@ function MyVacationsPanel({ currentUser, onClose, employees }) {
     if (!confirm(`${record.date} ${record.vacationType} 기록을 취소할까요?`)) return;
     window.VacationAPI.cancel(record.id).then(() => {
       setList((prev) => prev.map((v) => (v.id === record.id ? { ...v, status: "취소됨" } : v)));
+      // 취소로 순번에 구멍이 생기니, 같은 날짜의 남은 보장휴가 기록들 순번을 다시 매겨요
+      if (isCapacityType(record.vacationType)) {
+        renumberDayPriorities_(record.date, record.branch);
+      }
       // 야간/비번 짝이 있으면 반대쪽도 같이 취소 (이 목록에 있으면 화면도 같이 갱신)
       cancelNightPairIfAny(record, (pairRecord) => {
         setList((prev) =>
