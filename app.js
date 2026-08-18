@@ -2604,8 +2604,7 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
   const handleCancel = (record) => {
     if (!confirm(`${record.name}님의 ${record.vacationType} 기록을 취소할까요?`)) return;
     window.VacationAPI.cancel(record.id).then(() => {
-      loadMonth(viewYear, viewMonth);
-      // 모달 내 목록도 즉시 갱신
+      // 모달 내 목록에 즉시 "취소됨" 표시 (순번 재정렬 전, 빠른 화면 반응용)
       setMonthMap((prev) => {
         const next = { ...prev };
         next[selectedDate] = (next[selectedDate] || []).map((v) =>
@@ -2613,12 +2612,20 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
         );
         return next;
       });
-      // 취소로 순번에 구멍이 생기니, 남은 보장휴가 기록들 순번을 1번부터 다시 매겨요
+      // 순번 재정렬이 다 끝난 뒤에 최종 새로고침해야 화면이랑 실제 값이 어긋나지 않아요.
+      // (재정렬 도중에 loadMonth를 같이 돌리면, 둘 중 늦게 끝나는 쪽이 서로 결과를 덮어써서 꼬여요)
+      const finishUp = () => {
+        loadMonth(viewYear, viewMonth);
+        cancelNightPairIfAny(record, () => loadMonth(viewYear, viewMonth));
+      };
       if (isCapacityType(record.vacationType)) {
-        renumberDayPriorities(record.date || selectedDate, record.branch);
+        renumberDayPriorities_(record.date || selectedDate, record.branch, (freshRecords) => {
+          setMonthMap((prev) => ({ ...prev, [record.date || selectedDate]: freshRecords }));
+          finishUp();
+        });
+      } else {
+        finishUp();
       }
-      // 야간/비번 짝이 있으면 반대쪽도 같이 취소
-      cancelNightPairIfAny(record, () => loadMonth(viewYear, viewMonth));
     });
   };
 
