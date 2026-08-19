@@ -113,12 +113,13 @@
       const snap = await getDocs(collection(db, COLLECTION));
       return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     },
-    subscribeRange(startStr, endStr, callback) {
-      const q = query(
-        collection(db, COLLECTION),
+    subscribeRange(startStr, endStr, branch, callback) {
+      const constraints = [
         where("date", ">=", startStr),
-        where("date", "<=", endStr)
-      );
+        where("date", "<=", endStr),
+      ];
+      if (branch) constraints.push(where("branch", "==", branch));
+      const q = query(collection(db, COLLECTION), ...constraints);
       return onSnapshot(
         q,
         (snap) => {
