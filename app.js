@@ -20,13 +20,13 @@ const VACATION_API_URL =
 const IMPORT_FROM_DATE = "2026-07-01";
 
 // 자동 백업 주기 - 마지막 백업 이후 이 시간이 지나면 관리자/운용이 앱을 열 때 자동으로 백업돼요.
-const BACKUP_INTERVAL_MS = 3 * 24 * 60 * 60 * 1000; // 3일
+const BACKUP_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000; // 1주일
 // 서버 스케줄러가 없어서 "정확히 몇 시"는 보장 못 하지만, 이 시간대(한국시간)에 누군가 앱을
 // 열면 그때 우선 백업을 실행해요 (사람이 안 쓰는 새벽 시간대를 노려서 조용히 실행하려는 목적).
 const BACKUP_PREFERRED_HOUR_START = 1; // 새벽 1시부터
 const BACKUP_PREFERRED_HOUR_END = 4; // 새벽 4시까지 (이 시각 전까지)
 // 그 시간대에 아무도 접속을 안 해서 계속 못 돌면, 이만큼 밀렸을 때는 시간 상관없이 강제로 실행해요
-const BACKUP_FORCE_OVERDUE_MS = 4 * 24 * 60 * 60 * 1000; // 4일
+const BACKUP_FORCE_OVERDUE_MS = 9 * 24 * 60 * 60 * 1000; // 9일 (1주일 + 여유 2일)
 
 // 밴드 채팅방 바로가기 (경산승무팀)
 const BAND_URL = "https://band.us/band/51746678/chat/C4U1ay";
@@ -2258,10 +2258,10 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
       .catch((err) => console.error("확인 대기 알림 조회 실패:", err));
   }, [currentUser.id]);
 
-  // 3일 1회 자동 백업 - 관리자/운용이 앱을 열 때마다 확인해서, 마지막 백업 이후 3일(BACKUP_INTERVAL_MS)이
+  // 1주일 1회 자동 백업 - 관리자/운용이 앱을 열 때마다 확인해서, 마지막 백업 이후 1주일(BACKUP_INTERVAL_MS)이
   // 지났으면 그 시점에 전체 휴가 데이터를 스프레드시트("앱_자동백업" 탭)로 백업해요. 서버 스케줄러가
   // 없는 구조라 "누군가 앱을 열 때 확인"하는 방식이에요. 새벽 1~4시(한국시간)에 누군가 접속하면
-  // 그때 우선 실행하고, 그 시간대를 계속 못 만나서 4일 이상 밀리면 시간 상관없이 강제 실행해요.
+  // 그때 우선 실행하고, 그 시간대를 계속 못 만나서 9일 이상 밀리면 시간 상관없이 강제 실행해요.
   // ⚠️ 앱을 켜자마자 바로 실행하지 않고, 초기 화면(교번 등)이 다 자리잡은 뒤(15초 후)로 늦춰서
   // 실행해요 - 교번 데이터는 이제 별도 캐시로 즉시 뜨긴 하지만, 혹시 모를 자원 경합을 피하려고요.
   useEffect(() => {
@@ -2272,7 +2272,7 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
         .then((meta) => {
           const lastMs = meta?.lastBackupAt?.toMillis ? meta.lastBackupAt.toMillis() : 0;
           const overdueMs = Date.now() - lastMs;
-          if (overdueMs < BACKUP_INTERVAL_MS) return null; // 아직 3일 안 지남
+          if (overdueMs < BACKUP_INTERVAL_MS) return null; // 아직 1주일 안 지남
           const hour = koreaCurrentHour();
           const isPreferredWindow = hour >= BACKUP_PREFERRED_HOUR_START && hour < BACKUP_PREFERRED_HOUR_END;
           const isForceOverdue = overdueMs >= BACKUP_FORCE_OVERDUE_MS;
