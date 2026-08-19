@@ -2398,36 +2398,15 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
       .finally(() => setLoading(false));
   }, [currentUser.branch]);
 
-  // 보고 있는 달의 데이터를 실시간으로 구독 - 다른 사람이 신청/취소/확인하면 화면이 자동으로 갱신돼요
+  // 보고 있는 달이 바뀌거나(월 이동) 소속이 바뀌면(고스트모드 전환) 한 번만 다시 불러와요.
+  // (예전엔 실시간 구독(onSnapshot)이었는데, 무료 읽기 한도를 최대한 아끼려고
+  //  "켜놓은 동안 계속 감시"가 아니라 "필요할 때 한 번 조회"로 되돌렸어요.
+  //  다른 사람이 그 사이에 신청/취소해도 자동으로는 안 보이고, 화면을 나갔다 들어오거나
+  //  월을 넘겼다 다시 돌아오거나, 새로고침하면 그때 최신 상태로 반영돼요.
+  //  본인이 직접 신청/취소/확인한 건 각 처리 함수에서 즉시 화면에 반영하니 이 effect와 무관해요.)
   useEffect(() => {
-    let unsubscribe = null;
-    let cancelled = false;
-    setLoading(true);
-    const start = `${viewYear}-${pad2(viewMonth + 1)}-01`;
-    const lastDay = new Date(viewYear, viewMonth + 1, 0).getDate();
-    const end = `${viewYear}-${pad2(viewMonth + 1)}-${pad2(lastDay)}`;
-
-    waitForFirestore().then(() => {
-      if (cancelled) return;
-      unsubscribe = window.VacationAPI.subscribeRange(start, end, currentUser.branch, (list) => {
-        const map = {};
-        list.forEach((v) => {
-          if (!map[v.date]) map[v.date] = [];
-          map[v.date].push(v);
-        });
-        Object.values(map).forEach((arr) =>
-          arr.sort((a, b) => (a.name || "").localeCompare(b.name || ""))
-        );
-        setMonthMap(map);
-        setLoading(false);
-      });
-    });
-
-    return () => {
-      cancelled = true;
-      if (unsubscribe) unsubscribe();
-    };
-  }, [viewYear, viewMonth, currentUser.branch]);
+    loadMonth(viewYear, viewMonth);
+  }, [viewYear, viewMonth, currentUser.branch, loadMonth]);
 
   const changeMonth = (delta) => {
     let y = viewYear;
