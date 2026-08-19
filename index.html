@@ -104,7 +104,12 @@
       const snap = await getDocs(q);
       return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     },
-    async getAll() {
+    async getAll(branch) {
+      if (branch) {
+        const q = query(collection(db, COLLECTION), where("branch", "==", branch));
+        const snap = await getDocs(q);
+        return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      }
       const snap = await getDocs(collection(db, COLLECTION));
       return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     },
