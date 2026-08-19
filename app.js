@@ -1830,7 +1830,6 @@ function gyeongsanColor(remain) {
   if (remain === 1) return "#f5a623";
   return "#1caa5c";
 }
-
 const TYPE_ICON = {
   // 보장인원 포함
   연차: "🏖️",
@@ -2659,19 +2658,24 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
         );
         return next;
       });
-      // 순번 재정렬이 다 끝난 뒤에 최종 새로고침해야 화면이랑 실제 값이 어긋나지 않아요.
-      // (재정렬 도중에 loadMonth를 같이 돌리면, 둘 중 늦게 끝나는 쪽이 서로 결과를 덮어써서 꼬여요)
-      const finishUp = () => {
-        loadMonth(viewYear, viewMonth);
-        cancelNightPairIfAny(record, () => loadMonth(viewYear, viewMonth));
-      };
+      // 야간/비번 짝이 있으면 반대쪽도 같이 취소돼요 - 짝이 있는 그 날짜만 콕 집어서 화면에 반영해요
+      // (예전엔 여기서 달 전체를 다시 읽어왔는데, 짝 기록 하나 상태 바꾸는 데 그럴 필요가 없어요)
+      cancelNightPairIfAny(record, (pairRecord) => {
+        setMonthMap((prev) => {
+          const next = { ...prev };
+          const pairDate = pairRecord.date;
+          next[pairDate] = (next[pairDate] || []).map((v) =>
+            v.id === pairRecord.id ? { ...v, status: "취소됨" } : v
+          );
+          return next;
+        });
+      });
+      // 보장휴가면 그날 순번을 다시 매겨야 해요 - renumberDayPriorities_가 그 날짜 기록만
+      // 다시 읽어와서 monthMap에 반영해줘요 (역시 달 전체를 다시 읽을 필요 없음)
       if (isCapacityType(record.vacationType)) {
         renumberDayPriorities_(record.date || selectedDate, record.branch, (freshRecords) => {
           setMonthMap((prev) => ({ ...prev, [record.date || selectedDate]: freshRecords }));
-          finishUp();
         });
-      } else {
-        finishUp();
       }
     });
   };
@@ -2748,38 +2752,77 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
     const companionType = NIGHT_COMPANION_TYPE_MAP[formType];
     const shouldAddCompanion =
       isNightFormEntry && companionType && nextDateStr && isCapacityType(formType);
+    const companionDocId = shouldAddCompanion ? `${currentUser.id}_${nextDateStr}` : null;
+    const savedDia = formDia.trim();
+    let companionSaved = false;
 
     window.VacationAPI.addOnce(docId, {
       name: currentUser.name,
       branch: currentUser.branch,
       employeeId: currentUser.id,
       vacationType: formType,
-      dia: formDia.trim(),
+      dia: savedDia,
       date: selectedDate,
       ...(priority != null ? { priority } : {}),
     })
       .then(() => {
         if (!shouldAddCompanion) return;
         // 야간 신청이면 다음날 "비번" 기록도 같이 자동 등록해요 (연차→연차비, 분지→분지비, 장재→장재비)
-        const companionDocId = `${currentUser.id}_${nextDateStr}`;
         return window.VacationAPI.addOnce(companionDocId, {
           name: currentUser.name,
           branch: currentUser.branch,
           employeeId: currentUser.id,
           vacationType: companionType,
-          dia: nightDiaToOffDutyDia(formDia.trim()),
+          dia: nightDiaToOffDutyDia(savedDia),
           date: nextDateStr,
-        }).catch((err) => {
-          console.error("비번 자동 등록 실패:", err);
-          alert(
-            "휴가는 저장됐지만, 다음날 비번 자동 등록에 실패했어요. 다음날에 직접 비번을 추가로 입력해주세요."
-          );
-        });
+        })
+          .then(() => {
+            companionSaved = true;
+          })
+          .catch((err) => {
+            console.error("비번 자동 등록 실패:", err);
+            alert(
+              "휴가는 저장됐지만, 다음날 비번 자동 등록에 실패했어요. 다음날에 직접 비번을 추가로 입력해주세요."
+            );
+          });
       })
       .then(() => {
         setShowRegisterForm(false);
         setFormDia("");
-        loadMonth(viewYear, viewMonth);
+        // 방금 저장한 기록(+성공한 경우 짝 비번)만 화면에 콕 집어 반영해요 - 달 전체를 다시 읽지 않아요
+        setMonthMap((prev) => {
+          const next = { ...prev };
+          next[selectedDate] = [
+            ...(next[selectedDate] || []),
+            {
+              id: docId,
+              name: currentUser.name,
+              branch: currentUser.branch,
+              employeeId: currentUser.id,
+              vacationType: formType,
+              dia: savedDia,
+              date: selectedDate,
+              status: "정상",
+              ...(priority != null ? { priority } : {}),
+            },
+          ];
+          if (companionSaved) {
+            next[nextDateStr] = [
+              ...(next[nextDateStr] || []),
+              {
+                id: companionDocId,
+                name: currentUser.name,
+                branch: currentUser.branch,
+                employeeId: currentUser.id,
+                vacationType: companionType,
+                dia: nightDiaToOffDutyDia(savedDia),
+                date: nextDateStr,
+                status: "정상",
+              },
+            ];
+          }
+          return next;
+        });
       })
       .catch((err) => {
         console.error(err);
@@ -2886,9 +2929,16 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
         );
         return next;
       });
-      // 야간/비번 짝이 있으면 반대쪽도 같이 확인 처리 (신청·취소가 짝으로 묶이는 것과 동일한 방식)
+      // 야간/비번 짝이 있으면 반대쪽도 같이 확인 처리 - 짝이 있는 그 날짜만 콕 집어 반영해요
       confirmNightPairIfAny(record, managerName, (pairRecord) => {
-        loadMonth(viewYear, viewMonth);
+        setMonthMap((prev) => {
+          const next = { ...prev };
+          const pairDate = pairRecord.date;
+          next[pairDate] = (next[pairDate] || []).map((v) =>
+            v.id === pairRecord.id ? { ...v, confirmedBy: managerName } : v
+          );
+          return next;
+        });
       });
     });
   };
@@ -2958,8 +3008,8 @@ const assignPriority = () => {
 };
 
 assignPriority()
-  .then((priority) =>
-    window.VacationAPI.add({
+  .then((priority) => {
+    const newRecord = {
       name: finalName,
       branch: currentUser.branch,
       employeeId: managerFormUnassigned ? "" : target.id,
@@ -2973,11 +3023,17 @@ assignPriority()
       ...(priority != null ? { priority } : {}),
       ...(managerFormUnassigned ? { unassigned: true } : {}),
       ...(managerFormNote.trim() ? { note: managerFormNote.trim() } : {}),
-    })
-  )
-    .then(() => {
+    };
+    return window.VacationAPI.add(newRecord).then((id) => ({ id, ...newRecord }));
+  })
+    .then((savedRecord) => {
       setShowManagerForm(false);
-      loadMonth(viewYear, viewMonth);
+      // 방금 등록한 기록만 화면에 콕 집어 반영해요 - 달 전체를 다시 읽지 않아요
+      setMonthMap((prev) => {
+        const next = { ...prev };
+        next[selectedDate] = [...(next[selectedDate] || []), { ...savedRecord, status: "정상" }];
+        return next;
+      });
     })
     .catch((err) => {
       console.error(err);
@@ -3035,8 +3091,8 @@ assignPriority()
     if (!confirm(`${target.name}님 / ${assignDia}(으)로 배정할까요?`)) return;
 
     window.VacationAPI.remove(record.id)
-      .then(() =>
-        window.VacationAPI.add({
+      .then(() => {
+        const newRecord = {
           name: target.name,
           branch: currentUser.branch,
           employeeId: target.id,
@@ -3045,13 +3101,22 @@ assignPriority()
           date: record.date,
           recordedBy: currentUser.name,
           ...(record.note ? { note: record.note } : {}),
-        })
-      )
-      .then(() => {
+        };
+        return window.VacationAPI.add(newRecord).then((id) => ({ id, ...newRecord }));
+      })
+      .then((savedRecord) => {
         setAssigningRecordId(null);
         setAssignPersonId("");
         setAssignDia("");
-        loadMonth(viewYear, viewMonth);
+        // 지운 "미지정" 기록을 새로 배정된 기록으로 콕 집어 교체해요 - 달 전체를 다시 읽지 않아요
+        setMonthMap((prev) => {
+          const next = { ...prev };
+          const dateKey = savedRecord.date;
+          next[dateKey] = (next[dateKey] || [])
+            .filter((v) => v.id !== record.id)
+            .concat({ ...savedRecord, status: "정상" });
+          return next;
+        });
       })
       .catch((err) => {
         console.error(err);
@@ -3596,7 +3661,7 @@ assignPriority()
                   <label style={modal.label}>비고 (선택)</label>
                   <input
                     style={modal.input}
-                    value={managerFormNote}
+value={managerFormNote}
                     onChange={(e) => setManagerFormNote(e.target.value)}
                     placeholder="예: 제8차 재직자 보수교육(7.20~7.22)"
                   />
@@ -3630,7 +3695,7 @@ assignPriority()
                       <option value="청휴">청휴</option>
                     </optgroup>
                   </select>
-<div style={{ fontSize: "12px", marginTop: "6px", color: "#888" }}>
+                  <div style={{ fontSize: "12px", marginTop: "6px", color: "#888" }}>
                     병가·교육 등은 중간관리자가 대신 기록해요
                   </div>
                 </div>
@@ -5427,7 +5492,6 @@ function LotteryAdminPanel({ branch, isSuperAdmin, onClose, employees, managers,
           seenLinkIds.add(en.linkId);
         }
       });
-
       let changed = true;
       while (changed) {
         changed = false;
@@ -5445,6 +5509,7 @@ function LotteryAdminPanel({ branch, isSuperAdmin, onClose, employees, managers,
           for (const dateInfo of event.dates) fillDate(dateInfo.date);
         }
       }
+
       // 4) 당첨자 순번(priority)은 날짜별로, 그 날짜에 최종 당첨된 사람들을 신청순서대로 매김
       const priorityByEntryId = {};
       for (const dateInfo of event.dates) {
