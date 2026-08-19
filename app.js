@@ -2409,7 +2409,7 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
 
     waitForFirestore().then(() => {
       if (cancelled) return;
-      unsubscribe = window.VacationAPI.subscribeRange(start, end, (list) => {
+      unsubscribe = window.VacationAPI.subscribeRange(start, end, currentUser.branch, (list) => {
         const map = {};
         list.forEach((v) => {
           if (!map[v.date]) map[v.date] = [];
@@ -2427,7 +2427,7 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
       cancelled = true;
       if (unsubscribe) unsubscribe();
     };
-  }, [viewYear, viewMonth]);
+  }, [viewYear, viewMonth, currentUser.branch]);
 
   const changeMonth = (delta) => {
     let y = viewYear;
