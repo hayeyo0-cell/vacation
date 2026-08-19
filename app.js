@@ -243,6 +243,46 @@ function loadLocalAuth() {
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* 자주 안 바뀌는 목록(운용 명단 등) 캐싱 헬퍼 - 무료 읽기 한도 절약용         */
+/* 경산/문양(테스트)은 APP_STORAGE_SUFFIX로 캐시 저장소가 자동 분리돼요.       */
+/* ------------------------------------------------------------------ */
+function loadCachedList(cacheKey, ttlMs, fetcher, forceRefresh) {
+  const fullKey = cacheKey + (window.APP_STORAGE_SUFFIX || "");
+  if (!forceRefresh) {
+    try {
+      const raw = localStorage.getItem(fullKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && Date.now() - parsed.savedAt < ttlMs) {
+          return Promise.resolve(parsed.data);
+        }
+      }
+    } catch {
+      // 캐시가 깨져 있으면 그냥 새로 불러와요
+    }
+  }
+  return fetcher().then((data) => {
+    try {
+      localStorage.setItem(fullKey, JSON.stringify({ savedAt: Date.now(), data }));
+    } catch {
+      // 저장 공간이 꽉 찼거나 하면 캐싱만 실패 - 기능엔 지장 없음
+    }
+    return data;
+  });
+}
+
+function invalidateCachedList(cacheKey) {
+  const fullKey = cacheKey + (window.APP_STORAGE_SUFFIX || "");
+  localStorage.removeItem(fullKey);
+}
+
+const MANAGER_CACHE_KEY = "vacation_managers_cache";
+// 운용 명단은 로그인 권한 판단에도 쓰여서(새로 등록된 운용자가 바로 로그인해야 할 수 있음)
+// 너무 길게 캐싱하면 안 돼요. 5분 정도면 짧은 시간 안에 여러 명이 몰려 접속할 때의
+// 중복 읽기는 웬만큼 줄이면서, 신규 등록자가 오래 기다리는 일은 거의 없게 해줘요.
+const MANAGER_CACHE_TTL_MS = 5 * 60 * 1000; // 5분
+
 // 🆕 PIN을 그대로 서버에 저장하지 않고, "직원ID+PIN"을 변형(해시)한 값만 저장해요.
 // 이러면 Firestore를 누가 열어봐도 진짜 PIN 자체는 알 수 없고, 같은 PIN이어도 사람마다
 // 다른 값으로 저장돼요 (직원ID가 "소금" 역할). 로그인할 때도 이 변형값끼리만 비교해요.
@@ -635,9 +675,11 @@ function App() {
         keepTryingInBackground(15); // 8초 간격으로 최대 15번 더 (약 2분)
       });
 
-    // 운용(중간관리자) 명단은 Firestore에서 불러옴
+    // 운용(중간관리자) 명단은 Firestore에서 불러옴 (1시간 캐싱 - 자주 안 바뀌니 매번 새로 읽지 않아요)
     waitForFirestore()
-      .then(() => window.ManagerAPI.list())
+      .then(() =>
+        loadCachedList(MANAGER_CACHE_KEY, MANAGER_CACHE_TTL_MS, () => window.ManagerAPI.list())
+      )
       .then((list) => setManagers(list))
       .catch((err) => console.error("운용 명단 로드 실패:", err));
 
@@ -3588,7 +3630,7 @@ assignPriority()
                       <option value="청휴">청휴</option>
                     </optgroup>
                   </select>
-                  <div style={{ fontSize: "12px", marginTop: "6px", color: "#888" }}>
+<div style={{ fontSize: "12px", marginTop: "6px", color: "#888" }}>
                     병가·교육 등은 중간관리자가 대신 기록해요
                   </div>
                 </div>
@@ -5403,7 +5445,6 @@ function LotteryAdminPanel({ branch, isSuperAdmin, onClose, employees, managers,
           for (const dateInfo of event.dates) fillDate(dateInfo.date);
         }
       }
-
       // 4) 당첨자 순번(priority)은 날짜별로, 그 날짜에 최종 당첨된 사람들을 신청순서대로 매김
       const priorityByEntryId = {};
       for (const dateInfo of event.dates) {
@@ -6423,7 +6464,14 @@ function ManagerAdminPanel({ branch, isSuperAdmin, onClose }) {
   const load = () => {
     setLoading(true);
     waitForFirestore()
-      .then(() => window.ManagerAPI.list())
+      .then(() =>
+        loadCachedList(
+          MANAGER_CACHE_KEY,
+          MANAGER_CACHE_TTL_MS,
+          () => window.ManagerAPI.list(),
+          true // 관리 화면이라 항상 최신 데이터로 새로 불러오고, 그 결과로 캐시도 갱신해요
+        )
+      )
       .then((data) => setList(data.filter((m) => m.branch === viewBranch)))
       .catch((err) => alert("불러오기 실패: " + (err && err.message ? err.message : err)))
       .finally(() => setLoading(false));
@@ -6456,7 +6504,10 @@ function ManagerAdminPanel({ branch, isSuperAdmin, onClose }) {
   const handleRemove = (m) => {
     if (!confirm(`${m.name} (${m.branch})님을 운용 명단에서 삭제할까요?`)) return;
     window.ManagerAPI.remove(m.id)
-      .then(() => setList((prev) => prev.filter((x) => x.id !== m.id)))
+      .then(() => {
+        setList((prev) => prev.filter((x) => x.id !== m.id));
+        invalidateCachedList(MANAGER_CACHE_KEY);
+      })
       .catch((err) => alert("삭제 실패: " + (err && err.message ? err.message : err)));
   };
 
