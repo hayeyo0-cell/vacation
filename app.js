@@ -2277,7 +2277,7 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
           const isPreferredWindow = hour >= BACKUP_PREFERRED_HOUR_START && hour < BACKUP_PREFERRED_HOUR_END;
           const isForceOverdue = overdueMs >= BACKUP_FORCE_OVERDUE_MS;
           if (!isPreferredWindow && !isForceOverdue) return null; // 새벽 시간대도 아니고 많이 밀리지도 않았으면 기다림
-          return window.VacationAPI.getAll().then((records) => {
+          return window.VacationAPI.getAll(currentUser.branch).then((records) => {
             const payload = (records || [])
               .map((r) => ({
                 date: r.date || "",
@@ -6634,7 +6634,7 @@ function DataResetPanel({ onClose, branch }) {
         if (!window.SystemAPI || typeof window.SystemAPI.markBackupDone !== "function") {
           throw new Error("index.html에 SystemAPI가 아직 없어요. index.html을 먼저 업데이트해주세요.");
         }
-        return window.VacationAPI.getAll();
+        return window.VacationAPI.getAll(branch);
       })
       .then((records) => {
         const payload = (records || [])
