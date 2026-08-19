@@ -1483,7 +1483,7 @@ function isCapacityType(type) {
 // 삭제/취소 등으로 생긴 순번 구멍을 없애기 위해, 특정 날짜의 남은 보장휴가 순번을 1번부터 다시 매김
 // (여러 화면에서 같이 쓰는 공용 함수라 모듈 레벨에 둠 - MainScreen, MyVacationsPanel 등)
 function renumberDayPriorities_(dateStr, branch, onDone) {
-  window.VacationAPI.getByDate(dateStr)
+  window.VacationAPI.getByDate(dateStr, branch)
     .then((records) => {
       // 취소된 기록도 그 번호를 계속 차지해요 (취소됐다고 뒷사람이 번호를 당겨쓰지 않아요) -
       // 그래서 취소 여부와 상관없이, 그날 전체 기록을 입력 시각 순서로 쭉 번호 매겨요.
@@ -1506,7 +1506,7 @@ function renumberDayPriorities_(dateStr, branch, onDone) {
           updates.push(window.VacationAPI.update(v.id, { priority: newPriority }));
         }
       });
-      return Promise.all(updates).then(() => window.VacationAPI.getByDate(dateStr));
+      return Promise.all(updates).then(() => window.VacationAPI.getByDate(dateStr, branch));
     })
     .then((freshRecords) => {
       if (freshRecords && onDone) onDone(freshRecords);
@@ -1709,7 +1709,7 @@ function cancelNightPairIfAny(record, onPairCancelled) {
   // 문서 ID를 추측하지 않고, 그 날짜 기록 중 같은 직원ID를 찾아요.
   // (본인이 앱에서 직접 신청한 건 "직원ID_날짜" 고정ID지만, 가져오기/대신기록으로 들어온 건
   //  Firestore가 임의로 만든 ID라서 ID 추측 방식으로는 못 찾기 때문)
-  return window.VacationAPI.getByDate(pairDate)
+  return window.VacationAPI.getByDate(pairDate, record.branch)
     .then((records) => {
       const pairRecord = (records || []).find(
         (r) => r.employeeId === record.employeeId && r.status !== "취소됨"
@@ -1747,7 +1747,7 @@ function confirmNightPairIfAny(record, managerName, onPairConfirmed) {
   }
   if (!pairDate) return Promise.resolve(null);
 
-  return window.VacationAPI.getByDate(pairDate)
+  return window.VacationAPI.getByDate(pairDate, record.branch)
     .then((records) => {
       const pairRecord = (records || []).find(
         (r) => r.employeeId === record.employeeId && r.status !== "취소됨"
@@ -2362,15 +2362,15 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
     d.setDate(d.getDate() + 5);
     const limit = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
     waitForFirestore()
-      .then(() => window.VacationAPI.getByRange(today, limit))
+      .then(() => window.VacationAPI.getByRange(today, limit, currentUser.branch))
       .then((records) => {
         const upcoming = (records || [])
-          .filter((v) => v.branch === currentUser.branch && v.status !== "취소됨" && !v.confirmedBy && isCapacityType(v.vacationType))
+          .filter((v) => v.status !== "취소됨" && !v.confirmedBy && isCapacityType(v.vacationType))
           .sort((a, b) => a.date.localeCompare(b.date));
         setBranchUpcomingUnconfirmed(upcoming);
       })
       .catch((err) => console.error("운용 확인 대기 알림 조회 실패:", err));
-  }, [currentUser.id, isMidManager]);
+  }, [currentUser.id, currentUser.branch, isMidManager]);
 
   // 수동 새로고침용 (저장/취소/확인 등 액션 직후 즉시 반영하고 싶을 때 호출)
   const loadMonth = useCallback((y, m) => {
@@ -2379,7 +2379,7 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
     const lastDay = new Date(y, m + 1, 0).getDate();
     const end = `${y}-${pad2(m + 1)}-${pad2(lastDay)}`;
     waitForFirestore()
-      .then(() => window.VacationAPI.getByRange(start, end))
+      .then(() => window.VacationAPI.getByRange(start, end, currentUser.branch))
       .then((list) => {
         const map = {};
         list.forEach((v) => {
@@ -2396,7 +2396,7 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
         alert("데이터를 불러오지 못했어요: " + (err && err.message ? err.message : err));
       })
       .finally(() => setLoading(false));
-  }, []);
+  }, [currentUser.branch]);
 
   // 보고 있는 달의 데이터를 실시간으로 구독 - 다른 사람이 신청/취소/확인하면 화면이 자동으로 갱신돼요
   useEffect(() => {
@@ -2547,13 +2547,16 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
     let cancelled = false;
     waitForFirestore()
       .then(() =>
-        Promise.all([window.VacationAPI.getByDate(prevDateStr), window.VacationAPI.getByDate(nextDateStr)])
+        Promise.all([
+          window.VacationAPI.getByDate(prevDateStr, currentUser.branch),
+          window.VacationAPI.getByDate(nextDateStr, currentUser.branch),
+        ])
       )
       .then(([prevList, nextList]) => {
         if (cancelled) return;
         setAdjacentRecords({
-          prev: (prevList || []).filter((v) => v.branch === currentUser.branch),
-          next: (nextList || []).filter((v) => v.branch === currentUser.branch),
+          prev: prevList || [],
+          next: nextList || [],
         });
       })
       .catch((err) => console.error("전날/다음날 조회 실패:", err));
@@ -2771,9 +2774,9 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
     waitForFirestore()
       .then(() =>
         Promise.all([
-          window.VacationAPI.getByDate(selectedDate),
-          prevDateStr ? window.VacationAPI.getByDate(prevDateStr) : Promise.resolve([]),
-          isNightFormEntry && nextDateStr ? window.VacationAPI.getByDate(nextDateStr) : Promise.resolve([]),
+          window.VacationAPI.getByDate(selectedDate, currentUser.branch),
+          prevDateStr ? window.VacationAPI.getByDate(prevDateStr, currentUser.branch) : Promise.resolve([]),
+          isNightFormEntry && nextDateStr ? window.VacationAPI.getByDate(nextDateStr, currentUser.branch) : Promise.resolve([]),
         ])
       )
       .then(([freshDayRecords, prevDayRecords, nextDayRecords]) => {
@@ -2925,9 +2928,9 @@ setManagerSaving(true);
 // 다음 번호로. "대상자 미정"이나 보장인원 미포함 항목(기타 등)은 순번 자체가 필요 없어요.
 const assignPriority = () => {
   if (managerFormUnassigned || !isCapacityType(finalVacationType)) return Promise.resolve(null);
-  return window.VacationAPI.getByDate(selectedDate).then((dayRecords) => {
+  return window.VacationAPI.getByDate(selectedDate, currentUser.branch).then((dayRecords) => {
     const count = (dayRecords || []).filter(
-      (v) => v.branch === currentUser.branch && isCapacityType(v.vacationType)
+      (v) => isCapacityType(v.vacationType)
     ).length;
     return count + 1;
   });
@@ -5366,8 +5369,8 @@ function LotteryAdminPanel({ branch, isSuperAdmin, onClose, employees, managers,
       const winnerSetByDate = {};
       for (const dateInfo of event.dates) {
         const date = dateInfo.date;
-        const existing = await window.VacationAPI.getByDate(date);
-        const activeExisting = existing.filter((v) => v.branch === event.branch && v.status !== "취소됨");
+        const existing = await window.VacationAPI.getByDate(date, event.branch);
+        const activeExisting = existing.filter((v) => v.status !== "취소됨");
         const activeCapacityCount = activeExisting.filter((v) => isCapacityType(v.vacationType)).length;
         activeCapacityCountByDate[date] = activeCapacityCount;
         // 명절은 특수 상황이 많아서, 자동 계산 대신 관리자가 그 날짜에 직접 지정한 인원을 그대로 써요
