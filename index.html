@@ -86,17 +86,21 @@
   const SYSTEM_COLLECTION = "system";
 
   window.VacationAPI = {
-    async getByDate(dateStr) {
-      const q = query(collection(db, COLLECTION), where("date", "==", dateStr));
+    // branch를 넘기면 그 소속 데이터만 서버에서 걸러서 읽어와요 (안 넘기면 예전처럼 전체 조회)
+    async getByDate(dateStr, branch) {
+      const constraints = [where("date", "==", dateStr)];
+      if (branch) constraints.push(where("branch", "==", branch));
+      const q = query(collection(db, COLLECTION), ...constraints);
       const snap = await getDocs(q);
       return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     },
-    async getByRange(startStr, endStr) {
-      const q = query(
-        collection(db, COLLECTION),
+    async getByRange(startStr, endStr, branch) {
+      const constraints = [
         where("date", ">=", startStr),
-        where("date", "<=", endStr)
-      );
+        where("date", "<=", endStr),
+      ];
+      if (branch) constraints.push(where("branch", "==", branch));
+      const q = query(collection(db, COLLECTION), ...constraints);
       const snap = await getDocs(q);
       return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     },
