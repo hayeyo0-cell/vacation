@@ -63,6 +63,7 @@
     onSnapshot,
     Timestamp,
     writeBatch,
+    runTransaction,
   } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
   const firebaseConfig = {
@@ -77,6 +78,7 @@
   const app = initializeApp(firebaseConfig);
   const db = getFirestore(app);
   const COLLECTION = "vacations";
+  const DAYS_COLLECTION = "vacation_days"; // 신규: 소속+날짜당 문서 1개로 통합한 구조 (읽기 절감용)
   const APPROVAL_COLLECTION = "approvals";
   const MANAGER_COLLECTION = "managers";
   const QUOTA_COLLECTION = "quotas";
@@ -240,6 +242,141 @@
         await batch.commit();
       }
       return ids;
+    },
+  };
+
+  /* ==================================================================== */
+  /* VacationDayAPI - 신규 구조 (실험용, 아직 app.js에서 안 씀)               */
+  /* "직원+날짜당 문서 1개" 대신 "소속+날짜당 문서 1개"로 묶어서,               */
+  /* 한 달 달력을 볼 때 200~300개 문서 대신 그 달의 일수(최대 31개)만          */
+  /* 읽으면 되도록 구조를 바꿔요. 캐싱이 아니라 데이터 자체를 이렇게 저장하는   */
+  /* 거라, 캐싱과 달리 "오래된 정보를 보여줄 위험"이 전혀 없어요 - 항상 정확.   */
+  /* ==================================================================== */
+  function dayDocId_(branch, dateStr) {
+    return `${branch}_${dateStr}`;
+  }
+
+  window.VacationDayAPI = {
+    // 하루치 기록 전체 (기존 getByDate와 동일한 용도)
+    async getByDate(dateStr, branch) {
+      const snap = await getDoc(doc(db, DAYS_COLLECTION, dayDocId_(branch, dateStr)));
+      if (!snap.exists()) return [];
+      const entries = snap.data().entries || {};
+      return Object.entries(entries).map(([entryId, e]) => ({ id: entryId, ...e }));
+    },
+
+    // 한 달(또는 임의 범위) 전체 - 문서 수가 "일수"만큼이라 기존보다 훨씬 저렴해요.
+    // startStr/endStr: "YYYY-MM-DD"
+    async getByRange(startStr, endStr, branch) {
+      const q = query(
+        collection(db, DAYS_COLLECTION),
+        where("branch", "==", branch),
+        where("date", ">=", startStr),
+        where("date", "<=", endStr)
+      );
+      const snap = await getDocs(q);
+      const records = [];
+      snap.docs.forEach((d) => {
+        const data = d.data();
+        const entries = data.entries || {};
+        Object.entries(entries).forEach(([entryId, e]) => {
+          records.push({ id: entryId, ...e });
+        });
+      });
+      return records;
+    },
+
+    // 본인 전체 이력 (날짜 범위 지정 필수) - collectionGroup 색인 없이는 직원 기준 전체조회가
+    // 비싸서, 우선 날짜 범위를 받아 getByRange를 재사용해요.
+    async getMineByRange(employeeId, branch, fromDate, toDate) {
+      const records = await window.VacationDayAPI.getByRange(fromDate, toDate, branch);
+      return records.filter((r) => r.employeeId === employeeId);
+    },
+
+    // 새 기록 추가 (본인 신청용) - employeeId당 하루 1건 제한을 트랜잭션으로 안전하게 보장해요.
+    async addOnce(branch, dateStr, employeeId, record) {
+      const ref = doc(db, DAYS_COLLECTION, dayDocId_(branch, dateStr));
+      const entryId = `${employeeId}_${dateStr}`; // 직원당 하루 1건 - 기존 문서ID 규칙 그대로 재사용
+      await runTransaction(db, async (tx) => {
+        const snap = await tx.get(ref);
+        const data = snap.exists() ? snap.data() : { branch, date: dateStr, entries: {} };
+        const entries = data.entries || {};
+        const existing = entries[entryId];
+        if (existing && existing.status !== "취소됨") {
+          throw new Error("DUPLICATE_ENTRY");
+        }
+        entries[entryId] = {
+          ...record,
+          status: record.status || "정상",
+          createdAt: Timestamp.now(), // 트랜잭션 안에서는 serverTimestamp()를 못 써서 클라이언트 시각 사용
+          updatedAt: Timestamp.now(),
+        };
+        if (snap.exists()) {
+          tx.update(ref, { entries, updatedAt: serverTimestamp() });
+        } else {
+          tx.set(ref, { branch, date: dateStr, entries, updatedAt: serverTimestamp() });
+        }
+      });
+      return entryId;
+    },
+
+    // 새 기록 추가 (관리자 대신기록/배정용, 무작위 ID) - 같은 직원이 하루에 여러 건 가능
+    async add(branch, dateStr, record) {
+      const ref = doc(db, DAYS_COLLECTION, dayDocId_(branch, dateStr));
+      const entryId = doc(collection(db, "_dummy")).id; // Firestore 무작위 ID 생성용 트릭
+      await runTransaction(db, async (tx) => {
+        const snap = await tx.get(ref);
+        const data = snap.exists() ? snap.data() : { branch, date: dateStr, entries: {} };
+        const entries = data.entries || {};
+        entries[entryId] = {
+          ...record,
+          status: record.status || "정상",
+          createdAt: Timestamp.now(),
+          updatedAt: Timestamp.now(),
+        };
+        if (snap.exists()) {
+          tx.update(ref, { entries, updatedAt: serverTimestamp() });
+        } else {
+          tx.set(ref, { branch, date: dateStr, entries, updatedAt: serverTimestamp() });
+        }
+      });
+      return entryId;
+    },
+
+    // 특정 항목 필드 일부 수정 (순번, 메모, 종류 변경 등)
+    async update(branch, dateStr, entryId, patch) {
+      const ref = doc(db, DAYS_COLLECTION, dayDocId_(branch, dateStr));
+      const fieldPatch = {};
+      Object.entries(patch).forEach(([k, v]) => {
+        fieldPatch[`entries.${entryId}.${k}`] = v;
+      });
+      fieldPatch[`entries.${entryId}.updatedAt`] = serverTimestamp();
+      fieldPatch.updatedAt = serverTimestamp();
+      await updateDoc(ref, fieldPatch);
+    },
+
+    async cancel(branch, dateStr, entryId) {
+      await window.VacationDayAPI.update(branch, dateStr, entryId, { status: "취소됨" });
+    },
+
+    async confirm(branch, dateStr, entryId, managerName) {
+      await window.VacationDayAPI.update(branch, dateStr, entryId, {
+        confirmedBy: managerName,
+        confirmedAt: serverTimestamp(),
+      });
+    },
+
+    // 완전 삭제 (관리자 전용) - 맵에서 그 항목만 제거
+    async remove(branch, dateStr, entryId) {
+      const ref = doc(db, DAYS_COLLECTION, dayDocId_(branch, dateStr));
+      await runTransaction(db, async (tx) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists()) return;
+        const data = snap.data();
+        const entries = { ...(data.entries || {}) };
+        delete entries[entryId];
+        tx.update(ref, { entries, updatedAt: serverTimestamp() });
+      });
     },
   };
 
