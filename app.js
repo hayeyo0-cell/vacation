@@ -1830,6 +1830,7 @@ function gyeongsanColor(remain) {
   if (remain === 1) return "#f5a623";
   return "#1caa5c";
 }
+
 const TYPE_ICON = {
   // 보장인원 포함
   연차: "🏖️",
@@ -4646,15 +4647,23 @@ function MyVacationsPanel({ currentUser, onClose, employees }) {
 
   const load = () => {
     setLoading(true);
+    const today = todayStr();
+    const currentYear = today.slice(0, 4);
+    // 실제로 쓰는 범위는 "올해 1월 1일부터"뿐이라(작년 이전 데이터는 이 화면에서 안 씀),
+    // 그만큼만 좁혀서 읽어와요. 미래 신청도 보여줘야 해서 위쪽은 넉넉하게 내년 말까지 열어둬요.
+    const fromDate = `${currentYear}-01-01`;
+    const toDate = `${parseInt(currentYear, 10) + 1}-12-31`;
+    const dayBeforeThisYear = `${parseInt(currentYear, 10) - 1}-12-31`;
     waitForFirestore()
       .then(() =>
         Promise.all([
-          window.VacationAPI.getMine(currentUser.id),
-          currentUser.branch === "경산" ? window.HyuchungdangAPI.listMine(currentUser.id) : Promise.resolve([]),
+          window.VacationAPI.getMineByRange(currentUser.id, fromDate, toDate),
+          currentUser.branch === "경산"
+            ? window.HyuchungdangAPI.listMineFrom(currentUser.id, dayBeforeThisYear)
+            : Promise.resolve([]),
         ])
       )
       .then(([records, hyuchungdangRecords]) => {
-        const today = todayStr();
         const upcoming = records
           .filter((v) => v.date >= today && isCapacityType(v.vacationType))
           .sort((a, b) => a.date.localeCompare(b.date));
@@ -4668,7 +4677,6 @@ function MyVacationsPanel({ currentUser, onClose, employees }) {
         );
 
         // 올해 확정(충당교번+확인까지 마친) 휴충당 개수
-        const currentYear = today.slice(0, 4);
         const confirmedCount = (hyuchungdangRecords || []).filter(
           (r) => r.date.startsWith(currentYear) && r.status !== "취소됨" && r.confirmedBy
         ).length;
@@ -6725,54 +6733,6 @@ function DataResetPanel({ onClose, branch }) {
       .finally(() => setWorking(false));
   };
 
-  const handleBackupNow = () => {
-    setWorking(true);
-    Promise.resolve()
-      .then(() => {
-        if (!window.SystemAPI || typeof window.SystemAPI.markBackupDone !== "function") {
-          throw new Error("index.html에 SystemAPI가 아직 없어요. index.html을 먼저 업데이트해주세요.");
-        }
-        return window.VacationAPI.getAll(branch);
-      })
-      .then((records) => {
-        const payload = (records || [])
-          .map((r) => ({
-            date: r.date || "",
-            name: r.name || "",
-            branch: r.branch || "",
-            employeeId: r.employeeId || "",
-            vacationType: r.vacationType || "",
-            dia: r.dia == null ? "" : String(r.dia),
-            status: r.status || "",
-            confirmedBy: r.confirmedBy || "",
-            priority: r.priority == null ? "" : r.priority,
-            reqDate: r.createdAt ? formatEntryDateOnly(r.createdAt) : "",
-            note: r.note || "",
-            recordedBy: r.recordedBy || "",
-          }))
-          .sort((a, b) => {
-            if (a.date !== b.date) return a.date.localeCompare(b.date);
-            const pa = a.priority === "" ? Infinity : a.priority;
-            const pb = b.priority === "" ? Infinity : b.priority;
-            if (pa !== pb) return pa - pb;
-            return a.name.localeCompare(b.name, "ko");
-          });
-        return fetch(VACATION_API_URL, {
-          method: "POST",
-          headers: { "Content-Type": "text/plain;charset=utf-8" },
-          body: JSON.stringify({ action: "backup", records: payload }),
-        })
-          .then((res) => res.json())
-          .then((json) => {
-            if (!json || !json.ok) throw new Error((json && json.error) || "백업 실패");
-            return window.SystemAPI.markBackupDone().then(() => json);
-          });
-      })
-      .then((json) => alert(`백업 완료! 총 ${json.count}건을 스프레드시트로 보냈어요.`))
-      .catch((err) => alert("백업 실패: " + (err && err.message ? err.message : err)))
-      .finally(() => setWorking(false));
-  };
-
   return (
     <div style={modal.overlay} onClick={onClose}>
       <div style={{ ...modal.sheet, maxWidth: "340px" }} onClick={(e) => e.stopPropagation()}>
@@ -6780,16 +6740,6 @@ function DataResetPanel({ onClose, branch }) {
         <div style={{ ...modal.countText, marginBottom: "16px" }}>
           아직 테스트 중인 두 가지만 모아뒀어요. 필요 없어지면 요청 주시면 없애드려요.
         </div>
-
-        {branch === "경산" && (
-          <button
-            style={{ ...styles.button, border: "1px dashed #1a73e8", color: "#1a73e8", padding: "10px", marginBottom: "10px" }}
-            disabled={working}
-            onClick={handleBackupNow}
-          >
-            📤 지금 바로 스프레드시트로 백업 (테스트용)
-          </button>
-        )}
 
         <button
           style={{ ...styles.button, border: "1px dashed #e08a20", color: "#e08a20", padding: "10px", marginBottom: "10px" }}
