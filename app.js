@@ -2282,17 +2282,19 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
   }, [viewYear]);
 
   // 앱 접속(로그인) 시 한 번 - 본인이 신청한 것 중 5일 이내인데 아직 운용 확인 전인 건 알림
+  // (몇 년치 전체 이력이 아니라, 딱 "오늘~5일 후" 구간만 좁혀서 읽어와요 - 로그인마다 나가는
+  //  조회라 여기서 아끼는 게 누적 효과가 커요)
   useEffect(() => {
     if (isMidManager) return; // 운용은 본인이 확인 주체라 대상 아님
+    const today = todayStr();
+    const d = new Date(today + "T00:00:00");
+    d.setDate(d.getDate() + 5);
+    const limit = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
     waitForFirestore()
-      .then(() => window.VacationAPI.getMine(currentUser.id))
+      .then(() => window.VacationAPI.getMineByRange(currentUser.id, today, limit))
       .then((records) => {
-        const today = todayStr();
-        const d = new Date(today + "T00:00:00");
-        d.setDate(d.getDate() + 5);
-        const limit = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
         const upcoming = (records || [])
-          .filter((v) => v.date >= today && v.date <= limit && v.status !== "취소됨" && !v.confirmedBy && isCapacityType(v.vacationType))
+          .filter((v) => v.status !== "취소됨" && !v.confirmedBy && isCapacityType(v.vacationType))
           .sort((a, b) => a.date.localeCompare(b.date));
         setUpcomingUnconfirmed(upcoming);
       })
@@ -2385,11 +2387,11 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
   // 다음에 다시 들어오면 그 날짜가 되기 전까지는 계속 다시 떠요.
   useEffect(() => {
     if (isMidManager || currentUser.branch !== "경산") return;
+    const today = koreaTodayStr();
     waitForFirestore()
-      .then(() => window.HyuchungdangAPI.listMine(currentUser.id))
+      .then(() => window.HyuchungdangAPI.listMineFrom(currentUser.id, today))
       .then((list) => {
-        const today = koreaTodayStr();
-        const results = (list || []).filter((r) => r.confirmedBy && r.status !== "취소됨" && r.date > today);
+        const results = (list || []).filter((r) => r.confirmedBy && r.status !== "취소됨");
         setHyuchungdangResultsToShow(results);
       })
       .catch((err) => console.error("휴충당 확정 알림 조회 실패:", err));
@@ -3661,7 +3663,7 @@ assignPriority()
                   <label style={modal.label}>비고 (선택)</label>
                   <input
                     style={modal.input}
-value={managerFormNote}
+                    value={managerFormNote}
                     onChange={(e) => setManagerFormNote(e.target.value)}
                     placeholder="예: 제8차 재직자 보수교육(7.20~7.22)"
                   />
@@ -5492,6 +5494,7 @@ function LotteryAdminPanel({ branch, isSuperAdmin, onClose, employees, managers,
           seenLinkIds.add(en.linkId);
         }
       });
+
       let changed = true;
       while (changed) {
         changed = false;
