@@ -1551,6 +1551,7 @@ function renumberDayPriorities_(dateStr, branch, onDone) {
       return Promise.all(updates).then(() => window.VacationAPI.getByDate(dateStr, branch));
     })
     .then((freshRecords) => {
+      // 그날이 속한 달의 달력 캐시를 지워둬요 - 순번이 바뀐 채로 캐시가 오래 남지 않게
       if (freshRecords && onDone) onDone(freshRecords);
     })
     .catch((err) => console.error("순번 재정렬 실패:", err));
@@ -1824,7 +1825,6 @@ function gyeongsanCapacity(branch, dateStr, activeRecords, holidaySet, prevDayAc
   if (hasOffDutyToday || hasNightFromYesterday) base += 1;
   return base;
 }
-
 function gyeongsanColor(remain) {
   if (remain <= 0) return "#e02020";
   if (remain === 1) return "#f5a623";
@@ -2416,7 +2416,6 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
       .catch((err) => console.error("운용 확인 대기 알림 조회 실패:", err));
   }, [currentUser.id, currentUser.branch, isMidManager]);
 
-  // 수동 새로고침용 (저장/취소/확인 등 액션 직후 즉시 반영하고 싶을 때 호출)
   const loadMonth = useCallback((y, m) => {
     setLoading(true);
     const start = `${y}-${pad2(m + 1)}-01`;
@@ -2426,7 +2425,7 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
       .then(() => window.VacationAPI.getByRange(start, end, currentUser.branch))
       .then((list) => {
         const map = {};
-        list.forEach((v) => {
+        (list || []).forEach((v) => {
           if (!map[v.date]) map[v.date] = [];
           map[v.date].push(v);
         });
@@ -2447,9 +2446,15 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
   //  "켜놓은 동안 계속 감시"가 아니라 "필요할 때 한 번 조회"로 되돌렸어요.
   //  다른 사람이 그 사이에 신청/취소해도 자동으로는 안 보이고, 화면을 나갔다 들어오거나
   //  월을 넘겼다 다시 돌아오거나, 새로고침하면 그때 최신 상태로 반영돼요.
-  //  본인이 직접 신청/취소/확인한 건 각 처리 함수에서 즉시 화면에 반영하니 이 effect와 무관해요.)
+  //  본인이 직접 신청/취소/확인한 건 각 처리 함수에서 즉시 화면에 반영하니 이 effect와 무관해요.
+  //  살짝(200ms) 지연을 둬서, ‹ › 를 빠르게 여러 번 눌러 여러 달을 휙휙 지나칠 때
+  //  지나친 중간 달들까지 전부 조회하지 않고 최종적으로 멈춘 달만 조회하게 해요.
+  //  최신성엔 전혀 영향 없고, 순전히 낭비되는 중간 요청만 없애는 거예요.)
   useEffect(() => {
-    loadMonth(viewYear, viewMonth);
+    const timer = setTimeout(() => {
+      loadMonth(viewYear, viewMonth);
+    }, 200);
+    return () => clearTimeout(timer);
   }, [viewYear, viewMonth, currentUser.branch, loadMonth]);
 
   const changeMonth = (delta) => {
@@ -2561,20 +2566,31 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
       })()
     : null;
 
-  // 운용(중간관리자)만 - 전날/다음날 기록을 따로 불러와서 옆에 같이 보여줌 (월 경계 걱정 없이 직접 조회)
+  // 운용(중간관리자)만 - 전날/다음날 기록을 따로 옆에 보여줌.
+  // 이미 이번 달 데이터(monthMap)에 있는 날짜면 그걸 그대로 쓰고, 달 경계를 넘어가는 날짜만
+  // (예: 1일의 전날, 말일의 다음날) 서버에서 따로 조회해요 - 불필요한 중복 조회를 줄여요.
   useEffect(() => {
     if (!isMidManager || !isWideScreen || !selectedDate) {
       setAdjacentRecords({ prev: [], next: [] });
       return;
     }
+    const selectedMonth = selectedDate.slice(0, 7);
+    const prevInSameMonth = prevDateStr && prevDateStr.slice(0, 7) === selectedMonth;
+    const nextInSameMonth = nextDateStr && nextDateStr.slice(0, 7) === selectedMonth;
+
     let cancelled = false;
-    waitForFirestore()
-      .then(() =>
-        Promise.all([
-          window.VacationAPI.getByDate(prevDateStr, currentUser.branch),
-          window.VacationAPI.getByDate(nextDateStr, currentUser.branch),
-        ])
-      )
+    const prevPromise = prevInSameMonth
+      ? Promise.resolve((monthMap[prevDateStr] || []).filter((v) => v.branch === currentUser.branch))
+      : prevDateStr
+      ? waitForFirestore().then(() => window.VacationAPI.getByDate(prevDateStr, currentUser.branch))
+      : Promise.resolve([]);
+    const nextPromise = nextInSameMonth
+      ? Promise.resolve((monthMap[nextDateStr] || []).filter((v) => v.branch === currentUser.branch))
+      : nextDateStr
+      ? waitForFirestore().then(() => window.VacationAPI.getByDate(nextDateStr, currentUser.branch))
+      : Promise.resolve([]);
+
+    Promise.all([prevPromise, nextPromise])
       .then(([prevList, nextList]) => {
         if (cancelled) return;
         setAdjacentRecords({
@@ -2584,7 +2600,7 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
       })
       .catch((err) => console.error("전날/다음날 조회 실패:", err));
     return () => { cancelled = true; };
-  }, [selectedDate, isMidManager, isWideScreen]);
+  }, [selectedDate, isMidManager, isWideScreen, monthMap, currentUser.branch]);
 
   const dayRecords = selectedDate
     ? (monthMap[selectedDate] || []).filter((v) => v.branch === currentUser.branch)
@@ -3380,7 +3396,24 @@ assignPriority()
         <div style={cal.navRow}>
           <button style={cal.navBtn} onClick={() => changeMonth(-1)}>‹</button>
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "2px" }}>
-            <div style={cal.monthTitle}>{viewYear}년 {viewMonth + 1}월</div>
+            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              <div style={cal.monthTitle}>{viewYear}년 {viewMonth + 1}월</div>
+              <button
+                title="최신 정보로 새로고침"
+                style={{
+                  border: "none",
+                  background: "transparent",
+                  color: "#cfe0ff",
+                  fontSize: "15px",
+                  cursor: "pointer",
+                  padding: "2px",
+                }}
+                disabled={loading}
+                onClick={() => loadMonth(viewYear, viewMonth, true)}
+              >
+                🔄
+              </button>
+            </div>
             {(viewYear !== now.getFullYear() || viewMonth !== now.getMonth()) && (
               <button
                 style={{
@@ -3620,7 +3653,7 @@ assignPriority()
                     style={modal.input}
                     value={managerFormType}
                     onChange={(e) => setManagerFormType(e.target.value)}
-                  >
+>
                     <optgroup label="⚪ 보장인원 미포함">
                       {NON_CAPACITY_TYPES.map((t) => (
                         <option key={t} value={t}>{t}</option>
@@ -5448,7 +5481,6 @@ function LotteryAdminPanel({ branch, isSuperAdmin, onClose, employees, managers,
       .then(() => load())
       .catch((err) => alert("삭제 실패: " + (err && err.message ? err.message : err)));
   };
-
   // 추첨 실행 - 날짜별로 관리자가 지정한 인원(정원) 대비 응모자 수를 비교해서 정원보다 많으면 랜덤 추첨
   const handleRunDraw = async (event) => {
     if (!confirm(`"${event.year}년 ${event.holidayName}" 추첨을 실행할까요?\n실행하면 당첨자는 바로 실제 휴가로 등록되고, 되돌리기 어려워요.`))
