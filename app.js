@@ -1812,6 +1812,36 @@ function confirmNightPairIfAny(record, managerName, onPairConfirmed) {
     });
 }
 
+// 야간/비번 짝을 조회만 해요 (취소·확인처럼 뭔가 바꾸지 않고, 있는지/뭔지만 확인) - 수정 시
+// "짝이 있는지, 있다면 뭘 맞춰줘야 하는지" 판단하는 데 써요.
+function findNightPair(record) {
+  let pairDate = null;
+  let expectCompanion = null;
+  if (NIGHT_COMPANION_TYPE_MAP[record.vacationType]) {
+    pairDate = shiftDateStr_(record.date, 1);
+    expectCompanion = true;
+  } else if (NIGHT_COMPANION_TYPES_REVERSE[record.vacationType]) {
+    pairDate = shiftDateStr_(record.date, -1);
+    expectCompanion = false;
+  }
+  if (!pairDate) return Promise.resolve(null);
+  return window.VacationAPI.getByDate(pairDate, record.branch)
+    .then((records) => {
+      const pairRecord = (records || []).find(
+        (r) => r.employeeId === record.employeeId && r.status !== "취소됨"
+      );
+      if (!pairRecord) return null;
+      const valid = expectCompanion
+        ? !!NIGHT_COMPANION_TYPES_REVERSE[pairRecord.vacationType]
+        : !!NIGHT_COMPANION_TYPE_MAP[pairRecord.vacationType];
+      return valid ? pairRecord : null;
+    })
+    .catch((err) => {
+      console.error("짝 조회 실패:", err);
+      return null;
+    });
+}
+
 // activeRecords: 취소 아닌 전체 기록 (비번 감지는 전체 기록 대상)
 // prevDayActiveRecords: 전날의 취소 아닌 전체 기록 (전날 야간 신청으로 인한 비번 자리 자동 오픈 판별용)
 // branch: "경산" | "문양"
@@ -1856,6 +1886,7 @@ const TYPE_ICON = {
   출장: "🧳",
   "교휴(공휴)": "📅",
 };
+
 // 보장인원에 포함되지 않는(휴충당 처리) 휴가 종류
 const NON_CAPACITY_TYPES = [
   "청휴", "청휴비", "청휴(탈상)", "병가", "병가비",
@@ -4832,23 +4863,63 @@ function MyVacationsPanel({ currentUser, onClose, employees }) {
   };
 
   const handleStartEdit = (record) => {
+    // 비번(연차비 등)은 야간 신청에 딸려 자동 생성된 기록이라, 직접 수정하게 두면 야간 쪽과 어긋날 수 있어요.
+    // 야간 쪽을 수정하면 비번도 자동으로 같이 맞춰지니, 여기서는 야간 기록을 수정해달라고 안내해요.
+    if (NIGHT_COMPANION_TYPES_REVERSE[record.vacationType]) {
+      alert("이 기록은 야간 신청에 따라 자동 등록된 비번이에요. 전날 야간 기록을 수정하면 이 비번도 같이 바뀌어요.");
+      return;
+    }
     setEditingId(record.id);
     setEditType(record.vacationType);
     setEditDia(record.dia || "");
   };
 
   const handleSaveTypeEdit = (record) => {
-    if (editType === record.vacationType && editDia === (record.dia || "")) {
+    const trimmedDia = editDia.trim();
+    if (editType === record.vacationType && trimmedDia === (record.dia || "")) {
       setEditingId(null);
       return;
     }
     setEditSaving(true);
-    window.VacationAPI.update(record.id, { vacationType: editType, dia: editDia.trim() })
-      .then(() => {
+    findNightPair(record)
+      .then((pairRecord) =>
+        window.VacationAPI.update(record.id, { vacationType: editType, dia: trimmedDia }).then(
+          () => pairRecord
+        )
+      )
+      .then((pairRecord) => {
         setList((prev) =>
-          prev.map((v) => (v.id === record.id ? { ...v, vacationType: editType, dia: editDia.trim() } : v))
+          prev.map((v) => (v.id === record.id ? { ...v, vacationType: editType, dia: trimmedDia } : v))
         );
         setEditingId(null);
+        if (!pairRecord) return null;
+        // 원래 야간이라 짝 비번이 있었는데, 수정 후에도 여전히 야간이면 짝도 새 값에 맞게 갱신하고,
+        // 더 이상 야간이 아니게 바뀌었으면(비야간 DIA로 바꿈) 짝 비번은 더 이상 유효하지 않으니 취소해요.
+        const newCompanionType = NIGHT_COMPANION_TYPE_MAP[editType];
+        const stillNight = newCompanionType && isNightShiftCode(trimmedDia, record.branch);
+        if (stillNight) {
+          const newCompanionDia = nightDiaToOffDutyDia(trimmedDia);
+          return window.VacationAPI.update(pairRecord.id, {
+            vacationType: newCompanionType,
+            dia: newCompanionDia,
+          }).then(() => {
+            setList((prev) =>
+              prev.map((v) =>
+                v.id === pairRecord.id
+                  ? { ...v, vacationType: newCompanionType, dia: newCompanionDia }
+                  : v
+              )
+            );
+          });
+        }
+        return window.VacationAPI.cancel(pairRecord.id).then(() => {
+          setList((prev) =>
+            prev.some((v) => v.id === pairRecord.id)
+              ? prev.map((v) => (v.id === pairRecord.id ? { ...v, status: "취소됨" } : v))
+              : prev
+          );
+          alert("수정하신 내용은 더 이상 야간 근무가 아니라서, 다음날 자동 등록됐던 비번은 취소했어요.");
+        });
       })
       .catch((err) => alert("수정 실패: " + (err && err.message ? err.message : err)))
       .finally(() => setEditSaving(false));
