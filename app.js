@@ -3832,7 +3832,7 @@ assignPriority()
               style={{ overflowX: "hidden" }}
               onTouchStart={handleDayTouchStart}
               onTouchMove={handleDayTouchMove}
-onTouchEnd={handleDayTouchEnd}
+              onTouchEnd={handleDayTouchEnd}
             >
               <div
                 ref={dayGridRef}
@@ -3868,7 +3868,7 @@ onTouchEnd={handleDayTouchEnd}
                     <select
                       style={modal.input}
                       value={managerTargetId}
-                      onChange={(e) => {
+onChange={(e) => {
                         const empId = e.target.value;
                         setManagerTargetId(empId);
                         // 대상자를 고르면 그 사람 본인의 오늘 교번을 자동으로 채워줘요 - 운용이 매번
@@ -4536,15 +4536,17 @@ onTouchEnd={handleDayTouchEnd}
                 🎋 명절 추첨 관리
               </button>
             )}
-            <button
-              style={styles.button}
-              onClick={() => {
-                setShowAdminMenu(false);
-                openPanel(setShowImportTest);
-              }}
-            >
-              가져오기 테스트
-            </button>
+            {TEST_MODE && (
+              <button
+                style={styles.button}
+                onClick={() => {
+                  setShowAdminMenu(false);
+                  openPanel(setShowImportTest);
+                }}
+              >
+                가져오기 테스트
+              </button>
+            )}
             <button
               style={{ ...styles.button, border: "1px dashed #e08a20", color: "#e08a20" }}
               onClick={() => {
@@ -5801,7 +5803,7 @@ function LotteryAdminPanel({ branch, isSuperAdmin, onClose, employees, managers,
           winnerSet.add(candidates[cursorByDate[date]].id);
           cursorByDate[date] += 1;
         }
-      };
+        };
 
       // 2) 1차로 모든 날짜를 각자 독립적으로(그 날짜 응모자들끼리만 경쟁) 추첨
       for (const dateInfo of event.dates) fillDate(dateInfo.date);
@@ -7003,6 +7005,61 @@ function parseReqDateToYMD(reqDateRaw, vacationDateStr) {
 /* ------------------------------------------------------------------ */
 function DataResetPanel({ onClose, branch, isSuperAdmin }) {
   const [working, setWorking] = useState(false);
+  const [backingUp, setBackingUp] = useState(false);
+  const [backupResult, setBackupResult] = useState(null);
+
+  // 수동 백업 - 자동 백업(1주 1회, 조건 맞을 때만)과 완전히 같은 로직을 그 자리에서 바로 실행해요.
+  // ⚠️ 휴가앱(경산 실제 프로젝트)에서만 보이는 버튼이에요 - 실제 스프레드시트에 그대로 쓰여서,
+  // 문양테스트버전에서 눌러버리면 테스트 데이터가 진짜 백업 기록에 섞여 들어가요.
+  const handleBackupNow = () => {
+    if (!confirm("지금 바로 경산 휴가 데이터를 스프레드시트로 백업할까요?")) return;
+    setBackingUp(true);
+    setBackupResult(null);
+    VacFacade.getAll("경산")
+      .then((records) => {
+        const payload = (records || [])
+          .map((r) => ({
+            date: r.date || "",
+            name: r.name || "",
+            branch: r.branch || "",
+            employeeId: r.employeeId || "",
+            vacationType: r.vacationType || "",
+            dia: r.dia == null ? "" : String(r.dia),
+            status: r.status || "",
+            confirmedBy: r.confirmedBy || "",
+            priority: r.priority == null ? "" : r.priority,
+            reqDate: r.createdAt ? formatEntryDateOnly(r.createdAt) : "",
+            note: r.note || "",
+            recordedBy: r.recordedBy || "",
+          }))
+          .sort((a, b) => {
+            if (a.date !== b.date) return a.date.localeCompare(b.date);
+            const pa = a.priority === "" ? Infinity : a.priority;
+            const pb = b.priority === "" ? Infinity : b.priority;
+            if (pa !== pb) return pa - pb;
+            return a.name.localeCompare(b.name, "ko");
+          });
+        return fetch(VACATION_API_URL, {
+          method: "POST",
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
+          body: JSON.stringify({ action: "backup", records: payload }),
+        })
+          .then((res) => res.json())
+          .then((json) => {
+            if (!json || !json.ok) throw new Error((json && json.error) || "백업 실패");
+            return window.SystemAPI.markBackupDone().then(() => payload.length);
+          });
+      })
+      .then((count) => {
+        setBackupResult({ count });
+        alert(`백업 완료! 총 ${count}건을 스프레드시트로 보냈어요.`);
+      })
+      .catch((err) => {
+        console.error(err);
+        alert("백업 실패: " + (err && err.message ? err.message : err));
+      })
+      .finally(() => setBackingUp(false));
+  };
 
   const handleResetHyuchungdang = () => {
     if (
@@ -7121,6 +7178,23 @@ function DataResetPanel({ onClose, branch, isSuperAdmin }) {
         >
           🗑️ 문양 전체 초기화 (모든 휴가 기록 삭제)
         </button>
+
+        {branch === "경산" && !TEST_MODE && (
+          <>
+            <button
+              style={{ ...styles.button, border: "1px dashed #1caa5c", color: "#1caa5c", padding: "10px", marginBottom: "4px" }}
+              disabled={backingUp}
+              onClick={handleBackupNow}
+            >
+              {backingUp ? "백업 중..." : "📤 지금 바로 스프레드시트로 백업"}
+            </button>
+            {backupResult && (
+              <div style={{ ...modal.countText, marginBottom: "14px", color: "#1caa5c" }}>
+                최근 결과: {backupResult.count}건 백업 완료
+              </div>
+            )}
+          </>
+        )}
 
         {isSuperAdmin && (
           <>
