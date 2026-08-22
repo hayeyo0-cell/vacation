@@ -119,6 +119,17 @@ function isEvenMonthFirstDay() {
   return day === 1 && month % 2 === 0;
 }
 
+// 짝수달 1일 오전 9시~10시(오픈 직후 - 사람이 몰리고 신청/취소가 폭주하는 딱 그 시간대)인지 확인.
+// 이 좁은 창 안에서만 실시간 구독을 잠깐 켜서, 평소엔 안전한 1회 조회 방식을 그대로 유지하면서도
+// 정작 실시간 정확도가 제일 중요한 순간엔 자동 반영이 되도록 해요.
+// ⚠️ TEST_MODE에서는 항상 true로 간주해서 언제든 테스트해볼 수 있어요.
+function isPeakOpeningWindow() {
+  if (TEST_MODE) return true;
+  if (!isEvenMonthFirstDay()) return false;
+  const hour = koreaCurrentHour();
+  return hour === 9;
+}
+
 function parseLocalDate_(dateStr) {
   const [y, m, d] = String(dateStr).split("-").map(Number);
   return new Date(y, (m || 1) - 1, d || 1);
@@ -699,7 +710,7 @@ function App() {
       waitForFirestore()
         .then(() =>
           Promise.all([
-            window.VacationAPI.deleteOlderThan(`${currentYear - 1}-01-01`),
+            VacFacade.deleteOlderThan(`${currentYear - 1}-01-01`),
             window.HyuchungdangAPI.deleteOlderThan(`${currentYear - 1}-01-01`),
           ])
         )
@@ -1717,7 +1728,7 @@ function isNightShiftCode(dia, branch) {
 }
 
 // 야간 근무 신청 시 자동으로 같이 등록/취소되는 "비번" 짝 - 휴가종류 매핑
-const NIGHT_COMPANION_TYPE_MAP = { 연차: "연차비", 분지: "분지비", 장재: "장재비" };
+const NIGHT_COMPANION_TYPE_MAP = { 연차: "연차비", 분지: "분지비", 장재: "장재비", 병가: "병가비", 청휴: "청휴비" };
 const NIGHT_COMPANION_TYPES_REVERSE = Object.fromEntries(
   Object.entries(NIGHT_COMPANION_TYPE_MAP).map(([parent, companion]) => [companion, parent])
 );
@@ -1842,6 +1853,18 @@ const VacFacade = {
       ? window.VacationDayAPI.getByRange(startStr, endStr, branch)
       : window.VacationAPI.getByRange(startStr, endStr, branch);
   },
+  // 짝수달 1일 오픈 직후 1시간 한정으로만 씀 - 그 외에는 절대 호출하지 마세요
+  subscribeRange(startStr, endStr, branch, callback) {
+    return USE_DAY_DOCS
+      ? window.VacationDayAPI.subscribeRange(startStr, endStr, branch, callback)
+      : window.VacationAPI.subscribeRange(startStr, endStr, branch, callback);
+  },
+  // 본인 기록만 날짜 범위로 - 새 구조는 소속이 있어야 서버에서 걸러지니 branch가 항상 필요해요
+  getMineByRange(employeeId, branch, fromDate, toDate) {
+    return USE_DAY_DOCS
+      ? window.VacationDayAPI.getMineByRange(employeeId, branch, fromDate, toDate)
+      : window.VacationAPI.getMineByRange(employeeId, fromDate, toDate);
+  },
   // 본인 신청 전용 - employeeId당 하루 1건 중복 방지가 자동으로 보장돼요
   addOnce(branch, dateStr, employeeId, record) {
     return USE_DAY_DOCS
@@ -1874,6 +1897,49 @@ const VacFacade = {
       ? window.VacationDayAPI.remove(branch, dateStr, id)
       : window.VacationAPI.remove(id);
   },
+  // 소속 전체 (백업용) - 날짜 제한 없음
+  getAll(branch) {
+    return USE_DAY_DOCS ? window.VacationDayAPI.getAll(branch) : window.VacationAPI.getAll(branch);
+  },
+  // 기준일 이전 오래된 기록 정리 (연 1회 자동 실행)
+  deleteOlderThan(cutoffDate) {
+    return USE_DAY_DOCS
+      ? window.VacationDayAPI.deleteOlderThan(cutoffDate)
+      : window.VacationAPI.deleteOlderThan(cutoffDate);
+  },
+  // 소속 전체 삭제 (관리자 "전체 초기화" 버튼)
+  removeAllForBranch(branch) {
+    return USE_DAY_DOCS
+      ? window.VacationDayAPI.removeAllForBranch(branch)
+      : window.VacationAPI.removeAllForBranch(branch);
+  },
+  // 가져오기(스프레드시트 일괄 저장) - 새 구조에선 날짜별로 묶어서 bulkSetDays로 한 번에 써요.
+  // 두 구조 모두 { branch, date, id } 형태로 통일해서 반환해요 - 되돌리기(undo) 때
+  // 이 정보 그대로 VacFacade.remove(branch, date, id)를 호출하면 되게요.
+  bulkImport(branch, records) {
+    if (!USE_DAY_DOCS) {
+      return window.VacationAPI.bulkImport(records).then((ids) =>
+        ids.map((id, i) => ({ branch: records[i].branch || branch, date: records[i].date, id }))
+      );
+    }
+    const byDate = {};
+    const resultRefs = [];
+    records.forEach((r) => {
+      if (!r.date) return;
+      if (!byDate[r.date]) byDate[r.date] = {};
+      const entryId = `imp_${Math.random().toString(36).slice(2)}${Date.now()}`;
+      const { status, confirmedBy, ...rest } = r;
+      byDate[r.date][entryId] = {
+        ...rest,
+        status: status || "정상",
+        ...(confirmedBy ? { confirmedBy, confirmedAt: new Date() } : {}),
+        createdAt: r.createdAt || new Date(),
+        updatedAt: new Date(),
+      };
+      resultRefs.push({ branch: r.branch || branch, date: r.date, id: entryId });
+    });
+    return window.VacationDayAPI.bulkSetDays(branch, byDate).then(() => resultRefs);
+  },
 };
 
 // 야간/비번 짝을 조회만 해요 (취소·확인처럼 뭔가 바꾸지 않고, 있는지/뭔지만 확인) - 수정 시
@@ -1890,7 +1956,7 @@ function findNightPair(record) {
   }
   if (!pairDate) return Promise.resolve(null);
   return VacFacade.getByDate(pairDate, record.branch)
-  .then((records) => {
+    .then((records) => {
       const pairRecord = (records || []).find(
         (r) => r.employeeId === record.employeeId && r.status !== "취소됨"
       );
@@ -2297,6 +2363,12 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
   const [viewYear, setViewYear] = useState(now.getFullYear());
   const [viewMonth, setViewMonth] = useState(now.getMonth()); // 0-indexed
   const [monthMap, setMonthMap] = useState({}); // { "YYYY-MM-DD": [records] }
+  // 짝수달 1일 오전 9시 진입/10시 퇴장을 놓치지 않도록 1분마다 다시 확인하는 용도 (그 외엔 의미 없는 값)
+  const [minuteTick, setMinuteTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setMinuteTick((v) => v + 1), 60 * 1000);
+    return () => clearInterval(id);
+  }, []);
   const [loading, setLoading] = useState(true);
   const [holidaySet, setHolidaySet] = useState(new Set());
   const [selectedDate, setSelectedDate] = useState(null); // 모달용
@@ -2387,7 +2459,7 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
     d.setDate(d.getDate() + 5);
     const limit = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
     waitForFirestore()
-      .then(() => window.VacationAPI.getMineByRange(currentUser.id, today, limit))
+      .then(() => VacFacade.getMineByRange(currentUser.id, currentUser.branch, today, limit))
       .then((records) => {
         const upcoming = (records || [])
           .filter((v) => v.status !== "취소됨" && !v.confirmedBy && isCapacityType(v.vacationType))
@@ -2416,7 +2488,7 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
           const isPreferredWindow = hour >= BACKUP_PREFERRED_HOUR_START && hour < BACKUP_PREFERRED_HOUR_END;
           const isForceOverdue = overdueMs >= BACKUP_FORCE_OVERDUE_MS;
           if (!isPreferredWindow && !isForceOverdue) return null; // 새벽 시간대도 아니고 많이 밀리지도 않았으면 기다림
-          return window.VacationAPI.getAll(currentUser.branch).then((records) => {
+          return VacFacade.getAll(currentUser.branch).then((records) => {
             const payload = (records || [])
               .map((r) => ({
                 date: r.date || "",
@@ -2501,7 +2573,7 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
     d.setDate(d.getDate() + 5);
     const limit = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
     waitForFirestore()
-      .then(() => window.VacationAPI.getByRange(today, limit, currentUser.branch))
+      .then(() => VacFacade.getByRange(today, limit, currentUser.branch))
       .then((records) => {
         const upcoming = (records || [])
           .filter((v) => v.status !== "취소됨" && !v.confirmedBy && isCapacityType(v.vacationType))
@@ -2537,20 +2609,55 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
   }, [currentUser.branch]);
 
   // 보고 있는 달이 바뀌거나(월 이동) 소속이 바뀌면(고스트모드 전환) 한 번만 다시 불러와요.
-  // (예전엔 실시간 구독(onSnapshot)이었는데, 무료 읽기 한도를 최대한 아끼려고
+  // (예전엔 항상 실시간 구독(onSnapshot)이었는데, 무료 읽기 한도를 최대한 아끼려고
   //  "켜놓은 동안 계속 감시"가 아니라 "필요할 때 한 번 조회"로 되돌렸어요.
   //  다른 사람이 그 사이에 신청/취소해도 자동으로는 안 보이고, 화면을 나갔다 들어오거나
   //  월을 넘겼다 다시 돌아오거나, 새로고침하면 그때 최신 상태로 반영돼요.
   //  본인이 직접 신청/취소/확인한 건 각 처리 함수에서 즉시 화면에 반영하니 이 effect와 무관해요.
-  //  살짝(200ms) 지연을 둬서, ‹ › 를 빠르게 여러 번 눌러 여러 달을 휙휙 지나칠 때
-  //  지나친 중간 달들까지 전부 조회하지 않고 최종적으로 멈춘 달만 조회하게 해요.
-  //  최신성엔 전혀 영향 없고, 순전히 낭비되는 중간 요청만 없애는 거예요.)
+  //
+  //  ⭐ 딱 하나 예외: 경산 짝수달 1일 오전 9시대(오픈 직후, 신청이 몰리는 그 1시간)만
+  //  자동으로 실시간 구독을 켜요. 새 구조(vacation_days)는 날짜당 문서 1개라 구독 비용도
+  //  하루 최대 31개뿐이라 예전(직원+날짜별) 구조보다 훨씬 저렴해요. 그 시간대가 지나면
+  //  자동으로 구독을 끊고 평소의 안전한 1회 조회 방식으로 돌아가요.)
   useEffect(() => {
+    const start = `${viewYear}-${pad2(viewMonth + 1)}-01`;
+    const lastDay = new Date(viewYear, viewMonth + 1, 0).getDate();
+    const end = `${viewYear}-${pad2(viewMonth + 1)}-${pad2(lastDay)}`;
+    const usePeakSubscription = currentUser.branch === "경산" && isPeakOpeningWindow();
+
+    if (usePeakSubscription) {
+      setLoading(true);
+      let cancelled = false;
+      let unsubscribe = null;
+      waitForFirestore().then(() => {
+        if (cancelled) return;
+        unsubscribe = VacFacade.subscribeRange(start, end, currentUser.branch, (list) => {
+          const map = {};
+          (list || []).forEach((v) => {
+            if (!map[v.date]) map[v.date] = [];
+            map[v.date].push(v);
+          });
+          Object.values(map).forEach((arr) =>
+            arr.sort((a, b) => (a.name || "").localeCompare(b.name || ""))
+          );
+          setMonthMap(map);
+          setLoading(false);
+        });
+      });
+      return () => {
+        cancelled = true;
+        if (unsubscribe) unsubscribe();
+      };
+    }
+
+    // 살짝(200ms) 지연을 둬서, ‹ › 를 빠르게 여러 번 눌러 여러 달을 휙휙 지나칠 때
+    // 지나친 중간 달들까지 전부 조회하지 않고 최종적으로 멈춘 달만 조회하게 해요.
+    // 최신성엔 전혀 영향 없고, 순전히 낭비되는 중간 요청만 없애는 거예요.
     const timer = setTimeout(() => {
       loadMonth(viewYear, viewMonth);
     }, 200);
     return () => clearTimeout(timer);
-  }, [viewYear, viewMonth, currentUser.branch, loadMonth]);
+  }, [viewYear, viewMonth, currentUser.branch, loadMonth, minuteTick]);
 
   const changeMonth = (delta) => {
     let y = viewYear;
@@ -2677,12 +2784,12 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
     const prevPromise = prevInSameMonth
       ? Promise.resolve((monthMap[prevDateStr] || []).filter((v) => v.branch === currentUser.branch))
       : prevDateStr
-      ? waitForFirestore().then(() => window.VacationAPI.getByDate(prevDateStr, currentUser.branch))
+      ? waitForFirestore().then(() => VacFacade.getByDate(prevDateStr, currentUser.branch))
       : Promise.resolve([]);
     const nextPromise = nextInSameMonth
       ? Promise.resolve((monthMap[nextDateStr] || []).filter((v) => v.branch === currentUser.branch))
       : nextDateStr
-      ? waitForFirestore().then(() => window.VacationAPI.getByDate(nextDateStr, currentUser.branch))
+      ? waitForFirestore().then(() => VacFacade.getByDate(nextDateStr, currentUser.branch))
       : Promise.resolve([]);
 
     Promise.all([prevPromise, nextPromise])
@@ -2735,7 +2842,7 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
   // 야간 근무 신청 시 - 다음날이 이미 꽉 차서 비번 자리를 못 받는 경우를 미리 확인 (경산·문양 공통)
   const isNightFormEntry = selectedDate && isNightShiftCode(formDia, currentUser.branch);
   const nightNextDayBlock =
-    isNightFormEntry && nextDateStr
+    isNightFormEntry && nextDateStr && isCapacityType(formType)
       ? (() => {
           const nextDayActive = (monthMap[nextDateStr] || []).filter(
             (v) => v.branch === currentUser.branch && v.status !== "취소됨"
@@ -2873,7 +2980,7 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
     const docId = `${currentUser.id}_${selectedDate}`; // 직원ID_날짜 고정 ID - 중복 신청 원천 차단
     const companionType = NIGHT_COMPANION_TYPE_MAP[formType];
     const shouldAddCompanion =
-      isNightFormEntry && companionType && nextDateStr && isCapacityType(formType);
+      isNightFormEntry && companionType && nextDateStr;
     const companionDocId = shouldAddCompanion ? `${currentUser.id}_${nextDateStr}` : null;
     const savedDia = formDia.trim();
     let companionSaved = false;
@@ -2995,25 +3102,30 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
           return;
         }
 
-        // 야간 근무면 다음날 비번 자리가 실제로 남아있는지도 최신 데이터로 재확인
+        // 야간 근무면 다음날 상황도 최신 데이터로 재확인해요
         if (isNightFormEntry && nextDateStr) {
           const nextDayActive = (nextDayRecords || []).filter(
             (v) => v.branch === currentUser.branch && v.status !== "취소됨"
           );
-          const nextDayCapacityCount = nextDayActive.filter((v) => isCapacityType(v.vacationType)).length;
-          const nextDayCapacity = gyeongsanCapacity(currentUser.branch, nextDateStr, nextDayActive, holidaySet, [
-            { dia: formDia },
-          ]);
-          if (nextDayCapacityCount >= nextDayCapacity) {
-            setSaving(false);
-            alert(
-              `앗, 다음날(${nextDateStr})이 이미 다 차서 야간 신청을 저장할 수 없어요. 다른 날짜를 선택해주세요.`
-            );
-            loadMonth(viewYear, viewMonth);
-            setShowRegisterForm(false);
-            return;
+          // 보장인원 포함 종류(연차/분지/장재)만 다음날 자리(정원) 확인이 필요해요.
+          // 청휴비/병가비 같은 미포함 짝은 자리를 안 차지하니 이 확인 자체가 필요 없어요.
+          if (isCapacityType(formType)) {
+            const nextDayCapacityCount = nextDayActive.filter((v) => isCapacityType(v.vacationType)).length;
+            const nextDayCapacity = gyeongsanCapacity(currentUser.branch, nextDateStr, nextDayActive, holidaySet, [
+              { dia: formDia },
+            ]);
+            if (nextDayCapacityCount >= nextDayCapacity) {
+              setSaving(false);
+              alert(
+                `앗, 다음날(${nextDateStr})이 이미 다 차서 야간 신청을 저장할 수 없어요. 다른 날짜를 선택해주세요.`
+              );
+              loadMonth(viewYear, viewMonth);
+              setShowRegisterForm(false);
+              return;
+            }
           }
           // 다음날에 본인이 이미 다른 기록을 갖고 있으면, 비번 자동등록이 그 기록을 덮어쓸 수 있어 미리 막아요
+          // (종류(capacity 여부)와 무관하게 항상 확인해야 해요)
           if (NIGHT_COMPANION_TYPE_MAP[formType] && nextDayActive.some((v) => v.employeeId === currentUser.id)) {
             setSaving(false);
             alert(
@@ -3121,7 +3233,7 @@ setManagerSaving(true);
 // 다음 번호로. "대상자 미정"이나 보장인원 미포함 항목(기타 등)은 순번 자체가 필요 없어요.
 const assignPriority = () => {
   if (managerFormUnassigned || !isCapacityType(finalVacationType)) return Promise.resolve(null);
-  return window.VacationAPI.getByDate(selectedDate, currentUser.branch).then((dayRecords) => {
+  return VacFacade.getByDate(selectedDate, currentUser.branch).then((dayRecords) => {
     const count = (dayRecords || []).filter(
       (v) => isCapacityType(v.vacationType)
     ).length;
@@ -3136,7 +3248,6 @@ const shouldAddCompanion =
   !managerFormUnassigned &&
   companionType &&
   nextDateStr &&
-  isCapacityType(finalVacationType) &&
   isNightShiftCode(finalDia, currentUser.branch);
 
 assignPriority()
@@ -3156,7 +3267,7 @@ assignPriority()
       ...(managerFormUnassigned ? { unassigned: true } : {}),
       ...(managerFormNote.trim() ? { note: managerFormNote.trim() } : {}),
     };
-    return window.VacationAPI.add(newRecord).then((id) => ({ id, ...newRecord }));
+    return VacFacade.add(currentUser.branch, selectedDate, newRecord).then((id) => ({ id, ...newRecord }));
   })
     .then((savedRecord) => {
       if (!shouldAddCompanion) return { savedRecord, companionRecord: null };
@@ -3169,7 +3280,7 @@ assignPriority()
         date: nextDateStr,
         recordedBy: currentUser.name,
       };
-      return window.VacationAPI.add(companionRecord)
+      return VacFacade.add(currentUser.branch, nextDateStr, companionRecord)
         .then((id) => {
           return { savedRecord, companionRecord: { id, ...companionRecord } };
         })
@@ -3248,7 +3359,7 @@ assignPriority()
     }
     if (!confirm(`${target.name}님 / ${assignDia}(으)로 배정할까요?`)) return;
 
-    window.VacationAPI.remove(record.id)
+    VacFacade.remove(record.branch, record.date, record.id)
       .then(() => {
         const newRecord = {
           name: target.name,
@@ -3260,7 +3371,7 @@ assignPriority()
           recordedBy: currentUser.name,
           ...(record.note ? { note: record.note } : {}),
         };
-        return window.VacationAPI.add(newRecord).then((id) => ({ id, ...newRecord }));
+        return VacFacade.add(currentUser.branch, record.date, newRecord).then((id) => ({ id, ...newRecord }));
       })
       .then((savedRecord) => {
         setAssigningRecordId(null);
@@ -3782,7 +3893,7 @@ assignPriority()
                         setManagerFormDia(empId ? codeForEmployeeOnDate(empId, selectedDate) : "");
                       }}
                     >
-                        <option value="">이름 선택</option>
+                      <option value="">이름 선택</option>
                       {[...branchAllEmployees]
                         .sort((a, b) => a.name.localeCompare(b.name, "ko"))
                         .map((emp) => (
@@ -4836,7 +4947,7 @@ function MyVacationsPanel({ currentUser, onClose, employees }) {
     waitForFirestore()
       .then(() =>
         Promise.all([
-          window.VacationAPI.getMineByRange(currentUser.id, fromDate, toDate),
+          VacFacade.getMineByRange(currentUser.id, currentUser.branch, fromDate, toDate),
           currentUser.branch === "경산"
             ? window.HyuchungdangAPI.listMineFrom(currentUser.id, dayBeforeThisYear)
             : Promise.resolve([]),
@@ -4903,7 +5014,7 @@ function MyVacationsPanel({ currentUser, onClose, employees }) {
       return;
     }
     if (!confirm(`${record.date} ${record.vacationType} 기록을 취소할까요?`)) return;
-    window.VacationAPI.cancel(record.id).then(() => {
+    VacFacade.cancel(record.branch, record.date, record.id).then(() => {
       setList((prev) => prev.map((v) => (v.id === record.id ? { ...v, status: "취소됨" } : v)));
       // 취소로 순번에 구멍이 생기니, 같은 날짜의 남은 보장휴가 기록들 순번을 다시 매겨요
       if (isCapacityType(record.vacationType)) {
@@ -4945,7 +5056,7 @@ function MyVacationsPanel({ currentUser, onClose, employees }) {
     setEditSaving(true);
     findNightPair(record)
       .then((pairRecord) =>
-        window.VacationAPI.update(record.id, { vacationType: editType, dia: trimmedDia }).then(
+        VacFacade.update(record.branch, record.date, record.id, { vacationType: editType, dia: trimmedDia }).then(
           () => pairRecord
         )
       )
@@ -4961,7 +5072,7 @@ function MyVacationsPanel({ currentUser, onClose, employees }) {
         const stillNight = newCompanionType && isNightShiftCode(trimmedDia, record.branch);
         if (stillNight) {
           const newCompanionDia = nightDiaToOffDutyDia(trimmedDia);
-          return window.VacationAPI.update(pairRecord.id, {
+          return VacFacade.update(pairRecord.branch, pairRecord.date, pairRecord.id, {
             vacationType: newCompanionType,
             dia: newCompanionDia,
           }).then(() => {
@@ -4974,7 +5085,7 @@ function MyVacationsPanel({ currentUser, onClose, employees }) {
             );
           });
         }
-        return window.VacationAPI.cancel(pairRecord.id).then(() => {
+        return VacFacade.cancel(pairRecord.branch, pairRecord.date, pairRecord.id).then(() => {
           setList((prev) =>
             prev.some((v) => v.id === pairRecord.id)
               ? prev.map((v) => (v.id === pairRecord.id ? { ...v, status: "취소됨" } : v))
@@ -5650,7 +5761,7 @@ function LotteryAdminPanel({ branch, isSuperAdmin, onClose, employees, managers,
         setApplyEnd("");
         load();
       })
-      .catch((err) => alert("생성 실패: " + (err && err.message ? err.message : err)))
+    .catch((err) => alert("생성 실패: " + (err && err.message ? err.message : err)))
       .finally(() => setSaving(false));
   };
 
@@ -5688,7 +5799,7 @@ function LotteryAdminPanel({ branch, isSuperAdmin, onClose, employees, managers,
       const winnerSetByDate = {};
       for (const dateInfo of event.dates) {
         const date = dateInfo.date;
-        const existing = await window.VacationAPI.getByDate(date, event.branch);
+        const existing = await VacFacade.getByDate(date, event.branch);
         const activeExisting = existing.filter((v) => v.status !== "취소됨");
         const activeCapacityCount = activeExisting.filter((v) => isCapacityType(v.vacationType)).length;
         activeCapacityCountByDate[date] = activeCapacityCount;
@@ -5766,8 +5877,7 @@ function LotteryAdminPanel({ branch, isSuperAdmin, onClose, employees, managers,
         const isWinner = winnerSetByDate[en.date].has(en.id);
         await window.LotteryAPI.updateEntry(en.id, { result: isWinner ? "당첨" : "낙첨" });
         if (isWinner) {
-          const docId = `${en.employeeId}_${en.date}`;
-          await window.VacationAPI.addOnce(docId, {
+          await VacFacade.addOnce(en.branch, en.date, en.employeeId, {
             name: en.name,
             branch: en.branch,
             employeeId: en.employeeId,
@@ -6948,7 +7058,7 @@ function DataResetPanel({ onClose, branch, isSuperAdmin }) {
     if (!confirm("정말로 진행할까요? 한 번 더 확인할게요.")) return;
     setWorking(true);
     Promise.resolve()
-      .then(() => window.VacationAPI.removeAllForBranch("문양"))
+      .then(() => VacFacade.removeAllForBranch("문양"))
       .then((count) => {
         alert(`문양 휴가 기록 ${count}건을 전부 삭제했어요.`);
       })
@@ -7252,12 +7362,18 @@ function ImportTestPanel({ onClose, employees, managers }) {
 
     Promise.resolve()
       .then(() => {
-        if (!window.VacationAPI || typeof window.VacationAPI.bulkImport !== "function") {
+        if (USE_DAY_DOCS) {
+          if (!window.VacationDayAPI || typeof window.VacationDayAPI.bulkSetDays !== "function") {
+            throw new Error(
+              "index.html에 VacationDayAPI.bulkSetDays 함수가 아직 없어요. index.html을 먼저 업데이트해주세요."
+            );
+          }
+        } else if (!window.VacationAPI || typeof window.VacationAPI.bulkImport !== "function") {
           throw new Error(
             "index.html에 VacationAPI.bulkImport 함수가 아직 없어요. index.html을 먼저 업데이트해주세요."
           );
         }
-        return window.VacationAPI.bulkImport(payload);
+        return VacFacade.bulkImport("경산", payload);
       })
       .then((ids) => {
         setImportedIds((prev) => [...prev, ...ids]);
@@ -7276,7 +7392,7 @@ function ImportTestPanel({ onClose, employees, managers }) {
     if (!confirm(`방금 저장한 ${importedIds.length}건을 전부 삭제할까요? (되돌릴 수 없어요)`)) return;
     setImporting(true);
     Promise.resolve()
-      .then(() => Promise.all(importedIds.map((id) => window.VacationAPI.remove(id))))
+      .then(() => Promise.all(importedIds.map((ref) => VacFacade.remove(ref.branch, ref.date, ref.id))))
       .then(() => {
         setImportedIds([]);
         setImportResult(null);
@@ -7301,7 +7417,7 @@ function ImportTestPanel({ onClose, employees, managers }) {
     if (!confirm("정말로 진행할까요? 한 번 더 확인할게요.")) return;
     setImporting(true);
     Promise.resolve()
-      .then(() => window.VacationAPI.removeAllForBranch(branch))
+      .then(() => VacFacade.removeAllForBranch(branch))
       .then((count) => {
         alert(`${branch} 휴가 기록 ${count}건을 전부 삭제했어요.`);
         setImportedIds([]);
