@@ -1825,6 +1825,7 @@ function gyeongsanCapacity(branch, dateStr, activeRecords, holidaySet, prevDayAc
   if (hasOffDutyToday || hasNightFromYesterday) base += 1;
   return base;
 }
+
 function gyeongsanColor(remain) {
   if (remain <= 0) return "#e02020";
   if (remain === 1) return "#f5a623";
@@ -1855,7 +1856,6 @@ const TYPE_ICON = {
   출장: "🧳",
   "교휴(공휴)": "📅",
 };
-
 // 보장인원에 포함되지 않는(휴충당 처리) 휴가 종류
 const NON_CAPACITY_TYPES = [
   "청휴", "청휴비", "청휴(탈상)", "병가", "병가비",
@@ -2679,6 +2679,9 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
       });
       // 야간/비번 짝이 있으면 반대쪽도 같이 취소돼요 - 짝이 있는 그 날짜만 콕 집어서 화면에 반영해요
       // (예전엔 여기서 달 전체를 다시 읽어왔는데, 짝 기록 하나 상태 바꾸는 데 그럴 필요가 없어요)
+      // 야간 쪽이 짝으로 같이 취소되면, 그날 순번에도 구멍이 생기니 그 날짜도 같이 순번 정리해요
+      // (아래 record.date 쪽 정리는 "직접 취소한 기록"의 날짜만 커버해서, 비번을 먼저 취소해
+      //  야간이 연쇄로 취소되는 경우엔 이게 없으면 야간 쪽 날짜 순번이 안 정리됐어요)
       cancelNightPairIfAny(record, (pairRecord) => {
         setMonthMap((prev) => {
           const next = { ...prev };
@@ -2688,6 +2691,11 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
           );
           return next;
         });
+        if (isCapacityType(pairRecord.vacationType)) {
+          renumberDayPriorities_(pairRecord.date, pairRecord.branch, (freshRecords) => {
+            setMonthMap((prev) => ({ ...prev, [pairRecord.date]: freshRecords }));
+          });
+        }
       });
       // 보장휴가면 그날 순번을 다시 매겨야 해요 - renumberDayPriorities_가 그 날짜 기록만
       // 다시 읽어와서 monthMap에 반영해줘요 (역시 달 전체를 다시 읽을 필요 없음)
@@ -3026,6 +3034,16 @@ const assignPriority = () => {
   });
 };
 
+// 야간 근무면 다음날 "비번" 기록도 자동으로 같이 등록해요 (본인 신청과 동일한 규칙).
+// 대상자 미정인 경우엔 실제 DIA가 없어서 야간 판단 자체가 불가능하니 건너뛰어요.
+const companionType = NIGHT_COMPANION_TYPE_MAP[finalVacationType];
+const shouldAddCompanion =
+  !managerFormUnassigned &&
+  companionType &&
+  nextDateStr &&
+  isCapacityType(finalVacationType) &&
+  isNightShiftCode(finalDia, currentUser.branch);
+
 assignPriority()
   .then((priority) => {
     const newRecord = {
@@ -3046,11 +3064,37 @@ assignPriority()
     return window.VacationAPI.add(newRecord).then((id) => ({ id, ...newRecord }));
   })
     .then((savedRecord) => {
+      if (!shouldAddCompanion) return { savedRecord, companionRecord: null };
+      const companionRecord = {
+        name: finalName,
+        branch: currentUser.branch,
+        employeeId: target.id,
+        vacationType: companionType,
+        dia: nightDiaToOffDutyDia(finalDia),
+        date: nextDateStr,
+        recordedBy: currentUser.name,
+      };
+      return window.VacationAPI.add(companionRecord)
+        .then((id) => {
+          return { savedRecord, companionRecord: { id, ...companionRecord } };
+        })
+        .catch((err) => {
+          console.error("비번 자동 등록 실패:", err);
+          alert(
+            "기록은 저장됐지만, 다음날 비번 자동 등록에 실패했어요. 다음날에 직접 비번을 추가로 입력해주세요."
+          );
+          return { savedRecord, companionRecord: null };
+        });
+    })
+    .then(({ savedRecord, companionRecord }) => {
       setShowManagerForm(false);
-      // 방금 등록한 기록만 화면에 콕 집어 반영해요 - 달 전체를 다시 읽지 않아요
+      // 방금 등록한 기록(+성공한 경우 짝 비번)만 화면에 콕 집어 반영해요 - 달 전체를 다시 읽지 않아요
       setMonthMap((prev) => {
         const next = { ...prev };
         next[selectedDate] = [...(next[selectedDate] || []), { ...savedRecord, status: "정상" }];
+        if (companionRecord) {
+          next[nextDateStr] = [...(next[nextDateStr] || []), { ...companionRecord, status: "정상" }];
+        }
         return next;
       });
     })
@@ -3635,7 +3679,13 @@ assignPriority()
                     <select
                       style={modal.input}
                       value={managerTargetId}
-                      onChange={(e) => setManagerTargetId(e.target.value)}
+                      onChange={(e) => {
+                        const empId = e.target.value;
+                        setManagerTargetId(empId);
+                        // 대상자를 고르면 그 사람 본인의 오늘 교번을 자동으로 채워줘요 - 운용이 매번
+                        // 목록에서 그 사람 교번을 따로 찾아 고를 필요 없게. 물론 그 뒤에 자유롭게 바꿀 수 있어요.
+                        setManagerFormDia(empId ? codeForEmployeeOnDate(empId, selectedDate) : "");
+                      }}
                     >
                       <option value="">이름 선택</option>
                       {[...branchAllEmployees]
@@ -3653,7 +3703,7 @@ assignPriority()
                     style={modal.input}
                     value={managerFormType}
                     onChange={(e) => setManagerFormType(e.target.value)}
->
+                  >
                     <optgroup label="⚪ 보장인원 미포함">
                       {NON_CAPACITY_TYPES.map((t) => (
                         <option key={t} value={t}>{t}</option>
@@ -3687,6 +3737,9 @@ assignPriority()
                     onChange={(e) => setManagerFormDia(e.target.value)}
                   >
                     <option value="">교번을 선택해주세요</option>
+                    {managerFormDia && !managerBranchCodes.includes(managerFormDia) && (
+                      <option value={managerFormDia}>{managerFormDia} (본인 교번)</option>
+                    )}
                     {managerBranchCodes.map((c) => (
                       <option key={c} value={c}>{c}</option>
                     ))}
@@ -4331,7 +4384,7 @@ assignPriority()
       )}
       {showDataReset && (
         <ErrorBoundary onClose={closeModal}>
-          <DataResetPanel onClose={closeModal} branch={currentUser.branch} />
+          <DataResetPanel onClose={closeModal} branch={currentUser.branch} isSuperAdmin={isSuperAdmin} />
         </ErrorBoundary>
       )}
       {showImportTest && (
@@ -4770,6 +4823,10 @@ function MyVacationsPanel({ currentUser, onClose, employees }) {
             ? prev.map((v) => (v.id === pairRecord.id ? { ...v, status: "취소됨" } : v))
             : prev
         );
+        // 짝(주로 야간 쪽) 날짜도 순번에 구멍이 생기니 같이 정리해요
+        if (isCapacityType(pairRecord.vacationType)) {
+          renumberDayPriorities_(pairRecord.date, pairRecord.branch);
+        }
       });
     });
   };
@@ -5481,6 +5538,7 @@ function LotteryAdminPanel({ branch, isSuperAdmin, onClose, employees, managers,
       .then(() => load())
       .catch((err) => alert("삭제 실패: " + (err && err.message ? err.message : err)));
   };
+
   // 추첨 실행 - 날짜별로 관리자가 지정한 인원(정원) 대비 응모자 수를 비교해서 정원보다 많으면 랜덤 추첨
   const handleRunDraw = async (event) => {
     if (!confirm(`"${event.year}년 ${event.holidayName}" 추첨을 실행할까요?\n실행하면 당첨자는 바로 실제 휴가로 등록되고, 되돌리기 어려워요.`))
@@ -6717,7 +6775,7 @@ function parseReqDateToYMD(reqDateRaw, vacationDateStr) {
 /* 아직 두 소속 다 테스트 중이라 필요할 때까지 남겨두는 용도예요 - 나중에     */
 /* 필요 없어지면 요청 시 이 패널 자체를 없애면 돼요.                        */
 /* ------------------------------------------------------------------ */
-function DataResetPanel({ onClose, branch }) {
+function DataResetPanel({ onClose, branch, isSuperAdmin }) {
   const [working, setWorking] = useState(false);
 
   const handleResetHyuchungdang = () => {
@@ -6765,6 +6823,55 @@ function DataResetPanel({ onClose, branch }) {
       .finally(() => setWorking(false));
   };
 
+  // 2단계: 기존 vacations 컬렉션 → 신규 vacation_days 구조로 복사 (원본은 그대로 두고 옮기기만 해요)
+  // 여러 번 실행해도 안전해요 - 매번 원본 기준으로 다시 계산해서 덮어쓰니, 중간에 실패해도
+  // 다시 누르면 이어서/처음부터 다시 하면 돼요.
+  const [migrating, setMigrating] = useState(false);
+  const [migrateResult, setMigrateResult] = useState(null);
+
+  const handleMigrateToDayDocs = () => {
+    if (!window.VacationDayAPI) {
+      alert("index.html에 VacationDayAPI가 아직 없어요. index.html을 먼저 업데이트해주세요.");
+      return;
+    }
+    if (
+      !confirm(
+        `[${branch}] 기존 휴가 기록을 새 구조(vacation_days)로 복사할까요?\n\n` +
+          "원본(vacations 컬렉션)은 전혀 안 건드리고, 그대로 복사만 해요. 여러 번 눌러도 안전해요."
+      )
+    )
+      return;
+    setMigrating(true);
+    setMigrateResult(null);
+    window.VacationAPI.getAll(branch)
+      .then((allRecords) => {
+        // 날짜별로 묶어요
+        const byDate = {};
+        (allRecords || []).forEach((r) => {
+          if (!r.date) return;
+          if (!byDate[r.date]) byDate[r.date] = {};
+          const { id, ...rest } = r;
+          byDate[r.date][id] = rest;
+        });
+        if (!window.VacationDayAPI.bulkSetDays) {
+          throw new Error("index.html에 VacationDayAPI.bulkSetDays가 아직 없어요. index.html을 먼저 업데이트해주세요.");
+        }
+        return window.VacationDayAPI.bulkSetDays(branch, byDate).then((count) => ({
+          dayCount: Object.keys(byDate).length,
+          recordCount: count,
+        }));
+      })
+      .then(({ dayCount, recordCount }) => {
+        setMigrateResult({ dayCount, recordCount });
+        alert(`완료! ${dayCount}일치, 총 ${recordCount}건을 새 구조로 복사했어요.`);
+      })
+      .catch((err) => {
+        console.error(err);
+        alert("마이그레이션 중 오류: " + (err && err.message ? err.message : err));
+      })
+      .finally(() => setMigrating(false));
+  };
+
   return (
     <div style={modal.overlay} onClick={onClose}>
       <div style={{ ...modal.sheet, maxWidth: "340px" }} onClick={(e) => e.stopPropagation()}>
@@ -6788,6 +6895,23 @@ function DataResetPanel({ onClose, branch }) {
         >
           🗑️ 문양 전체 초기화 (모든 휴가 기록 삭제)
         </button>
+
+        {isSuperAdmin && (
+          <>
+            <button
+              style={{ ...styles.button, border: "1px dashed #1a73e8", color: "#1a73e8", padding: "10px", marginBottom: "4px" }}
+              disabled={migrating}
+              onClick={handleMigrateToDayDocs}
+            >
+              {migrating ? "복사 중..." : `🔀 [${branch}] 신규 구조(vacation_days)로 복사`}
+            </button>
+            {migrateResult && (
+              <div style={{ ...modal.countText, marginBottom: "10px", color: "#1a73e8" }}>
+                최근 결과: {migrateResult.dayCount}일치 · {migrateResult.recordCount}건
+              </div>
+            )}
+          </>
+        )}
 
         <button style={modal.closeBtn} onClick={onClose}>닫기</button>
       </div>
