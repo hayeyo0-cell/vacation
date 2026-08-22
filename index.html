@@ -378,6 +378,26 @@
         tx.update(ref, { entries, updatedAt: serverTimestamp() });
       });
     },
+
+    // 마이그레이션 전용: { "2026-08-21": { entryId: {...}, ... }, ... } 형태를 통째로 받아서
+    // 날짜별 문서로 한 번에 써요 (기존 vacations 데이터를 옮길 때만 써요, 평소엔 안 씀).
+    async bulkSetDays(branch, byDate) {
+      const dates = Object.keys(byDate);
+      let recordCount = 0;
+      const CHUNK = 450; // Firestore 배치 1건당 최대 500 - 여유 두고 450
+      for (let i = 0; i < dates.length; i += CHUNK) {
+        const chunk = dates.slice(i, i + CHUNK);
+        const batch = writeBatch(db);
+        chunk.forEach((dateStr) => {
+          const entries = byDate[dateStr];
+          recordCount += Object.keys(entries).length;
+          const ref = doc(db, DAYS_COLLECTION, dayDocId_(branch, dateStr));
+          batch.set(ref, { branch, date: dateStr, entries, updatedAt: serverTimestamp() });
+        });
+        await batch.commit();
+      }
+      return recordCount;
+    },
   };
 
   window.ApprovalAPI = {
@@ -515,8 +535,28 @@
       const snap = await getDocs(collection(db, HYUCHUNGDANG_COLLECTION));
       return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     },
-    async listByDate(dateStr) {
-      const q = query(collection(db, HYUCHUNGDANG_COLLECTION), where("date", "==", dateStr));
+    // 소속만 걸러서 조회 - 관리 화면(연간 집계까지 필요해서 날짜로는 못 좁힘)이 다른 소속 데이터까지
+    // 같이 읽지 않게 해줘요
+    async listAllForBranch(branch) {
+      const q = query(collection(db, HYUCHUNGDANG_COLLECTION), where("branch", "==", branch));
+      const snap = await getDocs(q);
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    },
+    // 소속+날짜 범위로 좁혀서 조회 - 월별 화면(관리자용)이 전체를 다 읽지 않고 그 달만 읽게 해줘요
+    async getByRange(startStr, endStr, branch) {
+      const constraints = [
+        where("date", ">=", startStr),
+        where("date", "<=", endStr),
+      ];
+      if (branch) constraints.push(where("branch", "==", branch));
+      const q = query(collection(db, HYUCHUNGDANG_COLLECTION), ...constraints);
+      const snap = await getDocs(q);
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    },
+    async listByDate(dateStr, branch) {
+      const constraints = [where("date", "==", dateStr)];
+      if (branch) constraints.push(where("branch", "==", branch));
+      const q = query(collection(db, HYUCHUNGDANG_COLLECTION), ...constraints);
       const snap = await getDocs(q);
       return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     },
