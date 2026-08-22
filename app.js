@@ -2265,10 +2265,10 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
     }
     let cancelled = false;
     waitForFirestore()
-      .then(() => window.HyuchungdangAPI.listByDate(selectedDate))
+      .then(() => window.HyuchungdangAPI.listByDate(selectedDate, currentUser.branch))
       .then((list) => {
         if (cancelled) return;
-        setHyuchungdangByDate((list || []).filter((r) => r.branch === currentUser.branch && r.status === "신청중"));
+        setHyuchungdangByDate((list || []).filter((r) => r.status === "신청중"));
       })
       .catch((err) => console.error("휴충당 신청 목록 조회 실패:", err));
     return () => {
@@ -3752,7 +3752,7 @@ assignPriority()
                   <div style={modal.formRow}>
                     <label style={modal.label}>기타 사유</label>
                     <input
-                      style={modal.input}
+                 style={modal.input}
                       value={managerFormOtherReason}
                       onChange={(e) => setManagerFormOtherReason(e.target.value)}
                       placeholder="예: 예비군훈련, 법원 출석 등"
@@ -5991,9 +5991,9 @@ function HyuchungdangAdminPanel({ branch, onClose, employees, managers, holidayS
   const load = () => {
     setLoading(true);
     waitForFirestore()
-      .then(() => window.HyuchungdangAPI.listAll())
+      .then(() => window.HyuchungdangAPI.listAllForBranch(branch))
       .then((data) => {
-        setAllRequests((data || []).filter((r) => r.branch === branch));
+        setAllRequests(data || []);
       })
       .catch((err) => alert("불러오기 실패: " + (err && err.message ? err.message : err)))
       .finally(() => setLoading(false));
