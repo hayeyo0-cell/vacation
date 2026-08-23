@@ -302,6 +302,12 @@ const MANAGER_CACHE_KEY = "vacation_managers_cache";
 // 중복 읽기는 웬만큼 줄이면서, 신규 등록자가 오래 기다리는 일은 거의 없게 해줘요.
 const MANAGER_CACHE_TTL_MS = 5 * 60 * 1000; // 5분
 
+const LOTTERY_EVENTS_CACHE_KEY = "vacation_lottery_events_cache";
+// 명절추첨 이벤트는 1년에 몇 번(설날/추석)만 생기고 그마저도 자주 안 바뀌어서,
+// 운용 명단보다 훨씬 길게(30분) 캐싱해도 안전해요. 로그인할 때마다 매번 전체 이벤트
+// 컬렉션을 읽는 대신, 하루 중 여러 번 접속해도 30분에 한 번만 실제로 읽으면 돼요.
+const LOTTERY_EVENTS_CACHE_TTL_MS = 30 * 60 * 1000; // 30분
+
 // 🆕 PIN을 그대로 서버에 저장하지 않고, "직원ID+PIN"을 변형(해시)한 값만 저장해요.
 // 이러면 Firestore를 누가 열어봐도 진짜 PIN 자체는 알 수 없고, 같은 PIN이어도 사람마다
 // 다른 값으로 저장돼요 (직원ID가 "소금" 역할). 로그인할 때도 이 변형값끼리만 비교해요.
@@ -2544,7 +2550,12 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
   useEffect(() => {
     if (isMidManager || currentUser.branch !== "경산") return;
     waitForFirestore()
-      .then(() => Promise.all([window.LotteryAPI.listEvents(), window.LotteryAPI.listMyEntries(currentUser.id)]))
+      .then(() =>
+        Promise.all([
+          loadCachedList(LOTTERY_EVENTS_CACHE_KEY, LOTTERY_EVENTS_CACHE_TTL_MS, () => window.LotteryAPI.listEvents()),
+          window.LotteryAPI.listMyEntries(currentUser.id),
+        ])
+      )
       .then(([events, entries]) => {
         const today = koreaTodayStr();
         const drawnTodayEventIds = new Set(
@@ -3874,8 +3885,8 @@ assignPriority()
                 {!managerFormUnassigned && (
                   <div style={modal.formRow}>
                     <label style={modal.label}>대상자</label>
-                 <select
-                      style={modal.input}
+                    <select
+                 style={modal.input}
                       value={managerTargetId}
                       onChange={(e) => {
                         const empId = e.target.value;
@@ -5319,7 +5330,12 @@ function LotteryApplyPanel({ currentUser, onClose, employees }) {
   const load = () => {
     setLoading(true);
     waitForFirestore()
-      .then(() => Promise.all([window.LotteryAPI.listEvents(), window.LotteryAPI.listMyEntries(currentUser.id)]))
+      .then(() =>
+        Promise.all([
+          loadCachedList(LOTTERY_EVENTS_CACHE_KEY, LOTTERY_EVENTS_CACHE_TTL_MS, () => window.LotteryAPI.listEvents()),
+          window.LotteryAPI.listMyEntries(currentUser.id),
+        ])
+      )
       .then(([eventList, entryList]) => {
         const ksEvents = (eventList || []).filter((e) => e.branch === currentUser.branch);
         setEvents(ksEvents);
@@ -5749,6 +5765,7 @@ function LotteryAdminPanel({ branch, isSuperAdmin, onClose, employees, managers,
       applyEnd,
     })
       .then(() => {
+        invalidateCachedList(LOTTERY_EVENTS_CACHE_KEY);
         setShowNewForm(false);
         setNewDates([]);
         setApplyStart("");
@@ -5763,7 +5780,10 @@ function LotteryAdminPanel({ branch, isSuperAdmin, onClose, employees, managers,
     if (!confirm(`"${event.year}년 ${event.holidayName}" 응모를 지금 마감할까요?\n마감 후에는 추첨을 실행할 수 있어요.`))
       return;
     window.LotteryAPI.updateEvent(event.id, { status: "마감" })
-      .then(() => load())
+      .then(() => {
+        invalidateCachedList(LOTTERY_EVENTS_CACHE_KEY);
+        load();
+      })
       .catch((err) => alert("마감 실패: " + (err && err.message ? err.message : err)));
   };
 
@@ -5773,7 +5793,10 @@ function LotteryAdminPanel({ branch, isSuperAdmin, onClose, employees, managers,
     const entries = entriesByEvent[event.id] || [];
     Promise.all(entries.map((en) => window.LotteryAPI.cancelApply(en.id)))
       .then(() => window.LotteryAPI.removeEvent(event.id))
-      .then(() => load())
+      .then(() => {
+        invalidateCachedList(LOTTERY_EVENTS_CACHE_KEY);
+        load();
+      })
       .catch((err) => alert("삭제 실패: " + (err && err.message ? err.message : err)));
   };
 
@@ -5812,7 +5835,7 @@ function LotteryAdminPanel({ branch, isSuperAdmin, onClose, employees, managers,
           winnerSet.add(candidates[cursorByDate[date]].id);
           cursorByDate[date] += 1;
         }
-        };
+      };
 
       // 2) 1차로 모든 날짜를 각자 독립적으로(그 날짜 응모자들끼리만 경쟁) 추첨
       for (const dateInfo of event.dates) fillDate(dateInfo.date);
@@ -5887,6 +5910,7 @@ function LotteryAdminPanel({ branch, isSuperAdmin, onClose, employees, managers,
       }
 
       await window.LotteryAPI.updateEvent(event.id, { status: "추첨완료" });
+      invalidateCachedList(LOTTERY_EVENTS_CACHE_KEY);
       alert(`추첨 완료! 당첨 ${totalWinners}건 · 낙첨 ${totalLosers}건`);
       load();
     } catch (err) {
