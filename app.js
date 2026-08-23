@@ -38,10 +38,11 @@ const TEAM_MAP = { ks: "경산", my: "문양" }; // 안심(as)/월배(wb)는 이
 // 하드코딩하면 한쪽에만 맞고 다른 쪽은 틀어져요. 절대 이 줄을 손으로 true/false로 바꾸지 마세요.
 const TEST_MODE = window.APP_STORAGE_SUFFIX === "_test";
 
-// ⚠️ 3단계 작업용 스위치: true면 휴가 데이터를 예전 구조(vacations) 대신 새 구조(vacation_days)로
-// 읽고 써요. 문양테스트버전에서 검증하는 동안만 true로 켜두고, 검증 끝나기 전까지 경산은 항상
-// false로 유지해주세요. false면 지금까지와 완전히 똑같이 작동해요 (기존 코드 그대로).
-const USE_DAY_DOCS = TEST_MODE;
+// ⚠️ 3단계 스위치: true면 휴가 데이터를 예전 구조(vacations) 대신 새 구조(vacation_days)로
+// 읽고 써요. 경산·문양 둘 다 보안규칙·색인·마이그레이션이 끝나서 이제 항상 true예요.
+// 혹시 문제가 생기면 이 값을 false로 되돌리는 것만으로 예전 방식으로 즉시 복귀할 수 있어요
+// (단, false로 되돌리면 그 사이 새 구조에 쌓인 신규 기록은 예전 화면엔 안 보이니 주의해주세요).
+const USE_DAY_DOCS = true;
 
 const REVERSE_TEAM_MAP = { 경산: "ks", 문양: "my" };
 
@@ -3872,8 +3873,8 @@ assignPriority()
 
                 {!managerFormUnassigned && (
                   <div style={modal.formRow}>
-<label style={modal.label}>대상자</label>
-                    <select
+                    <label style={modal.label}>대상자</label>
+                 <select
                       style={modal.input}
                       value={managerTargetId}
                       onChange={(e) => {
@@ -5811,7 +5812,7 @@ function LotteryAdminPanel({ branch, isSuperAdmin, onClose, employees, managers,
           winnerSet.add(candidates[cursorByDate[date]].id);
           cursorByDate[date] += 1;
         }
-      };
+        };
 
       // 2) 1차로 모든 날짜를 각자 독립적으로(그 날짜 응모자들끼리만 경쟁) 추첨
       for (const dateInfo of event.dates) fillDate(dateInfo.date);
