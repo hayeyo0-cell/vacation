@@ -1935,7 +1935,7 @@ const VacFacade = {
         ...(confirmedBy ? { confirmedBy, confirmedAt: new Date() } : {}),
         createdAt: r.createdAt || new Date(),
         updatedAt: new Date(),
-      };
+        };
       resultRefs.push({ branch: r.branch || branch, date: r.date, id: entryId });
     });
     return window.VacationDayAPI.bulkSetDays(branch, byDate).then(() => resultRefs);
@@ -2363,12 +2363,21 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
   const [viewYear, setViewYear] = useState(now.getFullYear());
   const [viewMonth, setViewMonth] = useState(now.getMonth()); // 0-indexed
   const [monthMap, setMonthMap] = useState({}); // { "YYYY-MM-DD": [records] }
-  // 짝수달 1일 오전 9시 진입/10시 퇴장을 놓치지 않도록 1분마다 다시 확인하는 용도 (그 외엔 의미 없는 값)
-  const [minuteTick, setMinuteTick] = useState(0);
+  // 짝수달 1일 오전 9시 진입/10시 퇴장을 놓치지 않도록 1분마다 다시 확인하되, 실제로 그 시간대에
+  // 들어가고 나갈 때만 값이 바뀌게 해요. (예전엔 매분 값이 무조건 바뀌어서, 평상시에도 1분마다
+  // 달력을 계속 다시 불러오는 낭비가 있었어요 - 이제는 평상시엔 이 값이 그대로 유지돼요.)
+  const [inPeakWindow, setInPeakWindow] = useState(
+    () => currentUser.branch === "경산" && isPeakOpeningWindow()
+  );
   useEffect(() => {
-    const id = setInterval(() => setMinuteTick((v) => v + 1), 60 * 1000);
+    const check = () => {
+      const val = currentUser.branch === "경산" && isPeakOpeningWindow();
+      setInPeakWindow((prev) => (prev === val ? prev : val));
+    };
+    check();
+    const id = setInterval(check, 60 * 1000);
     return () => clearInterval(id);
-  }, []);
+  }, [currentUser.branch]);
   const [loading, setLoading] = useState(true);
   const [holidaySet, setHolidaySet] = useState(new Set());
   const [selectedDate, setSelectedDate] = useState(null); // 모달용
@@ -2623,9 +2632,8 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
     const start = `${viewYear}-${pad2(viewMonth + 1)}-01`;
     const lastDay = new Date(viewYear, viewMonth + 1, 0).getDate();
     const end = `${viewYear}-${pad2(viewMonth + 1)}-${pad2(lastDay)}`;
-    const usePeakSubscription = currentUser.branch === "경산" && isPeakOpeningWindow();
 
-    if (usePeakSubscription) {
+    if (inPeakWindow) {
       setLoading(true);
       let cancelled = false;
       let unsubscribe = null;
@@ -2657,7 +2665,7 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
       loadMonth(viewYear, viewMonth);
     }, 200);
     return () => clearTimeout(timer);
-  }, [viewYear, viewMonth, currentUser.branch, loadMonth, minuteTick]);
+  }, [viewYear, viewMonth, currentUser.branch, loadMonth, inPeakWindow]);
 
   const changeMonth = (delta) => {
     let y = viewYear;
@@ -3864,11 +3872,11 @@ assignPriority()
 
                 {!managerFormUnassigned && (
                   <div style={modal.formRow}>
-                    <label style={modal.label}>대상자</label>
+<label style={modal.label}>대상자</label>
                     <select
                       style={modal.input}
                       value={managerTargetId}
-onChange={(e) => {
+                      onChange={(e) => {
                         const empId = e.target.value;
                         setManagerTargetId(empId);
                         // 대상자를 고르면 그 사람 본인의 오늘 교번을 자동으로 채워줘요 - 운용이 매번
@@ -5803,7 +5811,7 @@ function LotteryAdminPanel({ branch, isSuperAdmin, onClose, employees, managers,
           winnerSet.add(candidates[cursorByDate[date]].id);
           cursorByDate[date] += 1;
         }
-        };
+      };
 
       // 2) 1차로 모든 날짜를 각자 독립적으로(그 날짜 응모자들끼리만 경쟁) 추첨
       for (const dateInfo of event.dates) fillDate(dateInfo.date);
