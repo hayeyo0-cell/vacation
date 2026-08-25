@@ -4611,7 +4611,7 @@ assignPriority()
       )}
       {showDataReset && (
         <ErrorBoundary onClose={closeModal}>
-          <DataResetPanel onClose={closeModal} branch={currentUser.branch} isSuperAdmin={isSuperAdmin} />
+          <DataResetPanel onClose={closeModal} branch={currentUser.branch} />
         </ErrorBoundary>
       )}
       {showImportTest && (
@@ -7054,7 +7054,7 @@ function parseReqDateToYMD(reqDateRaw, vacationDateStr) {
 /* 아직 두 소속 다 테스트 중이라 필요할 때까지 남겨두는 용도예요 - 나중에     */
 /* 필요 없어지면 요청 시 이 패널 자체를 없애면 돼요.                        */
 /* ------------------------------------------------------------------ */
-function DataResetPanel({ onClose, branch, isSuperAdmin }) {
+function DataResetPanel({ onClose, branch }) {
   const [working, setWorking] = useState(false);
   const [backingUp, setBackingUp] = useState(false);
   const [backupResult, setBackupResult] = useState(null);
@@ -7112,32 +7112,6 @@ function DataResetPanel({ onClose, branch, isSuperAdmin }) {
       .finally(() => setBackingUp(false));
   };
 
-  const handleResetHyuchungdang = () => {
-    if (
-      !confirm(
-        "⚠️ 휴충당 신청/지정 기록을 전부 삭제할까요?\n\n" +
-          "지금까지 신청·확정된 휴충당 기록이 전부 사라져요 (되돌릴 수 없어요). 휴가 기록은 안 건드려요."
-      )
-    )
-      return;
-    if (!confirm("정말로 진행할까요? 한 번 더 확인할게요.")) return;
-    setWorking(true);
-    Promise.resolve()
-      .then(() => {
-        if (!window.HyuchungdangAPI || typeof window.HyuchungdangAPI.removeAllForBranch !== "function") {
-          throw new Error(
-            "index.html에 HyuchungdangAPI.removeAllForBranch 함수가 아직 없어요. index.html을 먼저 업데이트해주세요."
-          );
-        }
-        return window.HyuchungdangAPI.removeAllForBranch("경산");
-      })
-      .then((count) => {
-        alert(`휴충당 기록 ${count}건을 전부 삭제했어요.`);
-      })
-      .catch((err) => alert("삭제 중 오류: " + (err && err.message ? err.message : err)))
-      .finally(() => setWorking(false));
-  };
-
   const handleResetMunyang = () => {
     if (
       !confirm(
@@ -7157,70 +7131,13 @@ function DataResetPanel({ onClose, branch, isSuperAdmin }) {
       .finally(() => setWorking(false));
   };
 
-  // 2단계: 기존 vacations 컬렉션 → 신규 vacation_days 구조로 복사 (원본은 그대로 두고 옮기기만 해요)
-  // 여러 번 실행해도 안전해요 - 매번 원본 기준으로 다시 계산해서 덮어쓰니, 중간에 실패해도
-  // 다시 누르면 이어서/처음부터 다시 하면 돼요.
-  const [migrating, setMigrating] = useState(false);
-  const [migrateResult, setMigrateResult] = useState(null);
-
-  const handleMigrateToDayDocs = () => {
-    if (!window.VacationDayAPI) {
-      alert("index.html에 VacationDayAPI가 아직 없어요. index.html을 먼저 업데이트해주세요.");
-      return;
-    }
-    if (
-      !confirm(
-        `[${branch}] 기존 휴가 기록을 새 구조(vacation_days)로 복사할까요?\n\n` +
-          "원본(vacations 컬렉션)은 전혀 안 건드리고, 그대로 복사만 해요. 여러 번 눌러도 안전해요."
-      )
-    )
-      return;
-    setMigrating(true);
-    setMigrateResult(null);
-    window.VacationAPI.getAll(branch)
-      .then((allRecords) => {
-        // 날짜별로 묶어요
-        const byDate = {};
-        (allRecords || []).forEach((r) => {
-          if (!r.date) return;
-          if (!byDate[r.date]) byDate[r.date] = {};
-          const { id, ...rest } = r;
-          byDate[r.date][id] = rest;
-        });
-        if (!window.VacationDayAPI.bulkSetDays) {
-          throw new Error("index.html에 VacationDayAPI.bulkSetDays가 아직 없어요. index.html을 먼저 업데이트해주세요.");
-        }
-        return window.VacationDayAPI.bulkSetDays(branch, byDate).then((count) => ({
-          dayCount: Object.keys(byDate).length,
-          recordCount: count,
-        }));
-      })
-      .then(({ dayCount, recordCount }) => {
-        setMigrateResult({ dayCount, recordCount });
-        alert(`완료! ${dayCount}일치, 총 ${recordCount}건을 새 구조로 복사했어요.`);
-      })
-      .catch((err) => {
-        console.error(err);
-        alert("마이그레이션 중 오류: " + (err && err.message ? err.message : err));
-      })
-      .finally(() => setMigrating(false));
-  };
-
   return (
     <div style={modal.overlay} onClick={onClose}>
       <div style={{ ...modal.sheet, maxWidth: "340px" }} onClick={(e) => e.stopPropagation()}>
         <div style={modal.dateTitle}>🗑️ 데이터 초기화</div>
         <div style={{ ...modal.countText, marginBottom: "16px" }}>
-          아직 테스트 중인 두 가지만 모아뒀어요. 필요 없어지면 요청 주시면 없애드려요.
+          아직 테스트 중인 것만 모아뒀어요. 필요 없어지면 요청 주시면 없애드려요.
         </div>
-
-        <button
-          style={{ ...styles.button, border: "1px dashed #e08a20", color: "#e08a20", padding: "10px", marginBottom: "10px" }}
-          disabled={working}
-          onClick={handleResetHyuchungdang}
-        >
-          🔁 휴충당 전체 초기화 (경산 - 신청/지정 기록 삭제)
-        </button>
 
         <button
           style={{ ...styles.button, border: "1px dashed #e02020", color: "#e02020", padding: "10px", marginBottom: "14px" }}
@@ -7242,23 +7159,6 @@ function DataResetPanel({ onClose, branch, isSuperAdmin }) {
             {backupResult && (
               <div style={{ ...modal.countText, marginBottom: "14px", color: "#1caa5c" }}>
                 최근 결과: {backupResult.count}건 백업 완료
-              </div>
-            )}
-          </>
-        )}
-
-        {isSuperAdmin && (
-          <>
-            <button
-              style={{ ...styles.button, border: "1px dashed #1a73e8", color: "#1a73e8", padding: "10px", marginBottom: "4px" }}
-              disabled={migrating}
-              onClick={handleMigrateToDayDocs}
-            >
-              {migrating ? "복사 중..." : `🔀 [${branch}] 신규 구조(vacation_days)로 복사`}
-            </button>
-            {migrateResult && (
-              <div style={{ ...modal.countText, marginBottom: "10px", color: "#1a73e8" }}>
-                최근 결과: {migrateResult.dayCount}일치 · {migrateResult.recordCount}건
               </div>
             )}
           </>
