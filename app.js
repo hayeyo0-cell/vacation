@@ -1596,6 +1596,24 @@ function sortRecordsForDisplay(records) {
   });
 }
 
+// 휴충당 신청 목록 정렬 우선순위 - 팀 규정상 정해진 순서예요 (교번 번호 크기순이 아니에요)
+const HYUCHUNGDANG_DIA_PRIORITY = [
+  "휴5", "휴6", "휴10", "휴11", "휴13", "휴14",
+  "휴1", "휴2", "휴3", "휴4", "휴7", "휴8", "휴9", "휴12", "휴15",
+];
+function hyuchungdangPriorityIndex_(dia) {
+  const idx = HYUCHUNGDANG_DIA_PRIORITY.indexOf(String(dia || "").trim());
+  return idx === -1 ? HYUCHUNGDANG_DIA_PRIORITY.length : idx; // 목록에 없는 값은 맨 뒤로
+}
+function sortHyuchungdangForDisplay(requests) {
+  return [...requests].sort((a, b) => {
+    const pa = hyuchungdangPriorityIndex_(a.originalDia);
+    const pb = hyuchungdangPriorityIndex_(b.originalDia);
+    if (pa !== pb) return pa - pb;
+    return (a.name || "").localeCompare(b.name || "", "ko");
+  });
+}
+
 // 2026년 공휴일 폴백 목록 (API 호출 실패/오프라인 시에만 사용)
 const FALLBACK_HOLIDAYS_2026 = new Set([
   "2026-01-01", "2026-02-16", "2026-02-17", "2026-02-18",
@@ -1942,7 +1960,7 @@ const VacFacade = {
         ...(confirmedBy ? { confirmedBy, confirmedAt: new Date() } : {}),
         createdAt: r.createdAt || new Date(),
         updatedAt: new Date(),
-        };
+      };
       resultRefs.push({ branch: r.branch || branch, date: r.date, id: entryId });
     });
     return window.VacationDayAPI.bulkSetDays(branch, byDate).then(() => resultRefs);
@@ -3886,7 +3904,7 @@ assignPriority()
                   <div style={modal.formRow}>
                     <label style={modal.label}>대상자</label>
                     <select
-                 style={modal.input}
+                      style={modal.input}
                       value={managerTargetId}
                       onChange={(e) => {
                         const empId = e.target.value;
@@ -6413,7 +6431,7 @@ function HyuchungdangAdminPanel({ branch, onClose, employees, managers, holidayS
   for (let i = 0; i < firstWeekday; i++) cells.push(null);
   for (let d = 1; d <= daysInMonth; d++) cells.push(d);
   const todayKey = todayStr();
-  const selectedRows = selectedDate ? monthMap[selectedDate] || [] : [];
+  const selectedRows = selectedDate ? sortHyuchungdangForDisplay(monthMap[selectedDate] || []) : [];
 
   return (
     <div style={modal.overlay} onClick={onClose}>
