@@ -6698,7 +6698,17 @@ function HyuchungdangAdminPanel({ branch, onClose, employees, managers, holidayS
                           return na - nb;
                         })
                         .map((e) => (
-                          <option key={e.id} value={e.id}>{e.name} ({e.restCode})</option>
+                          <option
+                            key={e.id}
+                            value={e.id}
+                            style={
+                              ["휴1", "휴5", "휴10", "휴13"].includes(e.restCode)
+                                ? { color: "#e02020", fontWeight: 700 }
+                                : undefined
+                            }
+                          >
+                            {e.name} ({e.restCode})
+                          </option>
                         ))}
                     </select>
                     <div style={{ fontSize: "12px", color: "#888", marginTop: "4px" }}>
