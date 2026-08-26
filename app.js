@@ -6582,7 +6582,15 @@ function HyuchungdangAdminPanel({ branch, onClose, employees, managers, holidayS
                         <tr key={r.id} style={{ borderBottom: "1px solid #eee" }}>
                           <td style={tbl.td}>{idx + 1}</td>
                           <td style={{ ...tbl.td, textAlign: "left", fontWeight: 700 }}>{r.name}</td>
-                          <td style={{ ...tbl.td, fontWeight: 700, color: "#1b3a5c" }}>{r.originalDia || "-"}</td>
+                          <td
+                            style={{
+                              ...tbl.td,
+                              fontWeight: 700,
+                              color: ["휴1", "휴5", "휴10", "휴13"].includes(r.originalDia) ? "#e02020" : "#1b3a5c",
+                            }}
+                          >
+                            {r.originalDia || "-"}
+                          </td>
                           <td style={tbl.td}>
                             <select
                               value={r.substituteDia || ""}
