@@ -3849,8 +3849,7 @@ assignPriority()
               style={{
                 display: "flex",
                 gap: "8px",
-                flex: "1 1 auto",
-                minHeight: 0,
+                   minHeight: 0,
               }}
             >
             {isMidManager && isWideScreen && prevDateStr &&
@@ -5776,6 +5775,7 @@ function LotteryAdminPanel({ branch, isSuperAdmin, onClose, employees, managers,
     setSaving(true);
     window.LotteryAPI.createEvent({
       branch: viewBranch,
+             flex: "1 1 auto",
       holidayName,
       year: parseInt(year, 10),
       dates: newDates,
@@ -6697,22 +6697,17 @@ function HyuchungdangAdminPanel({ branch, onClose, employees, managers, holidayS
                           const nb = parseInt(String(b.restCode).replace(/[^0-9]/g, ""), 10) || 0;
                           return na - nb;
                         })
-                        .map((e) => (
-                          <option
-                            key={e.id}
-                            value={e.id}
-                            style={
-                              ["휴1", "휴5", "휴10", "휴13"].includes(e.restCode)
-                                ? { color: "#e02020", fontWeight: 700 }
-                                : undefined
-                            }
-                          >
-                            {e.name} ({e.restCode})
-                          </option>
-                        ))}
+                        .map((e) => {
+                          const isNightEligible = ["휴1", "휴5", "휴10", "휴13"].includes(e.restCode);
+                          return (
+                            <option key={e.id} value={e.id}>
+                              {isNightEligible ? "⭐ " : ""}{e.name} ({e.restCode})
+                            </option>
+                          );
+                        })}
                     </select>
                     <div style={{ fontSize: "12px", color: "#888", marginTop: "4px" }}>
-                      그날 교번이 "휴"인 사람만 목록에 나와요
+                      그날 교번이 "휴"인 사람만 목록에 나와요 · ⭐ 표시는 야간 근무 휴충당이 가능한 휴1·5·10·13이에요
                     </div>
                   </div>
 
