@@ -5940,6 +5940,40 @@ function LotteryAdminPanel({ branch, isSuperAdmin, onClose, employees, managers,
     }
   };
 
+  // 추첨완료 상태를 "마감"으로 되돌려요 - 당첨자로 등록됐던 휴가 기록은 취소하고,
+  // 모든 응모 건을 다시 "대기중"으로 돌려서 재추첨할 수 있게 해요.
+  const handleUndoDraw = async (event) => {
+    if (
+      !confirm(
+        `"${event.year}년 ${event.holidayName}" 추첨 결과를 되돌릴까요?\n\n` +
+          "당첨자로 등록됐던 휴가 기록은 취소되고, 모든 응모가 다시 대기중으로 돌아가요. 그 뒤 다시 추첨을 실행할 수 있어요."
+      )
+    )
+      return;
+    setDrawing(event.id);
+    try {
+      const entries = entriesByEvent[event.id] || [];
+      for (const en of entries) {
+        if (en.result === "당첨") {
+          const docId = `${en.employeeId}_${en.date}`;
+          await VacFacade.cancel(en.branch, en.date, docId).catch((err) =>
+            console.error("당첨 취소된 휴가 기록 취소 실패:", err)
+          );
+        }
+        await window.LotteryAPI.updateEntry(en.id, { result: "대기중" });
+      }
+      await window.LotteryAPI.updateEvent(event.id, { status: "마감" });
+      invalidateCachedList(LOTTERY_EVENTS_CACHE_KEY);
+      alert("추첨 결과를 되돌렸어요. 다시 추첨을 실행할 수 있어요.");
+      load();
+    } catch (err) {
+      console.error(err);
+      alert("되돌리는 중 오류: " + (err && err.message ? err.message : err));
+    } finally {
+      setDrawing(null);
+    }
+  };
+
   return (
     <div style={modal.overlay} onClick={onClose}>
       <div style={modal.sheet} onClick={(e) => e.stopPropagation()}>
@@ -6128,7 +6162,26 @@ function LotteryAdminPanel({ branch, isSuperAdmin, onClose, employees, managers,
                     </button>
                   )}
                   {event.status === "추첨완료" && (
-                    <span style={{ fontSize: "12px", color: "#1caa5c", fontWeight: 700 }}>✅ 추첨 완료</span>
+                    <React.Fragment>
+                      <span style={{ fontSize: "12px", color: "#1caa5c", fontWeight: 700, alignSelf: "center" }}>
+                        ✅ 추첨 완료
+                      </span>
+                      <button
+                        style={{
+                          padding: "5px 10px",
+                          borderRadius: "7px",
+                          border: "1px dashed #e08a20",
+                          background: "#fff",
+                          color: "#e08a20",
+                          fontWeight: 700,
+                          fontSize: "12px",
+                        }}
+                        disabled={drawing === event.id}
+                        onClick={() => handleUndoDraw(event)}
+                      >
+                        {drawing === event.id ? "되돌리는 중..." : "↩️ 추첨 되돌리기"}
+                      </button>
+                    </React.Fragment>
                   )}
                 </div>
               </div>
