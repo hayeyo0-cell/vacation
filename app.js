@@ -3849,7 +3849,8 @@ assignPriority()
               style={{
                 display: "flex",
                 gap: "8px",
-                   minHeight: 0,
+                flex: "1 1 auto",
+                minHeight: 0,
               }}
             >
             {isMidManager && isWideScreen && prevDateStr &&
@@ -5775,7 +5776,6 @@ function LotteryAdminPanel({ branch, isSuperAdmin, onClose, employees, managers,
     setSaving(true);
     window.LotteryAPI.createEvent({
       branch: viewBranch,
-             flex: "1 1 auto",
       holidayName,
       year: parseInt(year, 10),
       dates: newDates,
@@ -5838,8 +5838,9 @@ function LotteryAdminPanel({ branch, isSuperAdmin, onClose, employees, managers,
         const activeExisting = existing.filter((v) => v.status !== "취소됨");
         const activeCapacityCount = activeExisting.filter((v) => isCapacityType(v.vacationType)).length;
         activeCapacityCountByDate[date] = activeCapacityCount;
-        // 명절은 특수 상황이 많아서, 자동 계산 대신 관리자가 그 날짜에 직접 지정한 인원을 그대로 써요
-        capacityLeft[date] = Math.max(0, dateInfo.capacity - activeCapacityCount);
+        // 명절은 특수 상황이 많아서, 자동 계산 대신 관리자가 그 날짜에 직접 지정한 "추첨으로 뽑을 인원"을
+        // 그대로 써요 - 그날 이미 채워진 일반 신청 인원과는 별개예요 (이중으로 빼면 안 돼요).
+        capacityLeft[date] = dateInfo.capacity;
         candidatesByDate[date] = entries.filter((en) => en.date === date).sort(() => Math.random() - 0.5);
         cursorByDate[date] = 0;
         winnerSetByDate[date] = new Set();
