@@ -86,6 +86,21 @@ function jsonpRequest(url, params, timeoutMs = 6000) {
   });
 }
 
+// fetch()는 원래 타임아웃이 없어서, 상대 서버가 응답을 안 주면 요청이 무한정 매달려있을 수 있어요.
+// AbortController로 일정 시간이 지나면 강제로 포기하도록 감싸요 (백업 요청 등에 사용).
+function fetchWithTimeout(url, options, timeoutMs = 60000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { ...options, signal: controller.signal })
+    .catch((err) => {
+      if (err && err.name === "AbortError") {
+        throw new Error("응답이 너무 오래 걸려서(타임아웃) 요청을 중단했어요. 잠시 후 다시 시도해주세요.");
+      }
+      throw err;
+    })
+    .finally(() => clearTimeout(timer));
+}
+
 // 교번앱과 동일한 날짜 계산 방식 (한국 시간 기준)
 function koreaTodayStr() {
   const now = new Date();
@@ -2538,7 +2553,7 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
                 if (pa !== pb) return pa - pb;
                 return a.name.localeCompare(b.name, "ko");
               });
-            return fetch(VACATION_API_URL, {
+            return fetchWithTimeout(VACATION_API_URL, {
               method: "POST",
               headers: { "Content-Type": "text/plain;charset=utf-8" },
               body: JSON.stringify({ action: "backup", records: payload }),
@@ -7148,7 +7163,7 @@ function DataResetPanel({ onClose, branch }) {
             if (pa !== pb) return pa - pb;
             return a.name.localeCompare(b.name, "ko");
           });
-        return fetch(VACATION_API_URL, {
+        return fetchWithTimeout(VACATION_API_URL, {
           method: "POST",
           headers: { "Content-Type": "text/plain;charset=utf-8" },
           body: JSON.stringify({ action: "backup", records: payload }),
