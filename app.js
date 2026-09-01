@@ -2549,7 +2549,14 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
           const lastMs = meta?.lastBackupAt?.toMillis ? meta.lastBackupAt.toMillis() : 0;
           const overdueMs = Date.now() - lastMs;
           if (overdueMs < BACKUP_INTERVAL_MS) return null; // 아직 1주일 안 지남
-          return promiseWithTimeout(VacFacade.getAll(currentUser.branch), 90000, "백업").then((records) => {
+          // Promise.resolve().then()으로 한 번 감싸서, VacFacade.getAll 자체가 즉시(동기적으로)
+          // 오류를 던지는 경우(예: index.html이 최신이 아니라 함수가 아예 없는 경우)에도
+          // 아래 타임아웃·에러 처리가 정상적으로 붙잡을 수 있게 해요.
+          return promiseWithTimeout(
+            Promise.resolve().then(() => VacFacade.getAll(currentUser.branch)),
+            90000,
+            "백업"
+          ).then((records) => {
             const payload = (records || [])
               .map((r) => ({
                 date: r.date || "",
@@ -3889,7 +3896,7 @@ assignPriority()
                 width: "100%",
                 boxSizing: "border-box",
                 ...(isMidManager && isWideScreen
-                  ? { height: "100%", overflowY: "auto", padding: "14px" }
+                    ? { height: "100%", overflowY: "auto", padding: "14px" }
                   : {}),
               }}
             >
@@ -5838,7 +5845,7 @@ function LotteryAdminPanel({ branch, isSuperAdmin, onClose, employees, managers,
     const entries = entriesByEvent[event.id] || [];
     Promise.all(entries.map((en) => window.LotteryAPI.cancelApply(en.id)))
       .then(() => window.LotteryAPI.removeEvent(event.id))
-      .then(() => {
+    .then(() => {
         invalidateCachedList(LOTTERY_EVENTS_CACHE_KEY);
         load();
       })
@@ -7161,7 +7168,7 @@ function DataResetPanel({ onClose, branch }) {
     setBackingUp(true);
     setBackupResult(null);
     promiseWithTimeout(
-      VacFacade.getAll("경산").then((records) => {
+      Promise.resolve().then(() => VacFacade.getAll("경산")).then((records) => {
         const payload = (records || [])
           .map((r) => ({
             date: r.date || "",
