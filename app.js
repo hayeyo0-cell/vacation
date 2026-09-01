@@ -101,6 +101,27 @@ function fetchWithTimeout(url, options, timeoutMs = 60000) {
     .finally(() => clearTimeout(timer));
 }
 
+// fetch뿐 아니라 Firestore 읽기 등 "어떤 단계든" 너무 오래 걸리면 강제로 포기시키는 범용 타임아웃.
+// 네트워크가 불안정한 모바일 환경에서, 요청이 응답도 에러도 없이 그냥 무한정 매달려있는 상황을
+// 막으려고 만들었어요 - fetchWithTimeout은 fetch 단계만 지켜주는데, 이건 그 앞뒤 어디든 걸 수 있어요.
+function promiseWithTimeout(promise, timeoutMs, label) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`${label || "요청"}이(가) 너무 오래 걸려서(타임아웃) 중단했어요. 잠시 후 다시 시도해주세요.`));
+    }, timeoutMs);
+    promise.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
+}
+
 // 교번앱과 동일한 날짜 계산 방식 (한국 시간 기준)
 function koreaTodayStr() {
   const now = new Date();
@@ -2528,7 +2549,7 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
           const lastMs = meta?.lastBackupAt?.toMillis ? meta.lastBackupAt.toMillis() : 0;
           const overdueMs = Date.now() - lastMs;
           if (overdueMs < BACKUP_INTERVAL_MS) return null; // 아직 1주일 안 지남
-          return VacFacade.getAll(currentUser.branch).then((records) => {
+          return promiseWithTimeout(VacFacade.getAll(currentUser.branch), 90000, "백업").then((records) => {
             const payload = (records || [])
               .map((r) => ({
                 date: r.date || "",
@@ -7139,8 +7160,8 @@ function DataResetPanel({ onClose, branch }) {
     if (!confirm("지금 바로 경산 휴가 데이터를 스프레드시트로 백업할까요?")) return;
     setBackingUp(true);
     setBackupResult(null);
-    VacFacade.getAll("경산")
-      .then((records) => {
+    promiseWithTimeout(
+      VacFacade.getAll("경산").then((records) => {
         const payload = (records || [])
           .map((r) => ({
             date: r.date || "",
@@ -7173,7 +7194,10 @@ function DataResetPanel({ onClose, branch }) {
             if (!json || !json.ok) throw new Error((json && json.error) || "백업 실패");
             return window.SystemAPI.markBackupDone().then(() => payload.length);
           });
-      })
+      }),
+      90000,
+      "백업"
+    )
       .then((count) => {
         setBackupResult({ count });
         alert(`백업 완료! 총 ${count}건을 스프레드시트로 보냈어요.`);
