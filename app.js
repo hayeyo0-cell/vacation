@@ -3896,7 +3896,7 @@ assignPriority()
                 width: "100%",
                 boxSizing: "border-box",
                 ...(isMidManager && isWideScreen
-                    ? { height: "100%", overflowY: "auto", padding: "14px" }
+                  ? { height: "100%", overflowY: "auto", padding: "14px" }
                   : {}),
               }}
             >
@@ -4344,7 +4344,7 @@ assignPriority()
                                 )}
                               </td>
                               <td style={{ ...tbl.td, textAlign: "left" }}>
-                                {v.vacationType}
+                                {v.vacationType && v.vacationType.startsWith("기타:") ? "기타" : v.vacationType}
                               </td>
                               <td style={{ ...tbl.td, fontWeight: 700, color: v.unassigned ? "#e08a20" : "#1b3a5c" }}>{v.dia}</td>
                               <td style={{ ...tbl.td, textAlign: "left" }}>
@@ -4423,10 +4423,18 @@ assignPriority()
                                 )}
                               </td>
                             </tr>
-                            {!cap && (v.note || editingNoteId === v.id || (isMidManager && !cancelled)) && (
+                            {(v.note ||
+                              (v.vacationType && v.vacationType.startsWith("기타:")) ||
+                              editingNoteId === v.id ||
+                              (!cap && isMidManager && !cancelled)) && (
                               <tr style={{ borderBottom: "1px solid #eee" }}>
                                 <td></td>
                                 <td colSpan={5} style={{ padding: "0 3px 6px", fontSize: "11px" }}>
+                                  {v.vacationType && v.vacationType.startsWith("기타:") && (
+                                    <div style={{ color: "#e08a20", marginBottom: "2px" }}>
+                                      {v.vacationType}
+                                    </div>
+                                  )}
                                   {editingNoteId === v.id ? (
                                     <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
                                       <input
@@ -4445,7 +4453,7 @@ assignPriority()
                                   ) : (
                                     <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                                       {v.note && <span style={{ color: "#999" }}>📝 {v.note}</span>}
-                                      {isMidManager && !cancelled && (
+                                      {!cap && isMidManager && !cancelled && (
                                         <span
                                           style={{ color: "#1b3a5c", textDecoration: "underline", cursor: "pointer" }}
                                           onClick={() => handleStartNoteEdit(v)}
@@ -5845,7 +5853,7 @@ function LotteryAdminPanel({ branch, isSuperAdmin, onClose, employees, managers,
     const entries = entriesByEvent[event.id] || [];
     Promise.all(entries.map((en) => window.LotteryAPI.cancelApply(en.id)))
       .then(() => window.LotteryAPI.removeEvent(event.id))
-    .then(() => {
+      .then(() => {
         invalidateCachedList(LOTTERY_EVENTS_CACHE_KEY);
         load();
       })
