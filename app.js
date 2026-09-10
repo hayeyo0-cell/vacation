@@ -1737,6 +1737,18 @@ function getSLabelOnly(branch, dateStr, rawCode, holidaySet) {
   return idx === -1 ? null : `S${idx + 1}`;
 }
 
+// withSLabel의 반대 방향 - 사람이 참고용 라벨("S2")을 실제 코드인 줄 알고 그대로 입력했을 때,
+// 저장 직전에 원래 코드("18d")로 자동 교정해요. "S"로 시작하지 않는 입력은 그대로 둬요.
+function normalizeSInput_(branch, dateStr, rawInput, holidaySet) {
+  const clean = String(rawInput || "").trim();
+  const m = /^S(\d+)$/i.exec(clean);
+  if (!m) return clean;
+  const dayType = getDayType(dateStr, holidaySet);
+  const sDiaOrder = (S_CODE_MAP[branch] && S_CODE_MAP[branch][dayType]) || [];
+  const idx = parseInt(m[1], 10) - 1;
+  return sDiaOrder[idx] != null ? sDiaOrder[idx] : clean; // 매칭 안 되면 원래 입력 그대로
+}
+
 // 날짜 헤더 표시용 색상 - 토요일은 파란색, 휴일(공휴일·일요일)은 빨간색, 평일은 기본색
 function dateHeaderColor(dateStr, holidaySet) {
   const type = getDayType(dateStr, holidaySet);
@@ -3054,7 +3066,7 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
     const shouldAddCompanion =
       isNightFormEntry && companionType && nextDateStr;
     const companionDocId = shouldAddCompanion ? `${currentUser.id}_${nextDateStr}` : null;
-    const savedDia = formDia.trim();
+    const savedDia = normalizeSInput_(currentUser.branch, selectedDate, formDia, holidaySet);
     let companionSaved = false;
 
     VacFacade.addOnce(currentUser.branch, selectedDate, currentUser.id, {
@@ -3297,7 +3309,7 @@ const finalName = managerFormUnassigned
 
 const finalDia = managerFormUnassigned
   ? "미지정"
-  : managerFormDia.trim();
+  : normalizeSInput_(currentUser.branch, selectedDate, managerFormDia, holidaySet);
 
 setManagerSaving(true);
 
@@ -4673,7 +4685,7 @@ assignPriority()
       )}
       {showLotteryApply && (
         <ErrorBoundary onClose={closeModal}>
-          <LotteryApplyPanel currentUser={currentUser} onClose={closeModal} employees={employees} />
+          <LotteryApplyPanel currentUser={currentUser} onClose={closeModal} employees={employees} holidaySet={holidaySet} />
         </ErrorBoundary>
       )}
       {showHyuchungdangAdmin && (
@@ -5357,7 +5369,7 @@ function MyVacationsPanel({ currentUser, onClose, employees }) {
 /* ------------------------------------------------------------------ */
 /* 명절 연휴 추첨 - 응모 패널 (경산 기관사 전용)                          */
 /* ------------------------------------------------------------------ */
-function LotteryApplyPanel({ currentUser, onClose, employees }) {
+function LotteryApplyPanel({ currentUser, onClose, employees, holidaySet }) {
   const [events, setEvents] = useState([]);
   const [myEntries, setMyEntries] = useState([]);
   const [entryCountByDate, setEntryCountByDate] = useState({}); // "eventId_date" -> 응모자 수
@@ -5435,7 +5447,7 @@ function LotteryApplyPanel({ currentUser, onClose, employees }) {
       alert("휴가 종류를 선택해주세요");
       return;
     }
-    const dia = (state.dia && state.dia.trim()) || codeForDate(date);
+    const dia = normalizeSInput_(currentUser.branch, date, (state.dia && state.dia.trim()) || codeForDate(date), holidaySet);
     if (!dia) {
       alert("DIA를 입력해주세요");
       return;
@@ -5464,7 +5476,7 @@ function LotteryApplyPanel({ currentUser, onClose, employees }) {
       alert("1일차 휴가 종류를 선택해주세요");
       return;
     }
-    const dia = (state.dia && state.dia.trim()) || codeForDate(date);
+    const dia = normalizeSInput_(currentUser.branch, date, (state.dia && state.dia.trim()) || codeForDate(date), holidaySet);
     if (!dia) {
       alert("1일차 DIA를 입력해주세요");
       return;
@@ -5473,7 +5485,7 @@ function LotteryApplyPanel({ currentUser, onClose, employees }) {
       alert("2일차 휴가 종류를 선택해주세요");
       return;
     }
-    const nextDia = (state.nextDia && state.nextDia.trim()) || codeForDate(nextDate);
+    const nextDia = normalizeSInput_(currentUser.branch, nextDate, (state.nextDia && state.nextDia.trim()) || codeForDate(nextDate), holidaySet);
     if (!nextDia) {
       alert("2일차 DIA를 입력해주세요");
       return;
