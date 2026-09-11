@@ -4014,7 +4014,7 @@ assignPriority()
                       <option value={managerFormDia}>{managerFormDia} (본인 교번)</option>
                     )}
                     {managerBranchCodes.map((c) => (
-                      <option key={c} value={c}>{c}</option>
+                      <option key={c} value={c}>{withSLabel(currentUser.branch, selectedDate, c, holidaySet)}</option>
                     ))}
                   </select>
                 </div>
@@ -4071,7 +4071,7 @@ assignPriority()
                   >
                     <option value="">교번을 선택해주세요</option>
                     {managerBranchCodes.map((c) => (
-                      <option key={c} value={c}>{c}</option>
+                      <option key={c} value={c}>{withSLabel(currentUser.branch, selectedDate, c, holidaySet)}</option>
                     ))}
                   </select>
                   {currentUser.branch === "경산" &&
@@ -5632,7 +5632,7 @@ function LotteryApplyPanel({ currentUser, onClose, employees, holidaySet }) {
                           >
                             <option value="">교번 선택</option>
                             {branchCodesForDia.map((c) => (
-                              <option key={c} value={c}>{c}</option>
+                              <option key={c} value={c}>{withSLabel(currentUser.branch, date, c, holidaySet)}</option>
                             ))}
                           </select>
                           {!st.linkNext && (
@@ -5692,7 +5692,7 @@ function LotteryApplyPanel({ currentUser, onClose, employees, holidaySet }) {
                             >
                               <option value="">2일차 교번</option>
                               {branchCodesForDia.map((c) => (
-                                <option key={c} value={c}>{c}</option>
+                                <option key={c} value={c}>{withSLabel(currentUser.branch, nextDateInfo.date, c, holidaySet)}</option>
                               ))}
                             </select>
                             <button
