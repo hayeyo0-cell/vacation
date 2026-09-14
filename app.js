@@ -1719,11 +1719,14 @@ const S_CODE_MAP = {
 function withSLabel(branch, dateStr, rawCode, holidaySet) {
   const clean = String(rawCode || "").trim();
   if (!clean) return clean;
+  // 저장된 값이 "18d"든, 예전에 잘못 들어간 "S2"든 - 일단 항상 실제 코드로 맞춘 다음에 라벨을 붙여요.
+  // 이렇게 하면 Firestore 데이터를 직접 안 고쳐도, 화면엔 항상 "18d(S2)" 형태로 통일해서 보여줄 수 있어요.
+  const actualCode = normalizeSInput_(branch, dateStr, clean, holidaySet);
   const dayType = getDayType(dateStr, holidaySet);
   const sDiaOrder = (S_CODE_MAP[branch] && S_CODE_MAP[branch][dayType]) || [];
-  const idx = sDiaOrder.indexOf(clean);
-  if (idx === -1) return clean;
-  return `${clean}(S${idx + 1})`;
+  const idx = sDiaOrder.indexOf(actualCode);
+  if (idx === -1) return actualCode;
+  return `${actualCode}(S${idx + 1})`;
 }
 
 // 달력칸처럼 좁은 곳에서 쓸 때 - "S4"만 따로 반환해서, 코드보다 작은 글씨로 붙여 넣을 수 있게 해요.
@@ -1731,9 +1734,10 @@ function withSLabel(branch, dateStr, rawCode, holidaySet) {
 function getSLabelOnly(branch, dateStr, rawCode, holidaySet) {
   const clean = String(rawCode || "").trim();
   if (!clean) return null;
+  const actualCode = normalizeSInput_(branch, dateStr, clean, holidaySet);
   const dayType = getDayType(dateStr, holidaySet);
   const sDiaOrder = (S_CODE_MAP[branch] && S_CODE_MAP[branch][dayType]) || [];
-  const idx = sDiaOrder.indexOf(clean);
+  const idx = sDiaOrder.indexOf(actualCode);
   return idx === -1 ? null : `S${idx + 1}`;
 }
 
@@ -3650,7 +3654,9 @@ assignPriority()
                         </span>
                       </td>
                       <td style={{ ...tbl.td, textAlign: "left", padding: "6px 3px" }}>{v.vacationType}</td>
-                      <td style={{ ...tbl.td, fontWeight: 700, color: "#1b3a5c", padding: "6px 3px" }}>{v.dia}</td>
+                      <td style={{ ...tbl.td, fontWeight: 700, color: "#1b3a5c", padding: "6px 3px" }}>
+                        {withSLabel(v.branch, v.date, v.dia, holidaySet)}
+                      </td>
                       <td style={{ ...tbl.td, textAlign: "left", padding: "6px 3px" }}>
                         {cancelled ? (
                           "-"
@@ -4358,7 +4364,9 @@ assignPriority()
                               <td style={{ ...tbl.td, textAlign: "left" }}>
                                 {v.vacationType && v.vacationType.startsWith("기타:") ? "기타" : v.vacationType}
                               </td>
-                              <td style={{ ...tbl.td, fontWeight: 700, color: v.unassigned ? "#e08a20" : "#1b3a5c" }}>{v.dia}</td>
+                              <td style={{ ...tbl.td, fontWeight: 700, color: v.unassigned ? "#e08a20" : "#1b3a5c" }}>
+                                {withSLabel(v.branch, v.date, v.dia, holidaySet)}
+                              </td>
                               <td style={{ ...tbl.td, textAlign: "left" }}>
                                 {cancelled ? (
                                   "-"
