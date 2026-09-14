@@ -6448,6 +6448,23 @@ function HyuchungdangAdminPanel({ branch, onClose, employees, managers, holidayS
       .catch((err) => alert("수정 실패: " + (err && err.message ? err.message : err)));
   };
 
+  // 예전부터 있던 신청 건 중 신청 시각(requestedAt)이 아예 없는 것만, 지금 시각으로 한 번 채워줘요.
+  // 앞으로 새로 들어오는 신청은 이미 자동으로 시각이 기록되니, 이건 옛날 건 보완용 일회성 도구예요.
+  const handleFillMissingTimestamps = () => {
+    const targets = (allRequests || []).filter((r) => !r.requestedAt);
+    if (targets.length === 0) {
+      alert("시각이 비어있는 신청 건이 없어요.");
+      return;
+    }
+    if (!confirm(`시각이 없는 신청 ${targets.length}건에 지금 시각을 채워넣을까요?`)) return;
+    Promise.all(targets.map((r) => window.HyuchungdangAPI.update(r.id, { requestedAt: new Date() })))
+      .then(() => {
+        alert(`${targets.length}건에 시각을 채웠어요.`);
+        load();
+      })
+      .catch((err) => alert("처리 실패: " + (err && err.message ? err.message : err)));
+  };
+
   const handleConfirmSelect = (r, name) => {
     if (!r.substituteDia) {
       alert("충당교번을 먼저 선택해주세요");
@@ -6551,6 +6568,13 @@ function HyuchungdangAdminPanel({ branch, onClose, employees, managers, holidayS
           <div style={cal.headerTop}>
             <div style={cal.userName}>🔁 휴충당 신청 현황</div>
             <div style={cal.headerBtnRow}>
+              <button
+                style={{ ...adminStyles.adminBtn, fontSize: "10px" }}
+                onClick={handleFillMissingTimestamps}
+                title="신청 시각이 비어있는 옛날 건에만 지금 시각을 채워요"
+              >
+                ⏱️ 시각 채우기
+              </button>
               <button style={adminStyles.adminBtn} onClick={onClose}>닫기</button>
             </div>
           </div>
@@ -6689,7 +6713,14 @@ function HyuchungdangAdminPanel({ branch, onClose, employees, managers, holidayS
                       {selectedRows.map((r, idx) => (
                         <tr key={r.id} style={{ borderBottom: "1px solid #eee" }}>
                           <td style={tbl.td}>{idx + 1}</td>
-                          <td style={{ ...tbl.td, textAlign: "left", fontWeight: 700 }}>{r.name}</td>
+                          <td style={{ ...tbl.td, textAlign: "left", fontWeight: 700 }}>
+                            {r.name}
+                            {r.requestedAt && (
+                              <div style={{ fontSize: "11px", fontWeight: 400, color: "#888" }}>
+                                {formatEntryTime(r.requestedAt)}
+                              </div>
+                            )}
+                          </td>
                           <td
                             style={{
                               ...tbl.td,
