@@ -3748,14 +3748,6 @@ assignPriority()
             )}
             {isSuperAdmin && (
               <button
-                style={{ ...adminStyles.adminBtn, background: "#7a4fd1", color: "#fff", borderColor: "#7a4fd1" }}
-                onClick={() => setGhosting((v) => !v)}
-              >
-                {ghosting ? `🔀 ${realCurrentUser.branch}로 복귀` : `🔀 ${otherBranch}로 전환`}
-              </button>
-            )}
-            {isSuperAdmin && (
-              <button
                 style={{ ...adminStyles.adminBtn, background: "#1a73e8", color: "#fff", borderColor: "#1a73e8" }}
                 onClick={() => setActingAsManager((v) => !v)}
               >
@@ -7311,25 +7303,6 @@ function DataResetPanel({ onClose, branch }) {
       .finally(() => setBackingUp(false));
   };
 
-  const handleResetMunyang = () => {
-    if (
-      !confirm(
-        "⚠️ 문양 소속의 휴가 기록을 전부 삭제할까요?\n\n" +
-          "문양 데이터가 전부 사라져요 (되돌릴 수 없어요). 경산 데이터는 전혀 안 건드려요."
-      )
-    )
-      return;
-    if (!confirm("정말로 진행할까요? 한 번 더 확인할게요.")) return;
-    setWorking(true);
-    Promise.resolve()
-      .then(() => VacFacade.removeAllForBranch("문양"))
-      .then((count) => {
-        alert(`문양 휴가 기록 ${count}건을 전부 삭제했어요.`);
-      })
-      .catch((err) => alert("삭제 중 오류: " + (err && err.message ? err.message : err)))
-      .finally(() => setWorking(false));
-  };
-
   return (
     <div style={modal.overlay} onClick={onClose}>
       <div style={{ ...modal.sheet, maxWidth: "340px" }} onClick={(e) => e.stopPropagation()}>
@@ -7337,14 +7310,6 @@ function DataResetPanel({ onClose, branch }) {
         <div style={{ ...modal.countText, marginBottom: "16px" }}>
           아직 테스트 중인 것만 모아뒀어요. 필요 없어지면 요청 주시면 없애드려요.
         </div>
-
-        <button
-          style={{ ...styles.button, border: "1px dashed #e02020", color: "#e02020", padding: "10px", marginBottom: "14px" }}
-          disabled={working}
-          onClick={handleResetMunyang}
-        >
-          🗑️ 문양 전체 초기화 (모든 휴가 기록 삭제)
-        </button>
 
         {branch === "경산" && !TEST_MODE && (
           <>
