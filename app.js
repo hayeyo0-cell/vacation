@@ -3265,8 +3265,8 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
     });
   };
 
-  // 실수로 확인 처리한 기록을 다시 "대기중"으로 되돌려요 - 짝(야간/비번)은 자동으로 같이 되돌리지
-  // 않아요(실수가 이쪽에만 났을 수도 있으니, 짝도 되돌리고 싶으면 그 기록도 따로 눌러주세요).
+  // 실수로 확인 처리한 기록을 다시 "대기중"으로 되돌려요 - 야간/비번 짝이 있고 그 짝도 확인된
+  // 상태면, 짝도 같이 대기중으로 되돌려요 (확인 처리할 때 짝도 같이 확인되는 것과 대칭이에요).
   const handleUnconfirm = (record) => {
     if (!confirm(`${record.name}님의 ${record.vacationType} 확인을 취소하고 대기중으로 되돌릴까요?`)) return;
     VacFacade.update(record.branch, record.date, record.id, { confirmedBy: null, confirmedAt: null }).then(() => {
@@ -3276,6 +3276,22 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
           v.id === record.id ? { ...v, confirmedBy: null } : v
         );
         return next;
+      });
+      findNightPair(record).then((pairRecord) => {
+        if (!pairRecord || !pairRecord.confirmedBy) return;
+        VacFacade.update(pairRecord.branch, pairRecord.date, pairRecord.id, {
+          confirmedBy: null,
+          confirmedAt: null,
+        }).then(() => {
+          setMonthMap((prev) => {
+            const next = { ...prev };
+            const pairDate = pairRecord.date;
+            next[pairDate] = (next[pairDate] || []).map((v) =>
+              v.id === pairRecord.id ? { ...v, confirmedBy: null } : v
+            );
+            return next;
+          });
+        });
       });
     });
   };
