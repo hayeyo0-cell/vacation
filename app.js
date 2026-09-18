@@ -3265,6 +3265,21 @@ function MainScreen({ currentUser: realCurrentUser, employees, managers, onSwitc
     });
   };
 
+  // 실수로 확인 처리한 기록을 다시 "대기중"으로 되돌려요 - 짝(야간/비번)은 자동으로 같이 되돌리지
+  // 않아요(실수가 이쪽에만 났을 수도 있으니, 짝도 되돌리고 싶으면 그 기록도 따로 눌러주세요).
+  const handleUnconfirm = (record) => {
+    if (!confirm(`${record.name}님의 ${record.vacationType} 확인을 취소하고 대기중으로 되돌릴까요?`)) return;
+    VacFacade.update(record.branch, record.date, record.id, { confirmedBy: null, confirmedAt: null }).then(() => {
+      setMonthMap((prev) => {
+        const next = { ...prev };
+        next[selectedDate] = (next[selectedDate] || []).map((v) =>
+          v.id === record.id ? { ...v, confirmedBy: null } : v
+        );
+        return next;
+      });
+    });
+  };
+
   // 중간관리자 - 대신 기록 폼 열기
   const openManagerForm = () => {
     setManagerTargetId("");
@@ -4375,7 +4390,11 @@ assignPriority()
                                     <select
                                       value={v.confirmedBy}
                                       onChange={(e) => {
-                                        if (e.target.value) handleConfirmStamp(v, e.target.value);
+                                        if (e.target.value === "__UNCONFIRM__") {
+                                          handleUnconfirm(v);
+                                        } else if (e.target.value) {
+                                          handleConfirmStamp(v, e.target.value);
+                                        }
                                         setEditingConfirmId(null);
                                       }}
                                       onBlur={() => setEditingConfirmId(null)}
@@ -4385,6 +4404,7 @@ assignPriority()
                                       {branchManagerNames.map((name) => (
                                         <option key={name} value={name}>{name}</option>
                                       ))}
+                                      <option value="__UNCONFIRM__">↩️ 확인 취소</option>
                                     </select>
                                   ) : (
                                     <span
