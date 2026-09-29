@@ -1937,8 +1937,9 @@ const VacFacade = {
     return USE_DAY_DOCS ? window.VacationDayAPI.getMineByRange(employeeId, branch, fromDate, toDate) : window.VacationAPI.getMineByRange(employeeId, fromDate, toDate);
   },
   // 본인 신청 전용 - employeeId당 하루 1건 중복 방지가 자동으로 보장돼요
-  addOnce(branch, dateStr, employeeId, record) {
-    return USE_DAY_DOCS ? window.VacationDayAPI.addOnce(branch, dateStr, employeeId, record) : window.VacationAPI.addOnce(`${employeeId}_${dateStr}`, record);
+  // guard(선택): 트랜잭션 안에서 최신 기록으로 정원 등을 최종 검사하는 함수 (신구조에서만 적용)
+  addOnce(branch, dateStr, employeeId, record, guard) {
+    return USE_DAY_DOCS ? window.VacationDayAPI.addOnce(branch, dateStr, employeeId, record, guard) : window.VacationAPI.addOnce(`${employeeId}_${dateStr}`, record);
   },
   // 관리자 대신기록/배정 등 - 같은 사람이 하루에 여러 건 가능
   add(branch, dateStr, record) {
@@ -3065,7 +3066,7 @@ function MainScreen({
       renumberDayPriorities(selectedDate, record.branch);
     });
   };
-  const submitVacationRecord = priority => {
+  const submitVacationRecord = (priority, capacityGuard) => {
     const docId = `${currentUser.id}_${selectedDate}`; // 직원ID_날짜 고정 ID - 중복 신청 원천 차단
     const companionType = NIGHT_COMPANION_TYPE_MAP[formType];
     const shouldAddCompanion = isNightFormEntry && companionType && nextDateStr;
@@ -3082,7 +3083,7 @@ function MainScreen({
       ...(priority != null ? {
         priority
       } : {})
-    }).then(() => {
+    }, capacityGuard).then(() => {
       if (!shouldAddCompanion) return;
       // 야간 신청이면 다음날 "비번" 기록도 같이 자동 등록해요 (연차→연차비, 분지→분지비, 장재→장재비)
       return VacFacade.addOnce(currentUser.branch, nextDateStr, currentUser.id, {
@@ -3135,6 +3136,18 @@ function MainScreen({
       });
     }).catch(err => {
       console.error(err);
+      if (err && err.message === "CAPACITY_FULL") {
+        alert(`앗, 저장하는 순간 보장인원(${err.capacity}명)이 다 찼어요. 다른 날짜를 선택해주세요.`);
+        loadMonth(viewYear, viewMonth);
+        setShowRegisterForm(false);
+        return;
+      }
+      if (err && err.message === "DUPLICATE_ENTRY") {
+        alert("이미 이 날짜에 신청하신 기록이 있어요. 화면을 새로고침할게요.");
+        loadMonth(viewYear, viewMonth);
+        setShowRegisterForm(false);
+        return;
+      }
       alert("등록에 실패했어요: " + (err && err.message ? err.message : err));
     }).finally(() => setSaving(false));
   };
@@ -3196,7 +3209,19 @@ function MainScreen({
       // 순번(짝수달 1일 선착순 신청용) - 그 날짜 보장휴가 기록 수(취소 포함) 다음 번호로 자동 부여
       const priorityBase = (freshDayRecords || []).filter(v => v.branch === currentUser.branch && isCapacityType(v.vacationType)).length;
       const nextPriority = currentUser.branch === "경산" && isCapacityType(formType) ? priorityBase + 1 : null;
-      submitVacationRecord(nextPriority);
+      // 트랜잭션 안에서 한 번 더 정원을 확인하는 검사 함수 - 위의 확인과 저장 사이에
+      // 다른 사람이 끼어들어도 여기서 막혀요
+      const capacityGuard = latestEntries => {
+        const act = latestEntries.filter(v => v.branch === currentUser.branch && v.status !== "취소됨");
+        const cnt = act.filter(v => isCapacityType(v.vacationType)).length;
+        const cap = gyeongsanCapacity(currentUser.branch, selectedDate, act, holidaySet, prevDayActive);
+        if (cnt >= cap) {
+          const e = new Error("CAPACITY_FULL");
+          e.capacity = cap;
+          throw e;
+        }
+      };
+      submitVacationRecord(nextPriority, capacityGuard);
     }).catch(err => {
       console.error(err);
       setSaving(false);
