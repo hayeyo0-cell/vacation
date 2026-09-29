@@ -2042,8 +2042,16 @@ function findNightPair(record) {
 function gyeongsanCapacity(branch, dateStr, activeRecords, holidaySet, prevDayActiveRecords) {
   const table = GUARANTEE_BY_BRANCH[branch] || GUARANTEE_BY_BRANCH["경산"];
   let base = table[getDayType(dateStr, holidaySet)];
-  const hasOffDutyToday = activeRecords.some(r => String(r.dia || "").includes("비번"));
-  const hasNightFromYesterday = (prevDayActiveRecords || []).some(r => isNightShiftCode(r.dia, branch));
+  // 엄격 검증: 비번 +1은 "보장인원에 실제로 자리를 차지하는" 비번일 때만 적용해요.
+  // - 오늘: 보장인원 포함 종류이면서 비번인 기록 (DIA에 "비번" 표기, 또는 연차비/분지비/장재비 같은 야간 짝 종류)
+  // - 전날: 야간 DIA이면서, 다음날 짝(비번) 종류가 보장인원 포함인 기록 (연차/분지/장재 야간만 해당)
+  //   → 병가·청휴·교육 등 보장인원 미포함 야간/비번은 +1을 열지 않아요.
+  const hasOffDutyToday = activeRecords.some(r => isCapacityType(r.vacationType) && (String(r.dia || "").includes("비번") || !!NIGHT_COMPANION_TYPES_REVERSE[r.vacationType]));
+  const hasNightFromYesterday = (prevDayActiveRecords || []).some(r => {
+    if (!isNightShiftCode(r.dia, branch)) return false;
+    const companionType = NIGHT_COMPANION_TYPE_MAP[r.vacationType];
+    return !!companionType && isCapacityType(companionType);
+  });
   if (hasOffDutyToday || hasNightFromYesterday) base += 1;
   return base;
 }
@@ -2916,7 +2924,8 @@ function MainScreen({
     const nextDayActive = (monthMap[nextDateStr] || []).filter(v => v.branch === currentUser.branch && v.status !== "취소됨");
     const nextDayCapacityCount = nextDayActive.filter(v => isCapacityType(v.vacationType)).length;
     const nextDayCapacity = gyeongsanCapacity(currentUser.branch, nextDateStr, nextDayActive, holidaySet, [{
-      dia: formDia
+      dia: formDia,
+      vacationType: formType
     }] // 지금 입력 중인 야간 신청 자체가 다음날 비번 자리를 열어주는 조건
     );
     return nextDayCapacityCount >= nextDayCapacity;
@@ -3162,7 +3171,8 @@ function MainScreen({
         if (isCapacityType(formType)) {
           const nextDayCapacityCount = nextDayActive.filter(v => isCapacityType(v.vacationType)).length;
           const nextDayCapacity = gyeongsanCapacity(currentUser.branch, nextDateStr, nextDayActive, holidaySet, [{
-            dia: formDia
+            dia: formDia,
+            vacationType: formType
           }]);
           if (nextDayCapacityCount >= nextDayCapacity) {
             setSaving(false);
