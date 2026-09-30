@@ -31,9 +31,8 @@ const BACKUP_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000; // 1주일
 // 밴드 채팅방 바로가기 (경산승무팀)
 const BAND_URL = "https://band.us/band/51746678/chat/C4U1ay";
 const TEAM_MAP = {
-  ks: "경산",
-  my: "문양"
-}; // 안심(as)/월배(wb)는 이 앱 대상 아님
+  ks: "경산"
+}; // 경산 전용 앱 (문양은 별도 앱으로 따로 관리)
 // ⚠️ 테스트 모드: true면 누구나 교번확인/승인 없이 바로 들어갈 수 있고, "가져오기 테스트" 메뉴도 보여요.
 // 경산(index.html에 APP_STORAGE_SUFFIX 없음)은 항상 false, 문양테스트(APP_STORAGE_SUFFIX="_test")는
 // 항상 true로 자동 결정돼요 - app.js는 두 환경이 같은 파일을 공유하니, 여기서 직접 true/false를
@@ -41,13 +40,12 @@ const TEAM_MAP = {
 const TEST_MODE = window.APP_STORAGE_SUFFIX === "_test";
 
 // ⚠️ 3단계 스위치: true면 휴가 데이터를 예전 구조(vacations) 대신 새 구조(vacation_days)로
-// 읽고 써요. 경산·문양 둘 다 보안규칙·색인·마이그레이션이 끝나서 이제 항상 true예요.
+// 읽고 써요. 보안규칙·색인·마이그레이션이 끝나서 이제 항상 true예요.
 // 혹시 문제가 생기면 이 값을 false로 되돌리는 것만으로 예전 방식으로 즉시 복귀할 수 있어요
 // (단, false로 되돌리면 그 사이 새 구조에 쌓인 신규 기록은 예전 화면엔 안 보이니 주의해주세요).
 const USE_DAY_DOCS = true;
 const REVERSE_TEAM_MAP = {
-  경산: "ks",
-  문양: "my"
+  경산: "ks"
 };
 
 // 운용(중간관리자) 명단은 더 이상 코드에 하드코딩하지 않고 Firestore(window.ManagerAPI)로 관리해요.
@@ -313,7 +311,7 @@ function fetchEmployees() {
     BASE_DATE = rosterRes.baseDate || orderRes.baseDate || "";
     const today = koreaTodayStr();
     const dayOffset = BASE_DATE ? diffDays_(BASE_DATE, today) : 0;
-    const list = rosterRes.rows.filter(r => r.team === "ks" || r.team === "my").map(r => {
+    const list = rosterRes.rows.filter(r => r.team === "ks").map(r => {
       const order = orderRes[r.team] || [];
       const todayCode = shiftCodeByDays_(order, r.gyobun, dayOffset);
       return {
@@ -1122,16 +1120,10 @@ function App() {
     }, addManagerOnly ? "운용 인원 추가 · 소속을 선택해주세요" : "소속을 선택해주세요"), addManagerOnly ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
       style: styles.button,
       onClick: () => handleChooseBranchManagerOnly("경산")
-    }, "경산승무팀"), /*#__PURE__*/React.createElement("button", {
-      style: styles.button,
-      onClick: () => handleChooseBranchManagerOnly("문양")
-    }, "문양승무팀")) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
+    }, "경산승무팀")) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
       style: styles.button,
       onClick: () => handleChooseBranch("경산")
-    }, "경산승무팀"), /*#__PURE__*/React.createElement("button", {
-      style: styles.button,
-      onClick: () => handleChooseBranch("문양")
-    }, "문양승무팀")), addManagerOnly && /*#__PURE__*/React.createElement("button", {
+    }, "경산승무팀")), addManagerOnly && /*#__PURE__*/React.createElement("button", {
       style: {
         ...styles.button,
         border: "none",
@@ -1785,10 +1777,6 @@ const S_CODE_MAP = {
   경산: {
     토요일: ["20d"],
     휴일: ["17d", "18d", "19d", "20d"]
-  },
-  문양: {
-    토요일: ["9d", "10d"],
-    휴일: ["7d", "8d", "9d", "10d"]
   }
 };
 
@@ -1856,11 +1844,6 @@ const GUARANTEE_BY_BRANCH = {
     평일: 4,
     토요일: 5,
     휴일: 7
-  },
-  문양: {
-    평일: 5,
-    토요일: 7,
-    휴일: 8
   }
 };
 
@@ -2113,7 +2096,7 @@ function findNightPair(record) {
 
 // activeRecords: 취소 아닌 전체 기록 (비번 감지는 전체 기록 대상)
 // prevDayActiveRecords: 전날의 취소 아닌 전체 기록 (전날 야간 신청으로 인한 비번 자리 자동 오픈 판별용)
-// branch: "경산" | "문양"
+// branch: "경산"
 // 참고: 오늘/전날의 요일(평일·토요일·휴일)은 각 날짜별로 실제 계산해서 정원표를 조회하기 때문에,
 // 평일→토요일, 토요일→휴일, 휴일→평일 등 요일이 바뀌는 경계에서도 별도 분기 없이 자동으로 맞게 처리돼요.
 function gyeongsanCapacity(branch, dateStr, activeRecords, holidaySet, prevDayActiveRecords) {
@@ -2311,17 +2294,13 @@ function MainScreen({
   managers,
   onSwitchUser
 }) {
-  const isSuperAdmin = isSuperAdminUser(realCurrentUser); // 나중에 경산·문양 둘 다 자리잡으면 이 개념 자체를 없애도 돼요
-  // 전체관리자 전용 - 실제 로그인/등록은 그대로 두고, 화면에 표시할 소속만 가상으로 바꿔치기 (Firestore 등록 불필요)
-  const otherBranch = realCurrentUser.branch === "경산" ? "문양" : "경산";
-  const [ghosting, setGhosting] = useState(false);
-  // 슈퍼관리자(권재림)는 "문양로 전환"처럼, "운용" 버튼으로 기관사↔운용 화면을 자유롭게 오갈 수 있어요.
+  const isSuperAdmin = isSuperAdminUser(realCurrentUser);
+  // 소속 전환(문양 보기) 기능은 경산 전용 앱이 되면서 없앴어요 - 아래 조건문들 호환용으로 항상 false
+  const ghosting = false;
+  // 슈퍼관리자(권재림)는 "운용" 버튼으로 기관사↔운용 화면을 자유롭게 오갈 수 있어요.
   // 운용으로 등록돼있지 않아도 이 토글로 운용 화면(대신 기록·확인·휴충당 관리 등)에 들어갈 수 있어요.
   const [actingAsManager, setActingAsManager] = useState(false);
-  const currentUser = isSuperAdmin && ghosting ? {
-    ...realCurrentUser,
-    branch: otherBranch
-  } : realCurrentUser;
+  const currentUser = realCurrentUser;
   const isAdmin = isAdminUser(currentUser);
   const isMidManager = isMidManagerUser(currentUser, managers) || isSuperAdmin && actingAsManager;
   const [showAdmin, setShowAdmin] = useState(false);
@@ -2333,7 +2312,7 @@ function MainScreen({
   const [showHyuchungdangAdmin, setShowHyuchungdangAdmin] = useState(false); // 휴충당 관리 (관리자, 경산 전용)
   const [showAdminMenu, setShowAdminMenu] = useState(false); // 관리자 메뉴 모음
   const [showRosterChange, setShowRosterChange] = useState(false); // 교번 변경 예약 (관리자)
-  const [showDataReset, setShowDataReset] = useState(false); // 데이터 초기화 (휴충당·문양, TEST_MODE와 무관하게 항상 노출)
+  const [showDataReset, setShowDataReset] = useState(false); // 데이터 초기화·수동 백업
   const [lastBackupText, setLastBackupText] = useState("확인 중...");
 
   // 관리자 메뉴를 열 때마다 마지막 백업 시각을 최신으로 다시 확인해요
@@ -3000,7 +2979,7 @@ function MainScreen({
     };
   })() : null;
 
-  // 야간 근무 신청 시 - 다음날이 이미 꽉 차서 비번 자리를 못 받는 경우를 미리 확인 (경산·문양 공통)
+  // 야간 근무 신청 시 - 다음날이 이미 꽉 차서 비번 자리를 못 받는 경우를 미리 확인
   const isNightFormEntry = selectedDate && isNightShiftCode(formDia, currentUser.branch);
   const nightNextDayBlock = isNightFormEntry && nextDateStr && isCapacityType(formType) ? (() => {
     const nextDayActive = (monthMap[nextDateStr] || []).filter(v => v.branch === currentUser.branch && v.status !== "취소됨");
@@ -4726,14 +4705,7 @@ function MainScreen({
     }, "이 날짜는 보장인원이 다 찼어요 (여유 0명)") : /*#__PURE__*/React.createElement("button", {
       style: modal.addBtn,
       onClick: () => setShowRegisterForm(true)
-    }, "+ 휴가 신청")), ghosting && !isMidManager && /*#__PURE__*/React.createElement("div", {
-      style: {
-        textAlign: "center",
-        color: "#7a4fd1",
-        fontSize: "12px",
-        padding: "6px 0"
-      }
-    }, "🔀 ", otherBranch, " 보기 전용 모드 - 신청은 비활성화돼요"), isMidManager && /*#__PURE__*/React.createElement("button", {
+    }, "+ 휴가 신청")), isMidManager && /*#__PURE__*/React.createElement("button", {
       style: {
         ...modal.addBtn,
         background: "#1a73e8"
@@ -5182,9 +5154,6 @@ const ADMIN_NAMES = [{
 }, {
   name: "권세환",
   branch: "경산"
-}, {
-  name: "권재림",
-  branch: "문양"
 }];
 
 // 이름뿐 아니라 소속까지 같아야 관리자로 인정 (다른 소속 동명이인 방지)
@@ -6331,19 +6300,7 @@ function LotteryAdminPanel({
     onClick: e => e.stopPropagation()
   }, /*#__PURE__*/React.createElement("div", {
     style: modal.dateTitle
-  }, "🎋 명절 연휴 추첨 관리"), isSuperAdmin && /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      gap: "6px",
-      marginBottom: "10px"
-    }
-  }, /*#__PURE__*/React.createElement("button", {
-    style: viewBranch === "경산" ? adminStyles.tabBtnActive : adminStyles.tabBtn,
-    onClick: () => setViewBranch("경산")
-  }, "경산"), /*#__PURE__*/React.createElement("button", {
-    style: viewBranch === "문양" ? adminStyles.tabBtnActive : adminStyles.tabBtn,
-    onClick: () => setViewBranch("문양")
-  }, "문양")), /*#__PURE__*/React.createElement("div", {
+  }, "🎋 명절 연휴 추첨 관리"), /*#__PURE__*/React.createElement("div", {
     style: {
       ...modal.countText,
       marginBottom: "14px"
@@ -7367,19 +7324,7 @@ function AdminPanel({
       ...modal.dateTitle,
       marginBottom: "10px"
     }
-  }, viewBranch, " 승인 관리"), isSuperAdmin && /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      gap: "6px",
-      marginBottom: "10px"
-    }
-  }, /*#__PURE__*/React.createElement("button", {
-    style: viewBranch === "경산" ? adminStyles.tabBtnActive : adminStyles.tabBtn,
-    onClick: () => setViewBranch("경산")
-  }, "경산"), /*#__PURE__*/React.createElement("button", {
-    style: viewBranch === "문양" ? adminStyles.tabBtnActive : adminStyles.tabBtn,
-    onClick: () => setViewBranch("문양")
-  }, "문양")), /*#__PURE__*/React.createElement("div", {
+  }, viewBranch, " 승인 관리"), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: "6px",
@@ -7654,21 +7599,7 @@ function RosterChangePanel({
       ...modal.dateTitle,
       marginBottom: "10px"
     }
-  }, "🔀 ", viewBranch, " 교번 변경 예약"), isSuperAdmin && /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      gap: "6px",
-      marginBottom: "10px"
-    }
-  }, ["경산", "문양"].map(b => /*#__PURE__*/React.createElement("button", {
-    key: b,
-    style: viewBranch === b ? adminStyles.tabBtnActive : adminStyles.tabBtn,
-    onClick: () => {
-      setViewBranch(b);
-      setNameA("");
-      setNameB("");
-    }
-  }, b))), /*#__PURE__*/React.createElement("div", {
+  }, "🔀 ", viewBranch, " 교번 변경 예약"), /*#__PURE__*/React.createElement("div", {
     style: {
       ...modal.countText,
       marginBottom: "12px",
@@ -7840,19 +7771,7 @@ function ManagerAdminPanel({
     onClick: e => e.stopPropagation()
   }, /*#__PURE__*/React.createElement("div", {
     style: modal.dateTitle
-  }, viewBranch, " 운용 인원 관리"), isSuperAdmin && /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      gap: "6px",
-      marginBottom: "10px"
-    }
-  }, /*#__PURE__*/React.createElement("button", {
-    style: viewBranch === "경산" ? adminStyles.tabBtnActive : adminStyles.tabBtn,
-    onClick: () => setViewBranch("경산")
-  }, "경산"), /*#__PURE__*/React.createElement("button", {
-    style: viewBranch === "문양" ? adminStyles.tabBtnActive : adminStyles.tabBtn,
-    onClick: () => setViewBranch("문양")
-  }, "문양")), /*#__PURE__*/React.createElement("div", {
+  }, viewBranch, " 운용 인원 관리"), /*#__PURE__*/React.createElement("div", {
     style: {
       ...modal.countText,
       marginBottom: "12px"
@@ -7947,9 +7866,7 @@ function parseReqDateToYMD(reqDateRaw, vacationDateStr) {
 
 /* ------------------------------------------------------------------ */
 /* 데이터 초기화 패널 - TEST_MODE 종료 후에도 계속 남아있어요.               */
-/* 휴충당 전체 초기화(경산) / 문양 전체 초기화, 이 두 가지만 여기 있어요.      */
-/* 아직 두 소속 다 테스트 중이라 필요할 때까지 남겨두는 용도예요 - 나중에     */
-/* 필요 없어지면 요청 시 이 패널 자체를 없애면 돼요.                        */
+/* 지금은 경산 휴가 데이터 수동 백업 버튼이 들어 있어요.                     */
 /* ------------------------------------------------------------------ */
 function DataResetPanel({
   onClose,
@@ -8460,16 +8377,6 @@ function ImportTestPanel({
     disabled: importing,
     onClick: () => handleResetAllBranchData("경산")
   }, "🗑️ 경산 전체 초기화 (모든 휴가 기록 삭제)"), /*#__PURE__*/React.createElement("button", {
-    style: {
-      ...styles.button,
-      border: "1px dashed #e02020",
-      color: "#e02020",
-      marginBottom: "14px",
-      padding: "10px"
-    },
-    disabled: importing,
-    onClick: () => handleResetAllBranchData("문양")
-  }, "🗑️ 문양 전체 초기화 (모든 휴가 기록 삭제)"), /*#__PURE__*/React.createElement("button", {
     style: {
       ...styles.button,
       border: "1px dashed #e08a20",
