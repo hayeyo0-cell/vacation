@@ -6,7 +6,8 @@ const {
   useState,
   useEffect,
   useCallback,
-  useRef
+  useRef,
+  useMemo
 } = React;
 
 /* ------------------------------------------------------------------ */
@@ -193,6 +194,62 @@ let GYOBUN_ORDER = {
   my: []
 }; // 달력 교번 계산용
 let BASE_DATE = ""; // 달력 교번 계산용 (기준일)
+
+/* ------------------------------------------------------------------ */
+/* 교번 변경 예약 (시트는 그대로, 휴가앱 안에서만 날짜 기준으로 자리 교체)      */
+/* - 항목: { id, groupId, branch, slotId, oldName, newName, date }       */
+/*   "date 이전엔 slotId 자리 주인 = oldName, date부터는 newName"           */
+/* - 예약이 있는 자리는 시트 이름과 상관없이 예약이 우선이라, 시트를 언제      */
+/*   바꾸든(미리/당일/나중) 휴가앱 결과는 같아요.                            */
+/* ------------------------------------------------------------------ */
+let ROSTER_CHANGES = [];
+let LAST_RAW_EMPLOYEES = []; // 시트에 실제로 적힌 그대로의 명단 (시트 반영 여부 확인용)
+const LS_ROSTER_CHANGES = "roster_changes_cache";
+function rosterChangesKey_() {
+  return LS_ROSTER_CHANGES + (window.APP_STORAGE_SUFFIX || "");
+}
+function loadRosterChangesCache_() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(rosterChangesKey_()) || "null");
+    return Array.isArray(raw) ? raw : [];
+  } catch {
+    return [];
+  }
+}
+function setRosterChanges_(items) {
+  ROSTER_CHANGES = Array.isArray(items) ? items : [];
+  try {
+    localStorage.setItem(rosterChangesKey_(), JSON.stringify(ROSTER_CHANGES));
+  } catch (_) {}
+  window.dispatchEvent(new Event("roster-changes-updated"));
+}
+// 특정 자리(slotId)의 그 날짜 주인 이름 - 예약이 없으면 시트 이름 그대로
+function slotOwnerOnDate_(slotId, branch, sheetName, dateStr) {
+  const list = ROSTER_CHANGES.filter(c => c.slotId === slotId && c.branch === branch).sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+  if (!list.length) return sheetName;
+  let owner = list[0].oldName;
+  for (const c of list) {
+    if (c.date <= dateStr) owner = c.newName;else break;
+  }
+  return owner;
+}
+// 그 날짜 기준으로 이름을 바꿔 끼운 명단 (id·baseCode·code는 자리 기준이라 그대로)
+function employeesOnDate_(list, dateStr) {
+  if (!ROSTER_CHANGES.length || !list || !list.length) return list || [];
+  return list.map(e => {
+    const owner = slotOwnerOnDate_(e.id, e.branch, e.name, dateStr);
+    return owner === e.name ? e : {
+      ...e,
+      name: owner
+    };
+  });
+}
+// 그 날짜에 이 사람이 앉아 있는 자리의 기준교번 (예약 없으면 fallback 그대로)
+function baseCodeForPersonOnDate_(list, name, branch, dateStr, fallback) {
+  if (!ROSTER_CHANGES.some(c => c.branch === branch)) return fallback;
+  const emp = employeesOnDate_(list, dateStr).find(e => e.name === name && e.branch === branch);
+  return emp ? emp.baseCode : fallback;
+}
 
 const LS_EMPLOYEES_CACHE = "gyeongsan_employees_cache";
 
@@ -673,7 +730,26 @@ class ErrorBoundary extends React.Component {
 function App() {
   // step: "loading" | "chooseBranch" | "nameAndCode" | "setPin" | "loginName" | "loginPin" | "main"
   const [step, setStep] = useState("loading");
-  const [employees, setEmployees] = useState([]);
+  const [rawEmployees, setEmployees] = useState([]); // 시트 그대로
+  const [rosterVersion, setRosterVersion] = useState(0); // 교번 변경 예약이 바뀌면 +1 → 명단 다시 계산
+  // 화면 전체에서 쓰는 명단은 "오늘 기준"으로 교번 변경 예약을 반영한 것
+  const employees = useMemo(() => {
+    LAST_RAW_EMPLOYEES = rawEmployees;
+    return employeesOnDate_(rawEmployees, koreaTodayStr());
+  }, [rawEmployees, rosterVersion]);
+  useEffect(() => {
+    const onChanged = () => setRosterVersion(v => v + 1);
+    window.addEventListener("roster-changes-updated", onChanged);
+    // 캐시로 먼저 적용하고, 서버 최신본은 뒤에서 받아와요 (문서 1개 읽기)
+    const cached = loadRosterChangesCache_();
+    if (cached.length) setRosterChanges_(cached);
+    waitForFirestore().then(() => {
+      if (window.SystemAPI && window.SystemAPI.getRosterChanges) {
+        return window.SystemAPI.getRosterChanges().then(items => setRosterChanges_(items));
+      }
+    }).catch(err => console.error("교번 변경 예약 불러오기 실패:", err));
+    return () => window.removeEventListener("roster-changes-updated", onChanged);
+  }, []);
   const [managers, setManagers] = useState([]); // 운용(중간관리자) 명단 - Firestore
   const [localAuth, setLocalAuth] = useState([]);
   const [branch, setBranch] = useState(null);
@@ -2256,6 +2332,7 @@ function MainScreen({
   const [showLotteryApply, setShowLotteryApply] = useState(false); // 명절 추첨 응모 (기관사)
   const [showHyuchungdangAdmin, setShowHyuchungdangAdmin] = useState(false); // 휴충당 관리 (관리자, 경산 전용)
   const [showAdminMenu, setShowAdminMenu] = useState(false); // 관리자 메뉴 모음
+  const [showRosterChange, setShowRosterChange] = useState(false); // 교번 변경 예약 (관리자)
   const [showDataReset, setShowDataReset] = useState(false); // 데이터 초기화 (휴충당·문양, TEST_MODE와 무관하게 항상 노출)
   const [lastBackupText, setLastBackupText] = useState("확인 중...");
 
@@ -2467,9 +2544,12 @@ function MainScreen({
 
   // 특정 날짜의 본인 교번을 계산 (기준일 대비 날짜차이만큼 교번틀을 밀어서)
   const codeForDate = dateStr => {
-    if (!BASE_DATE || !myBaseCode || !myOrder.length) return "";
+    if (!BASE_DATE || !myOrder.length) return "";
+    // 교번 변경 예약이 있으면 그 날짜에 앉아 있는 자리의 교번으로 계산
+    const bc = baseCodeForPersonOnDate_(employees, currentUser.name, currentUser.branch, dateStr, myBaseCode);
+    if (!bc) return "";
     const offset = diffDays_(BASE_DATE, dateStr);
-    return shiftCodeByDays_(myOrder, myBaseCode, offset);
+    return shiftCodeByDays_(myOrder, bc, offset);
   };
   const now = new Date();
   const [viewYear, setViewYear] = useState(now.getFullYear());
@@ -2801,7 +2881,7 @@ function MainScreen({
   // 날짜 모달/사이드 패널(내 휴가현황·승인 관리·운용 인원·가져오기 테스트) 공통으로 쓰는 닫기 함수.
   // 뒤로가기 버튼을 눌러도 popstate 핸들러가 똑같이 처리해서, 항상 달력 화면으로 돌아가요.
   const closeModal = () => {
-    if (selectedDate || showAdmin || showManagerAdmin || showImportTest || showMyVacations || showLotteryAdmin || showLotteryApply || showHyuchungdangAdmin || showAdminMenu || showDataReset) {
+    if (selectedDate || showAdmin || showManagerAdmin || showImportTest || showMyVacations || showLotteryAdmin || showLotteryApply || showHyuchungdangAdmin || showAdminMenu || showDataReset || showRosterChange) {
       window.history.back();
     }
   };
@@ -2845,6 +2925,7 @@ function MainScreen({
       setShowHyuchungdangAdmin(false);
       setShowAdminMenu(false);
       setShowDataReset(false);
+      setShowRosterChange(false);
     };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
@@ -3444,9 +3525,11 @@ function MainScreen({
     const emp = branchAllEmployees.find(e => e.id === empId);
     const teamKey = REVERSE_TEAM_MAP[currentUser.branch];
     const order = GYOBUN_ORDER[teamKey] || [];
-    if (!emp || !BASE_DATE || !emp.baseCode || !order.length) return "";
+    if (!emp || !BASE_DATE || !order.length) return "";
+    const bc = baseCodeForPersonOnDate_(employees, emp.name, emp.branch, dateStr, emp.baseCode);
+    if (!bc) return "";
     const offset = diffDays_(BASE_DATE, dateStr);
-    return shiftCodeByDays_(order, emp.baseCode, offset);
+    return shiftCodeByDays_(order, bc, offset);
   };
   const startAssigning = record => {
     setAssigningRecordId(record.id);
@@ -4739,7 +4822,13 @@ function MainScreen({
       setShowAdminMenu(false);
       openPanel(setShowManagerAdmin);
     }
-  }, "운용 인원"), currentUser.branch === "경산" && /*#__PURE__*/React.createElement("button", {
+  }, "운용 인원"), /*#__PURE__*/React.createElement("button", {
+    style: styles.button,
+    onClick: () => {
+      setShowAdminMenu(false);
+      openPanel(setShowRosterChange);
+    }
+  }, "🔀 교번 변경 예약"), currentUser.branch === "경산" && /*#__PURE__*/React.createElement("button", {
     style: styles.button,
     onClick: () => {
       setShowAdminMenu(false);
@@ -4778,6 +4867,14 @@ function MainScreen({
     branch: currentUser.branch,
     isSuperAdmin: isSuperAdmin,
     onClose: closeModal
+  })), showRosterChange && /*#__PURE__*/React.createElement(ErrorBoundary, {
+    onClose: closeModal
+  }, /*#__PURE__*/React.createElement(RosterChangePanel, {
+    branch: currentUser.branch,
+    isSuperAdmin: isSuperAdmin,
+    onClose: closeModal,
+    employees: employees,
+    currentUser: currentUser
   })), showDataReset && /*#__PURE__*/React.createElement(ErrorBoundary, {
     onClose: closeModal
   }, /*#__PURE__*/React.createElement(DataResetPanel, {
@@ -5586,9 +5683,12 @@ function LotteryApplyPanel({
   const otherCodesForDia = [...new Set(branchEmployeesForDia.map(e => e.code))].filter(c => !templateCodesForDia.includes(c));
   const branchCodesForDia = [...templateCodesForDia, ...otherCodesForDia];
   const codeForDate = dateStr => {
-    if (!BASE_DATE || !myBaseCode || !myOrder.length) return "";
+    if (!BASE_DATE || !myOrder.length) return "";
+    // 교번 변경 예약이 있으면 그 날짜에 앉아 있는 자리의 교번으로 계산
+    const bc = baseCodeForPersonOnDate_(employees, currentUser.name, currentUser.branch, dateStr, myBaseCode);
+    if (!bc) return "";
     const offset = diffDays_(BASE_DATE, dateStr);
-    return shiftCodeByDays_(myOrder, myBaseCode, offset);
+    return shiftCodeByDays_(myOrder, bc, offset);
   };
   const load = () => {
     setLoading(true);
@@ -6680,9 +6780,11 @@ function HyuchungdangAdminPanel({
   // 특정 직원의 특정 날짜 실제 교번 계산 (운용이 직접 지정할 때, 원래 교번을 자동으로 채워주기 위함)
   const codeForEmployeeOnDate = (empId, dateStr) => {
     const emp = branchEmployees.find(e => e.id === empId);
-    if (!emp || !BASE_DATE || !emp.baseCode || !order.length) return "";
+    if (!emp || !BASE_DATE || !order.length) return "";
+    const bc = baseCodeForPersonOnDate_(employees, emp.name, emp.branch, dateStr, emp.baseCode);
+    if (!bc) return "";
     const offset = diffDays_(BASE_DATE, dateStr);
-    return shiftCodeByDays_(order, emp.baseCode, offset);
+    return shiftCodeByDays_(order, bc, offset);
   };
 
   // 그 직원이 올해 확정(충당교번+확인까지 마침)한 휴충당 총 건수
@@ -7362,6 +7464,322 @@ function AdminPanel({
       onClick: () => handleResetDevice(p)
     }, "기록삭제")));
   })), /*#__PURE__*/React.createElement("button", {
+    style: modal.closeBtn,
+    onClick: onClose
+  }, "닫기")));
+}
+
+/* ------------------------------------------------------------------ */
+/* 교번 변경 예약 패널 (관리자 전용)                                      */
+/* 시트는 건드리지 않고, "이 날짜부터 두 사람 자리 맞교환"을 Firestore에 예약해요. */
+/* ------------------------------------------------------------------ */
+function RosterChangePanel({
+  branch,
+  isSuperAdmin,
+  onClose,
+  employees,
+  currentUser
+}) {
+  const today = koreaTodayStr();
+  const firstOfNextMonth = (() => {
+    const [y, m] = today.split("-").map(Number);
+    const ny = m === 12 ? y + 1 : y;
+    const nm = m === 12 ? 1 : m + 1;
+    return `${ny}-${pad2(nm)}-01`;
+  })();
+  const [viewBranch, setViewBranch] = useState(branch);
+  const [items, setItems] = useState(ROSTER_CHANGES);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [nameA, setNameA] = useState("");
+  const [nameB, setNameB] = useState("");
+  const [date, setDate] = useState(firstOfNextMonth);
+  const [listTab, setListTab] = useState("pending"); // "pending" 적용 전 | "needSheet" 시트 수정 필요 | "done" 완료
+  const supported = !!(window.SystemAPI && window.SystemAPI.getRosterChanges && window.SystemAPI.saveRosterChanges);
+  const sourceList = LAST_RAW_EMPLOYEES && LAST_RAW_EMPLOYEES.length ? LAST_RAW_EMPLOYEES : employees || [];
+
+  // 시트에 이미 새 주인 이름이 적혀 있는지 (교번앱 반영 여부 표시용)
+  const sheetNameOf = slotId => {
+    const e = (LAST_RAW_EMPLOYEES || []).find(x => x.id === slotId);
+    return e ? e.name : null;
+  };
+  const groupReflected = group => group.every(c => sheetNameOf(c.slotId) === c.newName);
+  const saveAll = next => window.SystemAPI.saveRosterChanges(next).then(() => {
+    setRosterChanges_(next);
+    setItems(next);
+  });
+  useEffect(() => {
+    if (!supported) {
+      setLoading(false);
+      return;
+    }
+    waitForFirestore().then(() => window.SystemAPI.getRosterChanges()).then(list => {
+      // 시트에도 반영되고 적용일이 31일 넘게 지난 예약은 더 이상 필요 없어서 자동 정리해요
+      // (지난 날짜 대신기록·교번 표시를 위해 한 달은 남겨둬요)
+      const cutoff = shiftDateStr_(today, -31);
+      const groups = {};
+      (list || []).forEach(c => {
+        (groups[c.groupId] = groups[c.groupId] || []).push(c);
+      });
+      const staleIds = Object.keys(groups).filter(g => groups[g][0].date < cutoff && groupReflected(groups[g]));
+      if (staleIds.length) {
+        const next = list.filter(c => !staleIds.includes(c.groupId));
+        return saveAll(next);
+      }
+      setRosterChanges_(list || []);
+      setItems(list || []);
+    }).catch(err => alert("불러오기 실패: " + (err && err.message ? err.message : err))).finally(() => setLoading(false));
+  }, []);
+
+  // 적용일 전날 기준 명단 - 그 시점에 누가 어느 자리에 있는지
+  const eveList = employeesOnDate_(sourceList, shiftDateStr_(date || today, -1)).filter(e => e.branch === viewBranch);
+  const names = [...new Set(eveList.map(e => e.name))].sort((a, b) => a.localeCompare(b, "ko"));
+  const teamKey = REVERSE_TEAM_MAP[viewBranch];
+  const order = GYOBUN_ORDER[teamKey] || [];
+  const codeOn = (baseCode, dateStr) => !BASE_DATE || !baseCode || !order.length ? "" : shiftCodeByDays_(order, baseCode, diffDays_(BASE_DATE, dateStr));
+  const slotA = eveList.find(e => e.name === nameA);
+  const slotB = eveList.find(e => e.name === nameB);
+  const busySlot = slotId => ROSTER_CHANGES.some(c => c.branch === viewBranch && c.slotId === slotId && c.date >= today);
+  const handleSave = () => {
+    if (!nameA || !nameB) return alert("바꿀 두 사람을 선택해주세요.");
+    if (nameA === nameB) return alert("서로 다른 두 사람을 선택해주세요.");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return alert("적용일을 선택해주세요.");
+    if (date <= today) return alert("적용일은 내일 이후로 선택해주세요.");
+    if (!slotA || !slotB) return alert("명단에서 자리를 찾지 못했어요. 새로고침 후 다시 시도해주세요.");
+    if (!confirm(`${date}부터 ${nameA} ↔ ${nameB} 자리를 맞바꿀까요?\n\n${date} 교번: ${nameA} ${codeOn(slotA.baseCode, date)}→${codeOn(slotB.baseCode, date)}, ${nameB} ${codeOn(slotB.baseCode, date)}→${codeOn(slotA.baseCode, date)}`)) return;
+    setSaving(true);
+    waitForFirestore().then(() => window.SystemAPI.getRosterChanges()).then(latest => {
+      setRosterChanges_(latest || []);
+      if (busySlot(slotA.id) || busySlot(slotB.id)) {
+        throw new Error("두 사람 중 이미 적용 전인 예약이 있는 자리가 있어요. 기존 예약을 먼저 취소해주세요.");
+      }
+      const groupId = `rc_${Date.now()}`;
+      const meta = {
+        groupId,
+        branch: viewBranch,
+        date,
+        createdBy: currentUser && currentUser.name || "",
+        createdAt: Date.now()
+      };
+      const next = [...(latest || []), {
+        ...meta,
+        id: groupId + "_a",
+        slotId: slotA.id,
+        oldName: nameA,
+        newName: nameB
+      }, {
+        ...meta,
+        id: groupId + "_b",
+        slotId: slotB.id,
+        oldName: nameB,
+        newName: nameA
+      }];
+      return saveAll(next);
+    }).then(() => {
+      setNameA("");
+      setNameB("");
+      alert("예약했어요. 휴가앱에서는 적용일부터 새 자리 교번으로 계산돼요.\n(교번앱은 시트 이름을 바꿔야 반영돼요)");
+    }).catch(err => alert(err && err.message ? err.message : String(err))).finally(() => setSaving(false));
+  };
+  const handleCancel = groupId => {
+    if (!confirm("이 예약을 취소할까요?")) return;
+    setSaving(true);
+    waitForFirestore().then(() => window.SystemAPI.getRosterChanges()).then(latest => saveAll((latest || []).filter(c => c.groupId !== groupId))).catch(err => alert("취소 실패: " + (err && err.message ? err.message : err))).finally(() => setSaving(false));
+  };
+  const groups = {};
+  items.filter(c => c.branch === viewBranch).forEach(c => {
+    (groups[c.groupId] = groups[c.groupId] || []).push(c);
+  });
+  const groupList = Object.values(groups).sort((a, b) => a[0].date < b[0].date ? 1 : -1);
+  // 적용 전·시트 미반영은 기본으로 보이고, 시트 반영까지 끝난 건 "지난 내역"으로 접어둬요
+  const stageOf = group => group[0].date > today ? "pending" : groupReflected(group) ? "done" : "needSheet";
+  const tabGroups = {
+    pending: groupList.filter(g => stageOf(g) === "pending"),
+    needSheet: groupList.filter(g => stageOf(g) === "needSheet"),
+    done: groupList.filter(g => stageOf(g) === "done")
+  };
+  const tabInfo = {
+    pending: {
+      label: "적용 전",
+      empty: "적용을 기다리는 예약이 없어요",
+      help: "적용일이 아직 안 된 예약이에요. 휴가앱은 적용일부터 새 자리로 계산해요."
+    },
+    needSheet: {
+      label: "시트 수정 필요",
+      empty: "시트를 고칠 예약이 없어요",
+      help: "휴가앱은 이미 새 자리로 동작 중이에요. 교번앱도 맞추려면 직원목록 시트에서 두 사람 이름을 바꿔주세요. 바꾸면 자동으로 '완료'로 넘어가요."
+    },
+    done: {
+      label: "완료",
+      empty: "완료된 예약이 없어요",
+      help: "시트까지 반영된 예약이에요. 적용일 31일 뒤 자동으로 정리돼요."
+    }
+  };
+  const renderGroup = group => {
+    const a = group.find(c => c.id.endsWith("_a")) || group[0];
+    const sa = group.find(c => c.id.endsWith("_a"));
+    const sb = group.find(c => c.id.endsWith("_b"));
+    return /*#__PURE__*/React.createElement("div", {
+      key: a.groupId,
+      style: modal.card
+    }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+      style: modal.name
+    }, a.oldName, " ↔ ", a.newName), /*#__PURE__*/React.createElement("div", {
+      style: modal.typeRow
+    }, a.date, "부터"), listTab === "needSheet" && sa && sb && /*#__PURE__*/React.createElement("div", {
+      style: {
+        ...modal.typeRow,
+        color: "#e08a20"
+      }
+    }, "시트: ", sa.slotId, " → ", sa.newName, ", ", sb.slotId, " → ", sb.newName)), /*#__PURE__*/React.createElement("button", {
+      style: adminStyles.rejectBtn,
+      disabled: saving,
+      onClick: () => handleCancel(a.groupId)
+    }, "취소"));
+  };
+  const selectStyle = {
+    ...styles.select,
+    maxWidth: "none",
+    padding: "11px",
+    fontSize: "15px"
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    style: modal.overlay,
+    onClick: onClose
+  }, /*#__PURE__*/React.createElement("div", {
+    style: modal.sheet,
+    onClick: e => e.stopPropagation()
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...modal.dateTitle,
+      marginBottom: "10px"
+    }
+  }, "🔀 ", viewBranch, " 교번 변경 예약"), isSuperAdmin && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: "6px",
+      marginBottom: "10px"
+    }
+  }, ["경산", "문양"].map(b => /*#__PURE__*/React.createElement("button", {
+    key: b,
+    style: viewBranch === b ? adminStyles.tabBtnActive : adminStyles.tabBtn,
+    onClick: () => {
+      setViewBranch(b);
+      setNameA("");
+      setNameB("");
+    }
+  }, b))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...modal.countText,
+      marginBottom: "12px",
+      lineHeight: 1.5
+    }
+  }, "적용일 전에는 원래 자리, 적용일부터는 새 자리 교번으로 휴가 신청·정원이 계산돼요. 시트는 그대로라 교번앱은 시트 이름을 바꿔야 반영돼요."), !supported && /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#e02020",
+      fontSize: "13px",
+      padding: "10px 0"
+    }
+  }, "이 버전의 index.html은 교번 변경 예약을 지원하지 않아요. index.html을 최신으로 올려주세요."), supported && /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: "#f8f9fb",
+      borderRadius: "12px",
+      padding: "12px",
+      marginBottom: "14px"
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    style: styles.fieldLabel
+  }, "적용일"), /*#__PURE__*/React.createElement("input", {
+    type: "date",
+    style: {
+      ...modal.input,
+      marginBottom: "10px"
+    },
+    value: date,
+    min: shiftDateStr_(today, 1),
+    onChange: e => setDate(e.target.value)
+  }), /*#__PURE__*/React.createElement("label", {
+    style: styles.fieldLabel
+  }, "바꿀 두 사람"), /*#__PURE__*/React.createElement("select", {
+    style: selectStyle,
+    value: nameA,
+    onChange: e => setNameA(e.target.value)
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, "첫 번째 사람 선택"), names.map(n => /*#__PURE__*/React.createElement("option", {
+    key: n,
+    value: n
+  }, n))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      textAlign: "center",
+      color: "#888",
+      fontSize: "13px"
+    }
+  }, "↕ 자리 맞교환"), /*#__PURE__*/React.createElement("select", {
+    style: selectStyle,
+    value: nameB,
+    onChange: e => setNameB(e.target.value)
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, "두 번째 사람 선택"), names.filter(n => n !== nameA).map(n => /*#__PURE__*/React.createElement("option", {
+    key: n,
+    value: n
+  }, n))), slotA && slotB && nameA !== nameB && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: "13px",
+      color: "#1b3a5c",
+      margin: "8px 0",
+      lineHeight: 1.6
+    }
+  }, date, " 교번 미리보기", /*#__PURE__*/React.createElement("br", null), "· ", nameA, ": ", codeOn(slotA.baseCode, date), " → ", /*#__PURE__*/React.createElement("strong", null, codeOn(slotB.baseCode, date)), /*#__PURE__*/React.createElement("br", null), "· ", nameB, ": ", codeOn(slotB.baseCode, date), " → ", /*#__PURE__*/React.createElement("strong", null, codeOn(slotA.baseCode, date))), /*#__PURE__*/React.createElement("button", {
+    style: {
+      ...styles.button,
+      marginTop: "6px",
+      opacity: saving ? 0.6 : 1
+    },
+    disabled: saving,
+    onClick: handleSave
+  }, saving ? "저장 중..." : "예약 저장")), loading && /*#__PURE__*/React.createElement("div", {
+    style: {
+      textAlign: "center",
+      color: "#aaa",
+      padding: "20px 0"
+    }
+  }, "불러오는 중..."), !loading && supported && groupList.length === 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      textAlign: "center",
+      color: "#aaa",
+      padding: "12px 0"
+    }
+  }, "예약된 교번 변경이 없어요"), !loading && groupList.length > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: "6px",
+      margin: "4px 0 10px"
+    }
+  }, ["pending", "needSheet", "done"].map(t => /*#__PURE__*/React.createElement("button", {
+    key: t,
+    style: {
+      ...(listTab === t ? adminStyles.tabBtnActive : adminStyles.tabBtn),
+      ...(t === "needSheet" && tabGroups.needSheet.length > 0 && listTab !== t ? {
+        color: "#e08a20",
+        borderColor: "#e08a20"
+      } : {})
+    },
+    onClick: () => setListTab(t)
+  }, tabInfo[t].label, " (", tabGroups[t].length, ")"))), !loading && groupList.length > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...modal.countText,
+      margin: "0 0 8px",
+      lineHeight: 1.5
+    }
+  }, tabInfo[listTab].help), !loading && groupList.length > 0 && tabGroups[listTab].length === 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      textAlign: "center",
+      color: "#aaa",
+      padding: "12px 0"
+    }
+  }, tabInfo[listTab].empty), !loading && tabGroups[listTab].map(renderGroup), /*#__PURE__*/React.createElement("button", {
     style: modal.closeBtn,
     onClick: onClose
   }, "닫기")));
