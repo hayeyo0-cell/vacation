@@ -2353,7 +2353,7 @@ function MainScreen({
     next: []
   }); // 운용용 - 전날/다음날 요약
 
-  // 경산 전용 - "전날 낮12시" ~ "오픈 당일 오전 8시30분"까지만 공지 (오픈은 당일 오전 9시)
+  // 경산 전용 - "전날 낮12시" ~ "오픈 당일 오전 9시"(오픈 시각)까지 공지
   const evenMonthOpenInfo = (() => {
     if (currentUser.branch !== "경산") return null;
     const nowUtcMs = Date.now() + new Date().getTimezoneOffset() * 60000;
@@ -2364,8 +2364,8 @@ function MainScreen({
     const todayLocal = new Date(nowKst.getFullYear(), nowKst.getMonth(), nowKst.getDate());
     let openDate = null;
     let isOpeningToday = false;
-    if (isEvenMonthFirst(todayLocal) && (hour < 8 || hour === 8 && minute <= 30)) {
-      // 오픈 당일 오전 8시30분까지
+    if (isEvenMonthFirst(todayLocal) && hour < 9) {
+      // 오픈 당일 오전 9시 전까지 (08:59까지 표시, 09:00부터 사라짐)
       openDate = todayLocal;
       isOpeningToday = true;
     } else {
