@@ -670,6 +670,17 @@
 
   // 자동 백업(주 1회) 관련 - 마지막 백업 시각을 저장/조회
   window.SystemAPI = {
+    // 교번 변경 예약 목록 - 문서 1개(system/roster_changes)에 배열로 저장해요 (앱 켤 때 읽기 1회)
+    async getRosterChanges() {
+      const snap = await getDoc(doc(db, SYSTEM_COLLECTION, "roster_changes"));
+      return snap.exists() ? (snap.data().items || []) : [];
+    },
+    async saveRosterChanges(items) {
+      await setDoc(doc(db, SYSTEM_COLLECTION, "roster_changes"), {
+        items,
+        updatedAt: serverTimestamp(),
+      });
+    },
     async getBackupMeta() {
       const snap = await getDoc(doc(db, SYSTEM_COLLECTION, "backup_meta"));
       return snap.exists() ? snap.data() : null;
@@ -702,7 +713,7 @@
   window.dispatchEvent(new Event("firestore-ready"));
 </script>
 
-<script src="app.js?v=20260929precompiled"></script>
+<script src="app.js?v=20260930roster"></script>
 
 <script>
   if ("serviceWorker" in navigator) {
