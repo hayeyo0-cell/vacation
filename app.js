@@ -1894,6 +1894,16 @@ function nightDiaToOffDutyDia(dia) {
   return trimmed + "~";
 }
 
+// 비번 DIA("25~", "대4~") → 전날 야간 DIA("25d", "대4"). 교번틀에서 실제 야간 코드인 것만 인정해요.
+// 야간 짝이 없는 "~" 코드면 null (그냥 일반 휴가로 처리)
+function offDutyDiaToNightDia_(dia, branch) {
+  const trimmed = String(dia || "").trim();
+  if (!trimmed.endsWith("~")) return null;
+  const base = trimmed.slice(0, -1);
+  const candidates = [base + "d", base];
+  return candidates.find(c => isNightShiftCode(c, branch)) || null;
+}
+
 // 비번을 먼저 신청하고 나중에 전날 야간을 신청하는 경우 - 다음날 본인 기록이 "이 야간의 비번"으로
 // 볼 수 있는 기록인지 확인해요. (DIA가 "~"로 끝나고, 종류가 야간과 같은 계열: 연차↔연차/연차비 등)
 // 맞으면 그 기록을 반환 → 새로 만들지 않고 그 기록을 비번 짝(연차비 등)으로 바꿔서 연결해요.
@@ -3017,6 +3027,8 @@ function MainScreen({
     );
     return nextDayCapacityCount >= nextDayCapacity;
   })() : false;
+  // 비번(~) DIA로 신청하면 전날 야간도 같이 자동 신청 (야간 먼저 신청할 때 다음날 비번이 자동으로 들어가는 것과 반대 방향)
+  const offDutyNightDia = selectedDate && prevDateStr && NIGHT_COMPANION_TYPE_MAP[formType] ? offDutyDiaToNightDia_(formDia, currentUser.branch) : null;
   const handleSelfCancelClick = record => {
     const check = checkSelfCancelAllowed(currentUser.branch, record);
     if (!check.ok) {
@@ -3256,7 +3268,111 @@ function MainScreen({
       alert("등록에 실패했어요: " + (err && err.message ? err.message : err));
     }).finally(() => setSaving(false));
   };
+  // 비번 먼저 신청 → 전날 야간 + 오늘 비번(연차비 등)을 한 번에 저장해요. 두 날짜 정원을 모두 확인하고,
+  // 비번 저장이 실패하면 방금 넣은 야간도 되돌려서 반쪽만 남지 않게 해요.
+  const handleSubmitOffDutyFirst = () => {
+    const branch = currentUser.branch;
+    const nightDate = prevDateStr;
+    const nightPrevDate = shiftDateStr_(nightDate, -1);
+    const companionType = NIGHT_COMPANION_TYPE_MAP[formType];
+    const capType = isCapacityType(formType);
+    const nightDia = normalizeSInput_(branch, nightDate, offDutyNightDia, holidaySet);
+    const offDia = String(formDia || "").trim();
+    const activeOf = list => (list || []).filter(v => v.branch === branch && v.status !== "취소됨");
+    const fail = msg => {
+      alert(msg);
+      loadMonth(viewYear, viewMonth);
+      setShowRegisterForm(false);
+    };
+    setSaving(true);
+    waitForFirestore().then(() => Promise.all([VacFacade.getByDate(selectedDate, branch), VacFacade.getByDate(nightDate, branch), VacFacade.getByDate(nightPrevDate, branch)])).then(([dayRecs, nightRecs, nightPrevRecs]) => {
+      const dayActive = activeOf(dayRecs);
+      const nightActive = activeOf(nightRecs);
+      const nightPrevActive = activeOf(nightPrevRecs);
+      if (dayActive.some(v => v.employeeId === currentUser.id)) return fail("이미 이 날짜에 신청하신 기록이 있어요. 화면을 새로고침할게요.");
+      if (nightActive.some(v => v.employeeId === currentUser.id)) return fail(`전날(${nightDate})에 이미 본인 기록이 있어서 야간을 자동으로 넣을 수 없어요. 전날 기록을 먼저 확인해주세요.`);
+      const makeErr = (code, cap) => {
+        const e = new Error(code);
+        e.capacity = cap;
+        return e;
+      };
+      // 전날(야간) 정원 - 전전날 야간 여부까지 반영
+      const nightGuard = list => {
+        if (!capType) return;
+        const act = activeOf(list);
+        const cnt = act.filter(v => isCapacityType(v.vacationType)).length;
+        const cap = gyeongsanCapacity(branch, nightDate, act, holidaySet, nightPrevActive);
+        if (cnt >= cap) throw makeErr("CAPACITY_FULL_NIGHT", cap);
+      };
+      // 오늘(비번) 정원 - 방금 넣을 야간이 비번 자리를 열어주는 조건으로 계산
+      const nightAsPrev = [...nightActive, {
+        dia: nightDia,
+        vacationType: formType
+      }];
+      const offGuard = list => {
+        if (!capType) return;
+        const act = activeOf(list);
+        const cnt = act.filter(v => isCapacityType(v.vacationType)).length;
+        const cap = gyeongsanCapacity(branch, selectedDate, act, holidaySet, nightAsPrev);
+        if (cnt >= cap) throw makeErr("CAPACITY_FULL_OFF", cap);
+      };
+      nightGuard(nightRecs); // 미리 확인 (실패하면 아래 catch로)
+      offGuard(dayRecs);
+      const nightPriority = branch === "경산" && capType ? (nightRecs || []).filter(v => v.branch === branch && isCapacityType(v.vacationType)).length + 1 : null;
+      const base = {
+        name: currentUser.name,
+        branch,
+        employeeId: currentUser.id
+      };
+      const nightRecord = {
+        ...base,
+        vacationType: formType,
+        dia: nightDia,
+        date: nightDate,
+        ...(nightPriority != null ? {
+          priority: nightPriority
+        } : {})
+      };
+      const offRecord = {
+        ...base,
+        vacationType: companionType,
+        dia: offDia,
+        date: selectedDate
+      };
+      return VacFacade.addOnce(branch, nightDate, currentUser.id, nightRecord, nightGuard).then(() => VacFacade.addOnce(branch, selectedDate, currentUser.id, offRecord, offGuard).catch(err => {
+        // 비번 저장 실패 → 방금 넣은 야간도 지워서 되돌려요
+        return VacFacade.remove(branch, nightDate, `${currentUser.id}_${nightDate}`).catch(e2 => console.error("야간 되돌리기 실패:", e2)).then(() => {
+          throw err;
+        });
+      })).then(() => {
+        setShowRegisterForm(false);
+        setFormDia("");
+        setMonthMap(prev => ({
+          ...prev,
+          [nightDate]: [...(prev[nightDate] || []), {
+            id: `${currentUser.id}_${nightDate}`,
+            ...nightRecord,
+            status: "정상"
+          }],
+          [selectedDate]: [...(prev[selectedDate] || []), {
+            id: `${currentUser.id}_${selectedDate}`,
+            ...offRecord,
+            status: "정상"
+          }]
+        }));
+        alert(`전날(${nightDate}) 야간 ${nightDia}와 오늘 비번 ${offDia}가 같이 신청됐어요.`);
+      });
+    }).catch(err => {
+      console.error(err);
+      const code = err && err.message;
+      if (code === "CAPACITY_FULL_NIGHT") return fail(`전날(${nightDate}) 보장인원(${err.capacity}명)이 다 차서 야간을 같이 신청할 수 없어요. 비번만 따로 신청할 수 없으니 다른 날짜를 선택해주세요.`);
+      if (code === "CAPACITY_FULL_OFF") return fail(`이 날짜 보장인원(${err.capacity}명)이 다 차서 신청할 수 없어요.`);
+      if (code === "DUPLICATE_ENTRY") return fail("이미 신청하신 기록이 있어요. 화면을 새로고침할게요.");
+      alert("등록에 실패했어요: " + (code || err));
+    }).finally(() => setSaving(false));
+  };
   const handleSubmitRegister = () => {
+    if (offDutyNightDia) return handleSubmitOffDutyFirst();
     setSaving(true);
     // 저장 시점에 그날의 최신 데이터로 중복신청 여부와 보장인원 정원을 다시 확인해요
     // (동시 신청으로 인한 중복/초과 방지).
@@ -4263,7 +4379,14 @@ function MainScreen({
         color: "#e08a20",
         fontWeight: 600
       }
-    }, "⚠️ 이 교번은 3왕복이에요 - 가급적 휴가를 피해달라는 약속이 있어요 (부득이하면 그대로 신청하셔도 돼요)"), nightNextDayBlock && /*#__PURE__*/React.createElement("div", {
+    }, "⚠️ 이 교번은 3왕복이에요 - 가급적 휴가를 피해달라는 약속이 있어요 (부득이하면 그대로 신청하셔도 돼요)"), offDutyNightDia && /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: "12px",
+        marginTop: "6px",
+        color: "#1b3a5c",
+        fontWeight: 600
+      }
+    }, "🌙 비번이라 전날(", prevDateStr, ") 야간 ", offDutyNightDia, "도 같이 신청돼요 (두 날짜 자리 모두 확인해요)"), nightNextDayBlock && /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: "12px",
         marginTop: "6px",
