@@ -3593,6 +3593,74 @@ function MainScreen({
     // ★ 대상자 미정이면 이름과 DIA 모두 미지정
     const finalName = managerFormUnassigned ? "미지정" : target.name;
     const finalDia = managerFormUnassigned ? "미지정" : normalizeSInput_(currentUser.branch, selectedDate, managerFormDia, holidaySet);
+
+    // 비번(~)으로 입력하면 전날 야간도 같이 기록해요 (본인 신청과 같은 규칙, 운용은 정원 확인 없음)
+    const offNightDia = !managerFormUnassigned && NIGHT_COMPANION_TYPE_MAP[finalVacationType] && prevDateStr ? offDutyDiaToNightDia_(finalDia, currentUser.branch) : null;
+    if (offNightDia) {
+      const branch = currentUser.branch;
+      const nightDate = prevDateStr;
+      const nightDia = normalizeSInput_(branch, nightDate, offNightDia, holidaySet);
+      const companionTypeOff = NIGHT_COMPANION_TYPE_MAP[finalVacationType];
+      setManagerSaving(true);
+      VacFacade.getByDate(nightDate, branch).then(nightRecs => {
+        const nightActive = (nightRecs || []).filter(v => v.branch === branch && v.status !== "취소됨");
+        if (nightActive.some(v => v.employeeId === target.id)) {
+          alert(`${target.name}님은 전날(${nightDate})에 이미 기록이 있어서 야간을 자동으로 넣을 수 없어요. 전날 기록을 먼저 확인해주세요.`);
+          return;
+        }
+        const nightPriority = isCapacityType(finalVacationType) ? (nightRecs || []).filter(v => v.branch === branch && isCapacityType(v.vacationType)).length + 1 : null;
+        const common = {
+          name: target.name,
+          branch,
+          employeeId: target.id,
+          recordedBy: currentUser.name
+        };
+        const nightRecord = {
+          ...common,
+          vacationType: finalVacationType,
+          dia: nightDia,
+          date: nightDate,
+          ...(nightPriority != null ? {
+            priority: nightPriority
+          } : {}),
+          ...(managerFormNote.trim() ? {
+            note: managerFormNote.trim()
+          } : {})
+        };
+        const offRecord = {
+          ...common,
+          vacationType: companionTypeOff,
+          dia: finalDia,
+          date: selectedDate
+        };
+        return VacFacade.add(branch, nightDate, nightRecord).then(nightId => VacFacade.add(branch, selectedDate, offRecord).catch(err => {
+          // 비번 저장 실패 → 방금 넣은 야간도 지워서 되돌려요
+          return VacFacade.remove(branch, nightDate, nightId).catch(e2 => console.error("야간 되돌리기 실패:", e2)).then(() => {
+            throw err;
+          });
+        }).then(offId => {
+          setShowManagerForm(false);
+          setMonthMap(prev => ({
+            ...prev,
+            [nightDate]: [...(prev[nightDate] || []), {
+              id: nightId,
+              ...nightRecord,
+              status: "정상"
+            }],
+            [selectedDate]: [...(prev[selectedDate] || []), {
+              id: offId,
+              ...offRecord,
+              status: "정상"
+            }]
+          }));
+          alert(`${target.name}님 전날(${nightDate}) 야간 ${nightDia}와 비번 ${finalDia}를 같이 기록했어요.`);
+        }));
+      }).catch(err => {
+        console.error(err);
+        alert("등록에 실패했어요: " + (err && err.message ? err.message : err));
+      }).finally(() => setManagerSaving(false));
+      return;
+    }
     setManagerSaving(true);
 
     // 본인 신청과 동일한 방식으로 순번을 자동 부여해요 - 그날 그 소속의 보장휴가 기록 수(취소 포함)
@@ -3647,14 +3715,38 @@ function MainScreen({
         date: nextDateStr,
         recordedBy: currentUser.name
       };
-      return VacFacade.add(currentUser.branch, nextDateStr, companionRecord).then(id => {
-        return {
+      return VacFacade.getByDate(nextDateStr, currentUser.branch).then(nextRecs => {
+        const nextActive = (nextRecs || []).filter(v => v.branch === currentUser.branch && v.status !== "취소됨");
+        // 대상자가 다음날 비번을 이미 갖고 있으면 새로 만들지 않고 짝으로 연결해요 (중복 방지)
+        const existing = findCompatibleOffDutyRecord_(nextActive, target.id, finalVacationType);
+        if (existing) {
+          const patch = {
+            vacationType: companionType,
+            dia: nightDiaToOffDutyDia(finalDia)
+          };
+          return VacFacade.update(currentUser.branch, nextDateStr, existing.id, patch).then(() => ({
+            savedRecord,
+            companionRecord: {
+              ...existing,
+              ...patch
+            },
+            companionLinked: true
+          }));
+        }
+        if (nextActive.some(v => v.employeeId === target.id)) {
+          alert(`기록은 저장됐어요. 다만 ${target.name}님은 다음날(${nextDateStr})에 이미 다른 기록이 있어서 비번은 자동으로 넣지 않았어요.`);
+          return {
+            savedRecord,
+            companionRecord: null
+          };
+        }
+        return VacFacade.add(currentUser.branch, nextDateStr, companionRecord).then(id => ({
           savedRecord,
           companionRecord: {
             id,
             ...companionRecord
           }
-        };
+        }));
       }).catch(err => {
         console.error("비번 자동 등록 실패:", err);
         alert("기록은 저장됐지만, 다음날 비번 자동 등록에 실패했어요. 다음날에 직접 비번을 추가로 입력해주세요.");
@@ -3665,7 +3757,8 @@ function MainScreen({
       });
     }).then(({
       savedRecord,
-      companionRecord
+      companionRecord,
+      companionLinked
     }) => {
       setShowManagerForm(false);
       // 방금 등록한 기록(+성공한 경우 짝 비번)만 화면에 콕 집어 반영해요 - 달 전체를 다시 읽지 않아요
@@ -3677,7 +3770,12 @@ function MainScreen({
           ...savedRecord,
           status: "정상"
         }];
-        if (companionRecord) {
+        if (companionRecord && companionLinked) {
+          next[nextDateStr] = (next[nextDateStr] || []).map(v => v.id === companionRecord.id ? {
+            ...v,
+            ...companionRecord
+          } : v);
+        } else if (companionRecord) {
           next[nextDateStr] = [...(next[nextDateStr] || []), {
             ...companionRecord,
             status: "정상"
