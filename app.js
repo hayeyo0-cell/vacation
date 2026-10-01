@@ -4165,16 +4165,16 @@ function MainScreen({
   }, "💬 밴드")), !isMidManager && !ghosting && /*#__PURE__*/React.createElement("button", {
     style: adminStyles.adminBtn,
     onClick: () => openPanel(setShowMyVacations)
-  }, "내 휴가현황"), /*#__PURE__*/React.createElement("button", {
-    style: adminStyles.adminBtn,
-    onClick: () => openPanel(setShowGuide)
-  }, "📖 사용법"), currentUser.branch === "경산" && !isMidManager && !ghosting && /*#__PURE__*/React.createElement("button", {
+  }, "내 휴가현황"), currentUser.branch === "경산" && !isMidManager && !ghosting && /*#__PURE__*/React.createElement("button", {
     style: adminStyles.adminBtn,
     onClick: () => openPanel(setShowLotteryApply)
   }, "🎋 명절 응모"), currentUser.branch === "경산" && isMidManager && !ghosting && /*#__PURE__*/React.createElement("button", {
     style: adminStyles.adminBtn,
     onClick: () => openPanel(setShowHyuchungdangAdmin)
-  }, "🔁 휴충당 신청 현황"), isAdmin && /*#__PURE__*/React.createElement("button", {
+  }, "🔁 휴충당 신청 현황"), !isMidManager && /*#__PURE__*/React.createElement("button", {
+    style: adminStyles.adminBtn,
+    onClick: () => openPanel(setShowGuide)
+  }, "📖 사용법"), isAdmin && /*#__PURE__*/React.createElement("button", {
     style: adminStyles.adminBtn,
     onClick: () => openPanel(setShowAdminMenu)
   }, "⚙️ 관리자 메뉴"), isSuperAdmin && /*#__PURE__*/React.createElement("button", {
