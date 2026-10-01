@@ -1894,6 +1894,20 @@ function nightDiaToOffDutyDia(dia) {
   return trimmed + "~";
 }
 
+// 비번을 먼저 신청하고 나중에 전날 야간을 신청하는 경우 - 다음날 본인 기록이 "이 야간의 비번"으로
+// 볼 수 있는 기록인지 확인해요. (DIA가 "~"로 끝나고, 종류가 야간과 같은 계열: 연차↔연차/연차비 등)
+// 맞으면 그 기록을 반환 → 새로 만들지 않고 그 기록을 비번 짝(연차비 등)으로 바꿔서 연결해요.
+function findCompatibleOffDutyRecord_(nextDayActive, employeeId, nightType) {
+  const companionType = NIGHT_COMPANION_TYPE_MAP[nightType];
+  if (!companionType) return null;
+  const mine = (nextDayActive || []).filter(v => v.employeeId === employeeId);
+  if (mine.length !== 1) return null;
+  const r = mine[0];
+  const dia = String(r.dia || "").trim();
+  if (!dia.endsWith("~")) return null;
+  return r.vacationType === nightType || r.vacationType === companionType ? r : null;
+}
+
 // 날짜 문자열을 하루 앞/뒤로 이동
 function shiftDateStr_(dateStr, delta) {
   const d = new Date(dateStr + "T00:00:00");
@@ -2993,6 +3007,8 @@ function MainScreen({
   const isNightFormEntry = selectedDate && isNightShiftCode(formDia, currentUser.branch);
   const nightNextDayBlock = isNightFormEntry && nextDateStr && isCapacityType(formType) ? (() => {
     const nextDayActive = (monthMap[nextDateStr] || []).filter(v => v.branch === currentUser.branch && v.status !== "취소됨");
+    // 비번을 먼저 신청해둔 경우 - 비번 자리는 이미 확보돼 있으니 다음날 정원 확인이 필요 없어요
+    if (findCompatibleOffDutyRecord_(nextDayActive, currentUser.id, formType)) return false;
     const nextDayCapacityCount = nextDayActive.filter(v => isCapacityType(v.vacationType)).length;
     const nextDayCapacity = gyeongsanCapacity(currentUser.branch, nextDateStr, nextDayActive, holidaySet, [{
       dia: formDia,
@@ -3136,11 +3152,11 @@ function MainScreen({
       renumberDayPriorities(selectedDate, record.branch);
     });
   };
-  const submitVacationRecord = (priority, capacityGuard) => {
+  const submitVacationRecord = (priority, capacityGuard, existingOffDuty) => {
     const docId = `${currentUser.id}_${selectedDate}`; // 직원ID_날짜 고정 ID - 중복 신청 원천 차단
     const companionType = NIGHT_COMPANION_TYPE_MAP[formType];
     const shouldAddCompanion = isNightFormEntry && companionType && nextDateStr;
-    const companionDocId = shouldAddCompanion ? `${currentUser.id}_${nextDateStr}` : null;
+    const companionDocId = shouldAddCompanion ? existingOffDuty ? existingOffDuty.id : `${currentUser.id}_${nextDateStr}` : null;
     const savedDia = normalizeSInput_(currentUser.branch, selectedDate, formDia, holidaySet);
     let companionSaved = false;
     VacFacade.addOnce(currentUser.branch, selectedDate, currentUser.id, {
@@ -3155,6 +3171,19 @@ function MainScreen({
       } : {})
     }, capacityGuard).then(() => {
       if (!shouldAddCompanion) return;
+      if (existingOffDuty) {
+        // 비번을 먼저 신청해둔 경우 - 새로 만들지 않고 그 기록을 비번 짝(연차비 등)으로 바꿔서 연결해요.
+        // (순번·신청시각은 그대로 유지, 종류·DIA만 짝 규칙에 맞춰요 → 야간 취소 시 같이 취소되고 사용개수도 안 겹쳐요)
+        return VacFacade.update(currentUser.branch, nextDateStr, existingOffDuty.id, {
+          vacationType: companionType,
+          dia: nightDiaToOffDutyDia(savedDia)
+        }).then(() => {
+          companionSaved = true;
+        }).catch(err => {
+          console.error("비번 연결 실패:", err);
+          alert("야간 휴가는 저장됐지만, 먼저 신청한 다음날 비번과 연결하지 못했어요. 운용에 확인을 요청해주세요.");
+        });
+      }
       // 야간 신청이면 다음날 "비번" 기록도 같이 자동 등록해요 (연차→연차비, 분지→분지비, 장재→장재비)
       return VacFacade.addOnce(currentUser.branch, nextDateStr, currentUser.id, {
         name: currentUser.name,
@@ -3190,7 +3219,13 @@ function MainScreen({
             priority
           } : {})
         }];
-        if (companionSaved) {
+        if (companionSaved && existingOffDuty) {
+          next[nextDateStr] = (next[nextDateStr] || []).map(v => v.id === existingOffDuty.id ? {
+            ...v,
+            vacationType: companionType,
+            dia: nightDiaToOffDutyDia(savedDia)
+          } : v);
+        } else if (companionSaved) {
           next[nextDateStr] = [...(next[nextDateStr] || []), {
             id: companionDocId,
             name: currentUser.name,
@@ -3247,11 +3282,14 @@ function MainScreen({
       }
 
       // 야간 근무면 다음날 상황도 최신 데이터로 재확인해요
+      let existingOffDuty = null; // 비번을 먼저 신청해둔 기록 (있으면 새로 만들지 않고 짝으로 연결)
       if (isNightFormEntry && nextDateStr) {
         const nextDayActive = (nextDayRecords || []).filter(v => v.branch === currentUser.branch && v.status !== "취소됨");
+        existingOffDuty = findCompatibleOffDutyRecord_(nextDayActive, currentUser.id, formType);
         // 보장인원 포함 종류(연차/분지/장재)만 다음날 자리(정원) 확인이 필요해요.
         // 청휴비/병가비 같은 미포함 짝은 자리를 안 차지하니 이 확인 자체가 필요 없어요.
-        if (isCapacityType(formType)) {
+        // 비번을 먼저 신청해둔 경우도 자리가 이미 확보돼 있어서 확인이 필요 없어요.
+        if (isCapacityType(formType) && !existingOffDuty) {
           const nextDayCapacityCount = nextDayActive.filter(v => isCapacityType(v.vacationType)).length;
           const nextDayCapacity = gyeongsanCapacity(currentUser.branch, nextDateStr, nextDayActive, holidaySet, [{
             dia: formDia,
@@ -3267,9 +3305,9 @@ function MainScreen({
         }
         // 다음날에 본인이 이미 다른 기록을 갖고 있으면, 비번 자동등록이 그 기록을 덮어쓸 수 있어 미리 막아요
         // (종류(capacity 여부)와 무관하게 항상 확인해야 해요)
-        if (NIGHT_COMPANION_TYPE_MAP[formType] && nextDayActive.some(v => v.employeeId === currentUser.id)) {
+        if (NIGHT_COMPANION_TYPE_MAP[formType] && !existingOffDuty && nextDayActive.some(v => v.employeeId === currentUser.id)) {
           setSaving(false);
-          alert(`다음날(${nextDateStr})에 이미 본인 기록이 있어서 비번을 자동으로 넣을 수 없어요. 다음날 기록을 먼저 확인해주세요.`);
+          alert(`다음날(${nextDateStr})에 이미 본인 기록이 있는데, 이 야간의 비번(DIA가 ~로 끝나는 같은 종류 휴가)이 아니라서 연결할 수 없어요. 다음날 기록을 먼저 확인해주세요.`);
           loadMonth(viewYear, viewMonth);
           setShowRegisterForm(false);
           return;
@@ -3291,7 +3329,7 @@ function MainScreen({
           throw e;
         }
       };
-      submitVacationRecord(nextPriority, capacityGuard);
+      submitVacationRecord(nextPriority, capacityGuard, existingOffDuty);
     }).catch(err => {
       console.error(err);
       setSaving(false);
