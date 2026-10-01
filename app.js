@@ -2655,6 +2655,10 @@ function MainScreen({
   const [editingPriorityId, setEditingPriorityId] = useState(null); // 순번 수정 중인 기록 id
   const [priorityInput, setPriorityInput] = useState("");
   const [editingNoteId, setEditingNoteId] = useState(null); // 비고 수정 중인 기록 id
+  // 전체관리자 전용 - 다른 사람 기록의 휴가 종류·DIA를 직접 고치는 기능 (잘못 들어간 기록 바로잡기용)
+  const [superEditId, setSuperEditId] = useState(null);
+  const [superEditType, setSuperEditType] = useState("");
+  const [superEditDia, setSuperEditDia] = useState("");
   const [editingConfirmId, setEditingConfirmId] = useState(null); // 확인자 수정 중인 기록 id
   const [noteInput, setNoteInput] = useState("");
 
@@ -3199,6 +3203,34 @@ function MainScreen({
         [dateStr]: freshRecords
       }));
     });
+  };
+  const handleSuperEditSave = record => {
+    const newType = superEditType;
+    const newDia = String(superEditDia || "").trim();
+    if (!newType || !newDia) {
+      alert("휴가 종류와 DIA를 모두 입력해주세요.");
+      return;
+    }
+    if (newType === record.vacationType && newDia === String(record.dia || "")) {
+      setSuperEditId(null);
+      return;
+    }
+    if (!confirm(`[전체관리자] ${record.name}님 ${record.date} 기록을\n${record.vacationType} ${record.dia} → ${newType} ${newDia}\n(으)로 바꿀까요?\n\n이 기록만 바뀌고, 짝 비번·정원 확인은 따로 하지 않아요.`)) return;
+    VacFacade.update(record.branch, record.date, record.id, {
+      vacationType: newType,
+      dia: newDia
+    }).then(() => {
+      setMonthMap(prev => ({
+        ...prev,
+        [record.date]: (prev[record.date] || []).map(v => v.id === record.id ? {
+          ...v,
+          vacationType: newType,
+          dia: newDia
+        } : v)
+      }));
+      setSuperEditId(null);
+      if (isCapacityType(record.vacationType) !== isCapacityType(newType)) renumberDayPriorities(record.date, record.branch);
+    }).catch(err => alert("수정 실패: " + (err && err.message ? err.message : err)));
   };
   const handleAdminDelete = record => {
     if (!confirm(`[관리자] ${record.name}님의 ${record.vacationType} 기록을 완전히 삭제할까요?\n되돌릴 수 없어요.`)) return;
@@ -4986,7 +5018,76 @@ function MainScreen({
           margin: 0
         },
         onClick: () => handleAdminDelete(v)
-      }, "🗑"))), (v.note || v.vacationType && v.vacationType.startsWith("기타:") || editingNoteId === v.id || !cap && isMidManager && !cancelled) && /*#__PURE__*/React.createElement("tr", {
+      }, "🗑"), isSuperAdmin && !cancelled && /*#__PURE__*/React.createElement("button", {
+        style: {
+          ...modal.smallCancelBtn,
+          color: "#1b3a5c",
+          margin: 0
+        },
+        onClick: () => {
+          setSuperEditId(superEditId === v.id ? null : v.id);
+          setSuperEditType(v.vacationType || "");
+          setSuperEditDia(v.dia || "");
+        }
+      }, "✏️"))), superEditId === v.id && /*#__PURE__*/React.createElement("tr", {
+        style: {
+          borderBottom: "1px solid #eee",
+          background: "#f4f7fb"
+        }
+      }, /*#__PURE__*/React.createElement("td", null), /*#__PURE__*/React.createElement("td", {
+        colSpan: 5,
+        style: {
+          padding: "6px 3px 10px"
+        }
+      }, /*#__PURE__*/React.createElement("div", {
+        style: {
+          fontSize: "11px",
+          color: "#1b3a5c",
+          fontWeight: 700,
+          marginBottom: "6px"
+        }
+      }, "✏️ 전체관리자 수정"), /*#__PURE__*/React.createElement("div", {
+        style: {
+          display: "flex",
+          gap: "6px",
+          alignItems: "center",
+          flexWrap: "wrap"
+        }
+      }, /*#__PURE__*/React.createElement("select", {
+        style: {
+          ...styles.select,
+          maxWidth: "none",
+          flex: "1 1 120px",
+          padding: "7px",
+          fontSize: "13px"
+        },
+        value: superEditType,
+        onChange: e => setSuperEditType(e.target.value)
+      }, [...new Set([...(VACATION_TYPES.includes(superEditType) ? [] : [superEditType]), ...VACATION_TYPES])].filter(Boolean).map(t => /*#__PURE__*/React.createElement("option", {
+        key: t,
+        value: t
+      }, t))), /*#__PURE__*/React.createElement("input", {
+        style: {
+          ...modal.input,
+          flex: "0 1 80px",
+          width: "80px",
+          padding: "7px",
+          fontSize: "13px",
+          margin: 0
+        },
+        value: superEditDia,
+        onChange: e => setSuperEditDia(e.target.value),
+        placeholder: "DIA"
+      }), /*#__PURE__*/React.createElement("button", {
+        style: adminStyles.approveBtn,
+        onClick: () => handleSuperEditSave(v)
+      }, "저장"), /*#__PURE__*/React.createElement("button", {
+        style: {
+          ...adminStyles.approveBtn,
+          background: "#999"
+        },
+        onClick: () => setSuperEditId(null)
+      }, "닫기")))), (v.note || v.vacationType && v.vacationType.startsWith("기타:") || editingNoteId === v.id || !cap && isMidManager && !cancelled) && /*#__PURE__*/React.createElement("tr", {
         style: {
           borderBottom: "1px solid #eee"
         }
