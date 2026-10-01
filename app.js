@@ -1473,6 +1473,7 @@ function formatEntryDateOnly(ts) {
 }
 
 // 경산 팀 자체 규정 - 짝수달 1~5일 사이 신청한 휴가, 휴가일 7일 전부터는 본인 취소 불가 (여러 화면에서 공용으로 사용)
+// 단, 짝수달 1일에 신청한 휴가는 1일 당일에 한해 취소 가능
 function checkSelfCancelAllowed(branch, record) {
   if (branch !== "경산") return {
     ok: true
@@ -1483,7 +1484,11 @@ function checkSelfCancelAllowed(branch, record) {
       const d = new Date(createdDateStr + "T00:00:00");
       const day = d.getDate();
       const month = d.getMonth() + 1;
-      if (day >= 1 && day <= 5 && month % 2 === 0) {
+      // 예외: 짝수달 1일 당일에 신청한 휴가는 그날 하루만 취소 가능 (순번이 안 되는데 먼저 신청해버린 경우
+      // 원래 순번인 사람에게 자리를 돌려줄 수 있게) - 순번 조정이 1일에만 되는 것과 같은 기준이에요
+      if (day === 1 && month % 2 === 0 && isEvenMonthFirstDay() && createdDateStr === koreaTodayStr()) {
+        // 1~5일 규정만 건너뛰고, 아래 7일 전 규정은 그대로 확인해요
+      } else if (day >= 1 && day <= 5 && month % 2 === 0) {
         return {
           ok: false,
           reason: "짝수달 1~5일 사이에 신청한 휴가는 취소할 수 없어요 (경산 팀 규정)"
@@ -5046,7 +5051,7 @@ function MainScreen({
       color: "#333",
       lineHeight: 1.7
     }
-  }, "- ", evenMonthOpenInfo.openMonth, "/1 ~ ", evenMonthOpenInfo.openMonth, "/5 신청 휴가 : 취소 불가 (신중하게 신청)", /*#__PURE__*/React.createElement("br", null), "- 휴가 취소 규정 : 휴가일 기준 최소 7일 전까지 취소 필수(예: 휴가일에서 -7일 계산)", /*#__PURE__*/React.createElement("br", null), "- 작성 순서 준수 : 밴드 순서 확인 후 → D휴가앱에 해당 순번에 맞게 작성"), /*#__PURE__*/React.createElement("div", {
+  }, "- ", evenMonthOpenInfo.openMonth, "/1 ~ ", evenMonthOpenInfo.openMonth, "/5 신청 휴가 : 취소 불가 (단, ", evenMonthOpenInfo.openMonth, "/1 신청분은 ", evenMonthOpenInfo.openMonth, "/1 당일에 한해 취소 가능)", /*#__PURE__*/React.createElement("br", null), "- 휴가 취소 규정 : 휴가일 기준 최소 7일 전까지 취소 필수(예: 휴가일에서 -7일 계산)", /*#__PURE__*/React.createElement("br", null), "- 작성 순서 준수 : 밴드 순서 확인 후 → D휴가앱에 해당 순번에 맞게 작성"), /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: "12px",
       color: "#666",
