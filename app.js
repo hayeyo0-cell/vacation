@@ -8405,6 +8405,58 @@ function DataResetPanel({
   const [working, setWorking] = useState(false);
   const [backingUp, setBackingUp] = useState(false);
   const [backupResult, setBackupResult] = useState(null);
+
+  // 수동 백업 - 자동 백업(1주 1회, 조건 맞을 때만)과 완전히 같은 로직을 그 자리에서 바로 실행해요.
+  // ⚠️ 휴가앱(경산 실제 프로젝트)에서만 보이는 버튼이에요 - 실제 스프레드시트에 그대로 쓰여서,
+  // 문양테스트버전에서 눌러버리면 테스트 데이터가 진짜 백업 기록에 섞여 들어가요.
+  const handleBackupNow = () => {
+    if (!confirm("지금 바로 경산 휴가 데이터를 스프레드시트로 백업할까요?")) return;
+    setBackingUp(true);
+    setBackupResult(null);
+    promiseWithTimeout(Promise.resolve().then(() => VacFacade.getAll("경산")).then(records => {
+      const payload = (records || []).map(r => ({
+        date: r.date || "",
+        name: r.name || "",
+        branch: r.branch || "",
+        employeeId: r.employeeId || "",
+        vacationType: r.vacationType || "",
+        dia: r.dia == null ? "" : String(r.dia),
+        status: r.status || "",
+        confirmedBy: r.confirmedBy || "",
+        priority: r.priority == null ? "" : r.priority,
+        reqDate: r.createdAt ? formatEntryDateOnly(r.createdAt) : "",
+        note: r.note || "",
+        recordedBy: r.recordedBy || ""
+      })).sort((a, b) => {
+        if (a.date !== b.date) return a.date.localeCompare(b.date);
+        const pa = a.priority === "" ? Infinity : a.priority;
+        const pb = b.priority === "" ? Infinity : b.priority;
+        if (pa !== pb) return pa - pb;
+        return a.name.localeCompare(b.name, "ko");
+      });
+      return fetchWithTimeout(VACATION_API_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/plain;charset=utf-8"
+        },
+        body: JSON.stringify({
+          action: "backup",
+          records: payload
+        })
+      }).then(res => res.json()).then(json => {
+        if (!json || !json.ok) throw new Error(json && json.error || "백업 실패");
+        return window.SystemAPI.markBackupDone().then(() => payload.length);
+      });
+    }), 90000, "백업").then(count => {
+      setBackupResult({
+        count
+      });
+      alert(`백업 완료! 총 ${count}건을 스프레드시트로 보냈어요.`);
+    }).catch(err => {
+      console.error(err);
+      alert("백업 실패: " + (err && err.message ? err.message : err));
+    }).finally(() => setBackingUp(false));
+  };
   return /*#__PURE__*/React.createElement("div", {
     style: modal.overlay,
     onClick: onClose
