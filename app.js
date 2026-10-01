@@ -2396,6 +2396,7 @@ function MainScreen({
   const [showGuide, setShowGuide] = useState(false); // 📖 사용법
   const [showLotteryAdmin, setShowLotteryAdmin] = useState(false); // 명절 추첨 관리 (관리자)
   const [showLotteryApply, setShowLotteryApply] = useState(false); // 명절 추첨 응모 (기관사)
+  const [lotteryOpenNow, setLotteryOpenNow] = useState(false); // 지금 명절 응모 기간인지 (버튼 강조용)
   const [showHyuchungdangAdmin, setShowHyuchungdangAdmin] = useState(false); // 휴충당 관리 (관리자, 경산 전용)
   const [showAdminMenu, setShowAdminMenu] = useState(false); // 관리자 메뉴 모음
   const [showRosterChange, setShowRosterChange] = useState(false); // 교번 변경 예약 (관리자)
@@ -2798,6 +2799,8 @@ function MainScreen({
     if (isMidManager || currentUser.branch !== "경산") return;
     waitForFirestore().then(() => Promise.all([loadCachedList(LOTTERY_EVENTS_CACHE_KEY, LOTTERY_EVENTS_CACHE_TTL_MS, () => window.LotteryAPI.listEvents()), window.LotteryAPI.listMyEntries(currentUser.id)])).then(([events, entries]) => {
       const today = koreaTodayStr();
+      // 응모 기간 중인 이벤트가 있으면 🎋 명절 응모 버튼을 주황색으로 강조해요
+      setLotteryOpenNow((events || []).some(e => e.status === "응모중" && e.applyStart <= today && today <= e.applyEnd));
       const drawnTodayEventIds = new Set((events || []).filter(e => e.status === "추첨완료" && e.updatedAt && formatEntryDateOnly(e.updatedAt) === today).map(e => e.id));
       const results = (entries || []).filter(en => en.result !== "대기중" && drawnTodayEventIds.has(en.eventId));
       setLotteryResultsToShow(results);
@@ -4175,7 +4178,12 @@ function MainScreen({
     style: adminStyles.adminBtn,
     onClick: () => openPanel(setShowMyVacations)
   }, "내 휴가현황"), currentUser.branch === "경산" && !isMidManager && !ghosting && /*#__PURE__*/React.createElement("button", {
-    style: adminStyles.adminBtn,
+    style: lotteryOpenNow ? {
+      ...adminStyles.adminBtn,
+      background: "#D85A30",
+      color: "#fff",
+      border: "1px solid #D85A30"
+    } : adminStyles.adminBtn,
     onClick: () => openPanel(setShowLotteryApply)
   }, "🎋 명절 응모"), currentUser.branch === "경산" && isMidManager && !ghosting && /*#__PURE__*/React.createElement("button", {
     style: adminStyles.adminBtn,
@@ -4184,7 +4192,12 @@ function MainScreen({
     style: adminStyles.adminBtn,
     onClick: () => openPanel(setShowGuide)
   }, "📖 사용법"), isAdmin && /*#__PURE__*/React.createElement("button", {
-    style: adminStyles.adminBtn,
+    style: {
+      ...adminStyles.adminBtn,
+      background: "#185FA5",
+      color: "#fff",
+      border: "1px solid #185FA5"
+    },
     onClick: () => openPanel(setShowAdminMenu)
   }, "⚙️ 관리자 메뉴"), isSuperAdmin && /*#__PURE__*/React.createElement("button", {
     style: {
