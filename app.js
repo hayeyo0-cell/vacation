@@ -2384,6 +2384,7 @@ function MainScreen({
   const [showManagerAdmin, setShowManagerAdmin] = useState(false);
   const [showImportTest, setShowImportTest] = useState(false);
   const [showMyVacations, setShowMyVacations] = useState(false);
+  const [showGuide, setShowGuide] = useState(false); // 📖 사용법
   const [showLotteryAdmin, setShowLotteryAdmin] = useState(false); // 명절 추첨 관리 (관리자)
   const [showLotteryApply, setShowLotteryApply] = useState(false); // 명절 추첨 응모 (기관사)
   const [showHyuchungdangAdmin, setShowHyuchungdangAdmin] = useState(false); // 휴충당 관리 (관리자, 경산 전용)
@@ -2937,7 +2938,7 @@ function MainScreen({
   // 날짜 모달/사이드 패널(내 휴가현황·승인 관리·운용 인원·가져오기 테스트) 공통으로 쓰는 닫기 함수.
   // 뒤로가기 버튼을 눌러도 popstate 핸들러가 똑같이 처리해서, 항상 달력 화면으로 돌아가요.
   const closeModal = () => {
-    if (selectedDate || showAdmin || showManagerAdmin || showImportTest || showMyVacations || showLotteryAdmin || showLotteryApply || showHyuchungdangAdmin || showAdminMenu || showDataReset || showRosterChange) {
+    if (selectedDate || showAdmin || showManagerAdmin || showImportTest || showMyVacations || showGuide || showLotteryAdmin || showLotteryApply || showHyuchungdangAdmin || showAdminMenu || showDataReset || showRosterChange) {
       window.history.back();
     }
   };
@@ -2974,6 +2975,7 @@ function MainScreen({
       setShowManagerAdmin(false);
       setShowImportTest(false);
       setShowMyVacations(false);
+      setShowGuide(false);
       setShowLotteryAdmin(false);
       setShowLotteryApply(false);
       setShowHyuchungdangAdmin(false);
@@ -4163,7 +4165,10 @@ function MainScreen({
   }, "💬 밴드")), !isMidManager && !ghosting && /*#__PURE__*/React.createElement("button", {
     style: adminStyles.adminBtn,
     onClick: () => openPanel(setShowMyVacations)
-  }, "내 휴가현황"), currentUser.branch === "경산" && !isMidManager && !ghosting && /*#__PURE__*/React.createElement("button", {
+  }, "내 휴가현황"), /*#__PURE__*/React.createElement("button", {
+    style: adminStyles.adminBtn,
+    onClick: () => openPanel(setShowGuide)
+  }, "📖 사용법"), currentUser.branch === "경산" && !isMidManager && !ghosting && /*#__PURE__*/React.createElement("button", {
     style: adminStyles.adminBtn,
     onClick: () => openPanel(setShowLotteryApply)
   }, "🎋 명절 응모"), currentUser.branch === "경산" && isMidManager && !ghosting && /*#__PURE__*/React.createElement("button", {
@@ -5180,12 +5185,17 @@ function MainScreen({
     onClose: closeModal,
     employees: employees,
     managers: managers
+  })), showGuide && /*#__PURE__*/React.createElement(ErrorBoundary, {
+    onClose: closeModal
+  }, /*#__PURE__*/React.createElement(GuidePanel, {
+    onClose: closeModal
   })), showMyVacations && /*#__PURE__*/React.createElement(ErrorBoundary, {
     onClose: closeModal
   }, /*#__PURE__*/React.createElement(MyVacationsPanel, {
     currentUser: currentUser,
     onClose: closeModal,
-    employees: employees
+    employees: employees,
+    holidaySet: holidaySet
   })), showLotteryAdmin && /*#__PURE__*/React.createElement(ErrorBoundary, {
     onClose: closeModal
   }, /*#__PURE__*/React.createElement(LotteryAdminPanel, {
@@ -5572,10 +5582,151 @@ const adminStyles = {
     gap: "3px"
   }
 };
+/* ------------------------------------------------------------------ */
+/* 📖 사용법 (기관사용) - 자주 받는 질문 모음. 누르면 답이 펼쳐져요.          */
+/* 내용 수정은 아래 GUIDE_ITEMS만 고치면 돼요.                              */
+/* - 문장 안의 **글자**는 굵게 표시돼요                                     */
+/* - "• "로 시작하는 줄은 목록처럼 들여쓰기돼요                             */
+/* ------------------------------------------------------------------ */
+const GUIDE_ITEMS = [{
+  q: "휴가는 어떻게 신청해요?",
+  a: ["달력에서 날짜를 누르고 **+ 휴가 신청** → 휴가 종류를 고르고 저장하면 돼요.", "DIA는 내 교번에 맞춰 자동으로 채워져요."]
+}, {
+  q: "\"보장대상 4/4명 (여유 0명)\"은 뭐예요?",
+  a: ["그날 연차·분지·장재로 쉴 수 있는 인원이에요. **여유가 0명이면 신청할 수 없어요.**", "청휴·병가 등은 이 인원에 포함되지 않아요.", "휴가자 중에 비번(DIA가 ~로 끝남)이 있거나 전날 야간 휴가가 있으면 1명이 더 늘어나요."]
+}, {
+  q: "야간 휴가는 어떻게 내요?",
+  a: ["야간 날짜(예: 25d)나 다음날 비번(예: 25~) **중 하나만** 신청하면 나머지 날짜는 자동으로 같이 들어가요.", "두 날짜 모두 자리가 있어야 신청돼요.", "취소할 때도 한쪽만 취소하면 다른 쪽이 같이 취소돼요."]
+}, {
+  q: "짝수달 1일 신청은 어떻게 돼요?",
+  a: ["짝수달 1일 **오전 9시**부터 다음 두 달 휴가를 신청할 수 있어요.", "신청한 순서대로 순번이 붙어요. **밴드 순서를 확인하고 그 순번에 맞게** 신청해 주세요."]
+}, {
+  q: "짝수달 1일에 순번은 어떻게 고쳐요?",
+  a: ["날짜를 눌러 목록에서 본인 순번(밑줄과 ✏️ 표시)을 누르고 숫자를 바꾼 뒤 **✓**를 누르면 돼요.", "다른 사람 순번은 자동으로 당겨지거나 밀려요. 예) 1번을 4로 고치면 기존 2·3·4번이 1·2·3번이 되고 본인이 4번이 돼요.", "**1일 당일에 신청한 본인 기록만, 1일 하루 동안** 고칠 수 있어요."]
+}, {
+  q: "휴가 취소는 어떻게 하나요?",
+  a: ["두 군데서 할 수 있어요.", "• 달력에서 날짜를 누르고, 목록의 내 이름 줄에 있는 빨간 **취소** 누르기", "• **내 휴가현황**에서 해당 날짜 옆 **취소** 누르기", "야간 휴가는 한쪽만 취소해도 비번까지 같이 취소돼요."]
+}, {
+  q: "휴가 취소가 안 돼요.",
+  a: ["아래 경우는 앱에서 **개인 취소가 제한**돼요.", "• 짝수월 1일 ~ 5일에 신청한 휴가", "• 휴가일 기준 7일 전부터", "단, **짝수월 1일에 신청한 휴가는 1일 당일에 한해** 직접 취소할 수 있어요.", "교육, 병가 등 **부득이한 특수 사유**가 생긴 경우에는 사유를 **운용에 전달**해 주시면 확인 후 취소해 드려요."]
+}, {
+  q: "휴가 종류를 잘못 입력했어요.",
+  a: ["**내 휴가현황** → 해당 날짜 옆 **수정**에서 바꿀 수 있어요.", "야간 휴가는 야간 날짜에서 수정하면 비번도 같이 바뀌어요.", "청휴·병가를 연차 등으로 바꿀 때는 그날 자리가 있어야 해요.", "운용이 이미 확인했거나 대신 입력한 기록은 운용에 말씀해 주세요."]
+}, {
+  q: "내 휴가는 어디서 봐요?",
+  a: ["**내 휴가현황**에서 예정된 휴가, 올해 종류별 사용 개수, 신청한 휴충당을 볼 수 있어요."]
+}, {
+  q: "다른 사람과 교번 자리를 바꾸게 됐어요.",
+  a: ["**관리자에게 바꾸는 날짜와 상대방을 알려주세요.** 관리자가 앱에 미리 등록해 두면, 그 날짜부터는 앱이 자동으로 새 교번 기준으로 DIA를 채우고 계산해요. 그 전 날짜는 원래 교번 그대로예요.", "짝수달 1일 신청 전에 미리 알려주시면 가장 좋아요.", "등록 전에 이미 신청한 휴가는 DIA가 옛 교번으로 남아 있으니 **내 휴가현황 → 수정**에서 DIA를 고쳐주세요."]
+}, {
+  q: "휴충당은 어떻게 신청해요?",
+  a: ["내 교번이 휴무인 날짜를 누르면 **🔁 휴충당 신청** 버튼이 보여요.", "확정되면 앱을 열 때 알림이 떠요."]
+}, {
+  q: "명절 연휴 휴가는 어떻게 신청해요?",
+  a: ["명절 응모 기간에 **🎋 명절 응모**에서 신청하면 추첨으로 정해져요.", "결과는 앱을 열 때 알림으로 알려드려요."]
+}, {
+  q: "PIN을 잊었어요.",
+  a: ["로그인 화면의 **PIN을 잊으셨나요? 다시 등록하기**를 누르고 처음부터 다시 등록하면 돼요.", "다시 등록하면 관리자 승인을 다시 받아야 해요."]
+}];
+
+// "**굵게**" 표시를 실제 굵은 글씨로 바꿔요
+function renderGuideText_(text) {
+  return String(text).split(/(\*\*[^*]+\*\*)/).filter(Boolean).map((part, i) => part.startsWith("**") && part.endsWith("**") ? /*#__PURE__*/React.createElement("strong", {
+    key: i,
+    style: {
+      color: "#1b3a5c"
+    }
+  }, part.slice(2, -2)) : part);
+}
+function GuidePanel({
+  onClose
+}) {
+  const [openIdx, setOpenIdx] = useState(null);
+  return /*#__PURE__*/React.createElement("div", {
+    style: modal.overlay,
+    onClick: onClose
+  }, /*#__PURE__*/React.createElement("div", {
+    style: modal.sheet,
+    onClick: e => e.stopPropagation()
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...modal.dateTitle,
+      marginBottom: "6px"
+    }
+  }, "📖 D휴가 사용법"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...modal.countText,
+      marginBottom: "12px"
+    }
+  }, "궁금한 질문을 누르면 답이 펼쳐져요."), GUIDE_ITEMS.map((item, idx) => {
+    const open = openIdx === idx;
+    return /*#__PURE__*/React.createElement("div", {
+      key: idx,
+      style: {
+        border: "1px solid " + (open ? "#1b3a5c" : "#e3e6ec"),
+        borderRadius: "12px",
+        marginBottom: "8px",
+        background: open ? "#f4f7fb" : "#fff",
+        overflow: "hidden"
+      }
+    }, /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      onClick: () => setOpenIdx(open ? null : idx),
+      style: {
+        width: "100%",
+        textAlign: "left",
+        background: "none",
+        border: "none",
+        padding: "13px 14px",
+        fontSize: "15px",
+        fontWeight: 700,
+        color: "#1a1a1a",
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        gap: "8px",
+        cursor: "pointer"
+      }
+    }, /*#__PURE__*/React.createElement("span", null, "Q. ", item.q), /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: "#888",
+        fontSize: "13px",
+        flexShrink: 0
+      }
+    }, open ? "▲" : "▼")), open && /*#__PURE__*/React.createElement("div", {
+      style: {
+        padding: "0 14px 14px",
+        fontSize: "14px",
+        lineHeight: 1.65,
+        color: "#333"
+      }
+    }, item.a.map((line, li) => {
+      const bullet = line.startsWith("• ");
+      return /*#__PURE__*/React.createElement("div", {
+        key: li,
+        style: {
+          marginTop: li === 0 ? 0 : "6px",
+          paddingLeft: bullet ? "10px" : 0
+        }
+      }, renderGuideText_(line));
+    })));
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...modal.countText,
+      textAlign: "center",
+      margin: "10px 0"
+    }
+  }, "여기 없는 내용은 운용이나 관리자에게 문의해 주세요."), /*#__PURE__*/React.createElement("button", {
+    style: modal.closeBtn,
+    onClick: onClose
+  }, "닫기")));
+}
+
 function MyVacationsPanel({
   currentUser,
   onClose,
-  employees
+  employees,
+  holidaySet
 }) {
   const [list, setList] = useState([]);
   const [yearStats, setYearStats] = useState([]); // 올해 종류별 보장휴가 사용 개수
@@ -5687,7 +5838,45 @@ function MyVacationsPanel({
       return;
     }
     setEditSaving(true);
-    findNightPair(record).then(pairRecord => VacFacade.update(record.branch, record.date, record.id, {
+    const branch = record.branch;
+    const hs = holidaySet || new Set();
+    const activeOthers = (list, excludeId) => (list || []).filter(v => v.branch === branch && v.status !== "취소됨" && v.id !== excludeId);
+    // 보장인원 미포함 → 포함 종류로 바꾸면 그날 자리를 하나 더 차지하게 되니 정원을 확인해요
+    // (신청할 때와 같은 기준 - 수정으로 정원을 넘기는 우회를 막아요)
+    const checkCapacity = pairRecord => {
+      const edited = {
+        ...record,
+        vacationType: editType,
+        dia: trimmedDia
+      };
+      const checks = [];
+      if (!isCapacityType(record.vacationType) && isCapacityType(editType)) {
+        checks.push(Promise.all([VacFacade.getByDate(record.date, branch), VacFacade.getByDate(shiftDateStr_(record.date, -1), branch)]).then(([dayRecs, prevRecs]) => {
+          const others = activeOthers(dayRecs, record.id);
+          const cnt = others.filter(v => isCapacityType(v.vacationType)).length;
+          const cap = gyeongsanCapacity(branch, record.date, [...others, edited], hs, activeOthers(prevRecs));
+          if (cnt >= cap) throw new Error(`${record.date}은 보장인원(${cap}명)이 다 차서 ${editType}(으)로 바꿀 수 없어요.`);
+        }));
+      }
+      // 야간 짝 비번도 미포함 → 포함 종류로 바뀌면(예: 청휴비 → 연차비) 다음날 정원도 확인해요
+      const newCompanionType = NIGHT_COMPANION_TYPE_MAP[editType];
+      const stillNight = newCompanionType && isNightShiftCode(trimmedDia, branch);
+      if (pairRecord && stillNight && !isCapacityType(pairRecord.vacationType) && isCapacityType(newCompanionType)) {
+        checks.push(Promise.all([VacFacade.getByDate(pairRecord.date, branch), VacFacade.getByDate(record.date, branch)]).then(([nextRecs, dayRecs]) => {
+          const others = activeOthers(nextRecs, pairRecord.id);
+          const cnt = others.filter(v => isCapacityType(v.vacationType)).length;
+          const prevWithEdited = [...activeOthers(dayRecs, record.id), edited];
+          const cap = gyeongsanCapacity(branch, pairRecord.date, [...others, {
+            ...pairRecord,
+            vacationType: newCompanionType,
+            dia: nightDiaToOffDutyDia(trimmedDia)
+          }], hs, prevWithEdited);
+          if (cnt >= cap) throw new Error(`다음날(${pairRecord.date}) 비번 자리가 다 차서(보장인원 ${cap}명) ${editType}(으)로 바꿀 수 없어요.`);
+        }));
+      }
+      return Promise.all(checks).then(() => pairRecord);
+    };
+    findNightPair(record).then(checkCapacity).then(pairRecord => VacFacade.update(record.branch, record.date, record.id, {
       vacationType: editType,
       dia: trimmedDia
     }).then(() => pairRecord)).then(pairRecord => {
