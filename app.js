@@ -6574,6 +6574,11 @@ function LotteryApplyPanel({
 /* ------------------------------------------------------------------ */
 /* 명절 연휴 추첨 - 관리자 패널 (경산 전용)                              */
 /* ------------------------------------------------------------------ */
+// 명절 추첨 이벤트의 마지막 대상 날짜 (지난 추첨 판단·1년 뒤 자동 정리 기준)
+function lotteryEventLastDate_(event) {
+  const dates = (event && event.dates || []).map(d => d.date).filter(Boolean).sort();
+  return dates.length ? dates[dates.length - 1] : "";
+}
 function LotteryAdminPanel({
   branch,
   isSuperAdmin,
@@ -6587,6 +6592,7 @@ function LotteryAdminPanel({
   const [loading, setLoading] = useState(true);
   const [entriesByEvent, setEntriesByEvent] = useState({}); // { [eventId]: entries[] }
   const [drawing, setDrawing] = useState(null); // 추첨 진행 중인 eventId
+  const [showPastEvents, setShowPastEvents] = useState(false); // 지난 추첨 펼치기
 
   // 새 이벤트 생성 폼 상태
   const [showNewForm, setShowNewForm] = useState(false);
@@ -6602,8 +6608,19 @@ function LotteryAdminPanel({
     setLoading(true);
     waitForFirestore().then(() => window.LotteryAPI.listEvents()).then(list => {
       const branchList = (list || []).filter(e => e.branch === viewBranch);
-      setEvents(branchList);
-      return Promise.all(branchList.map(e => window.LotteryAPI.listEntriesForEvent(e.id).then(entries => [e.id, entries])));
+      // 명절 마지막 날짜로부터 1년이 지난 추첨은 자동 정리해요 (응모 기록 포함).
+      // 당첨자의 실제 휴가 기록은 달력 데이터에 따로 있어서 그대로 남아요.
+      const cutoff = shiftDateStr_(koreaTodayStr(), -365);
+      const expired = branchList.filter(e => {
+        const last = lotteryEventLastDate_(e);
+        return last && last < cutoff;
+      });
+      const kept = branchList.filter(e => !expired.includes(e));
+      setEvents(kept);
+      const cleanup = Promise.all(expired.map(e => window.LotteryAPI.listEntriesForEvent(e.id).then(entries => Promise.all((entries || []).map(en => window.LotteryAPI.cancelApply(en.id)))).then(() => window.LotteryAPI.removeEvent(e.id)))).then(() => {
+        if (expired.length) invalidateCachedList(LOTTERY_EVENTS_CACHE_KEY);
+      }).catch(err => console.error("지난 추첨 자동 정리 실패:", err));
+      return cleanup.then(() => Promise.all(kept.map(e => window.LotteryAPI.listEntriesForEvent(e.id).then(entries => [e.id, entries]))));
     }).then(pairs => {
       const map = {};
       (pairs || []).forEach(([id, entries]) => {
@@ -6973,7 +6990,39 @@ function LotteryAdminPanel({
       color: "#aaa",
       padding: "20px 0"
     }
-  }, "등록된 이벤트가 없어요"), !loading && events.map(event => {
+  }, "등록된 이벤트가 없어요"), !loading && (() => {
+    // 명절 날짜가 다 지난 추첨은 "지난 추첨"으로 접어둬요 (삭제 버튼은 그대로 있어요)
+    const today = koreaTodayStr();
+    const isPast = e => {
+      const last = lotteryEventLastDate_(e);
+      return !!last && last < today;
+    };
+    const activeEvents = events.filter(e => !isPast(e));
+    const pastEvents = events.filter(isPast);
+    return [...activeEvents, ...(pastEvents.length ? [{
+      __pastToggle: true,
+      id: "__pastToggle",
+      count: pastEvents.length
+    }] : []), ...(showPastEvents ? pastEvents : [])];
+  })().map(event => {
+    if (event.__pastToggle) {
+      return /*#__PURE__*/React.createElement("div", {
+        key: event.id
+      }, /*#__PURE__*/React.createElement("button", {
+        style: {
+          ...adminStyles.tabBtn,
+          width: "100%",
+          flex: "none",
+          margin: "6px 0"
+        },
+        onClick: () => setShowPastEvents(v => !v)
+      }, showPastEvents ? "▲ 지난 추첨 접기" : `▼ 지난 추첨 보기 (${event.count})`), showPastEvents && /*#__PURE__*/React.createElement("div", {
+        style: {
+          ...modal.countText,
+          margin: "4px 0 8px"
+        }
+      }, "명절 날짜가 지난 추첨이에요. 마지막 날짜로부터 1년이 지나면 자동으로 정리돼요."));
+    }
     const entries = entriesByEvent[event.id] || [];
     const byDate = {};
     entries.forEach(en => {
