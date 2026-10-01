@@ -1946,6 +1946,26 @@ function nightDiaToOffDutyDia(dia) {
   return trimmed + "~";
 }
 
+// 시트에서 가져온 DIA를 앱 표기로 맞춰요
+// - "21비번", "대6비번" → "21~", "대6~"  (비번은 앱에서 "~"로 표기)
+// - "1", "21" 처럼 숫자만 → "1d", "21d"  (교번틀에 그 코드가 실제로 있을 때만)
+// - 그 밖의 값(S, 미지정, 대4, 이미 맞는 표기 등)은 그대로 둬요
+function normalizeImportedDia_(dia, branch) {
+  const t = String(dia == null ? "" : dia).trim();
+  if (!t) return t;
+  const m = t.match(/^(.+?)\s*비번$/);
+  if (m) {
+    let base = m[1].trim();
+    if (/d$/.test(base)) base = base.slice(0, -1);
+    return base + "~";
+  }
+  if (/^\d+$/.test(t)) {
+    const order = GYOBUN_ORDER[REVERSE_TEAM_MAP[branch]] || [];
+    if (order.includes(t + "d")) return t + "d";
+  }
+  return t;
+}
+
 // 비번 DIA("25~", "대4~") → 전날 야간 DIA("25d", "대4"). 교번틀에서 실제 야간 코드인 것만 인정해요.
 // 야간 짝이 없는 "~" 코드면 null (그냥 일반 휴가로 처리)
 function offDutyDiaToNightDia_(dia, branch) {
@@ -8405,6 +8425,72 @@ function DataResetPanel({
   const [working, setWorking] = useState(false);
   const [backingUp, setBackingUp] = useState(false);
   const [backupResult, setBackupResult] = useState(null);
+  const [fixingDia, setFixingDia] = useState(false);
+  const [fixDiaProgress, setFixDiaProgress] = useState("");
+
+  // 시트에서 가져온 기록의 DIA 표기를 앱과 똑같이 정리 (21비번 → 21~, 1 → 1d) - 한 번만 돌리면 돼요
+  const handleFixImportedDia = () => {
+    const order = GYOBUN_ORDER[REVERSE_TEAM_MAP[branch]] || [];
+    if (!order.length) {
+      alert("교번틀을 아직 못 불러왔어요. 잠시 뒤 다시 시도해주세요.");
+      return;
+    }
+    setFixingDia(true);
+    setFixDiaProgress("기록 확인 중...");
+    VacFacade.getAll(branch).then(records => {
+      const changes = (records || []).map(r => ({
+        r,
+        to: normalizeImportedDia_(r.dia, branch)
+      })).filter(({
+        r,
+        to
+      }) => to !== String(r.dia == null ? "" : r.dia));
+      if (!changes.length) {
+        alert("정리할 기록이 없어요. 모두 앱 표기로 되어 있어요.");
+        return;
+      }
+      const samples = {};
+      changes.forEach(({
+        r,
+        to
+      }) => {
+        const key = `${r.dia} → ${to}`;
+        samples[key] = (samples[key] || 0) + 1;
+      });
+      const sampleText = Object.entries(samples).slice(0, 8).map(([k, n]) => `· ${k} (${n}건)`).join("\n");
+      if (!confirm(`DIA 표기를 바꿀 기록이 ${changes.length}건 있어요.\n\n${sampleText}${Object.keys(samples).length > 8 ? "\n· …" : ""}\n\n바꿀까요?`)) return;
+      let done = 0;
+      let failed = 0;
+      // 한꺼번에 몰아 보내지 않고 5건씩 나눠서 저장해요
+      const runChunk = i => {
+        if (i >= changes.length) return Promise.resolve();
+        const chunk = changes.slice(i, i + 5);
+        return Promise.all(chunk.map(({
+          r,
+          to
+        }) => VacFacade.update(r.branch || branch, r.date, r.id, {
+          dia: to
+        }).then(() => {
+          done++;
+        }).catch(err => {
+          failed++;
+          console.error("DIA 정리 실패:", r, err);
+        }))).then(() => {
+          setFixDiaProgress(`정리 중... ${done + failed} / ${changes.length}`);
+          return runChunk(i + 5);
+        });
+      };
+      return runChunk(0).then(() => {
+        alert(`DIA 정리 완료! ${done}건 바꿨어요.` + (failed ? `\n(${failed}건 실패 - 다시 누르면 남은 것만 다시 정리해요)` : ""));
+      });
+    }).catch(err => {
+      console.error(err);
+      alert("DIA 정리 실패: " + (err && err.message ? err.message : err));
+    }).finally(() => {
+      setFixingDia(false);
+      setFixDiaProgress("");
+    });
+  };
 
   // 수동 백업 - 자동 백업(1주 1회, 조건 맞을 때만)과 완전히 같은 로직을 그 자리에서 바로 실행해요.
   // ⚠️ 휴가앱(경산 실제 프로젝트)에서만 보이는 버튼이에요 - 실제 스프레드시트에 그대로 쓰여서,
@@ -8490,6 +8576,22 @@ function DataResetPanel({
       color: "#1caa5c"
     }
   }, "최근 결과: ", backupResult.count, "건 백업 완료")), /*#__PURE__*/React.createElement("button", {
+    style: {
+      ...styles.button,
+      border: "1px dashed #1b3a5c",
+      color: "#1b3a5c",
+      padding: "10px",
+      marginTop: "10px",
+      marginBottom: "4px"
+    },
+    disabled: fixingDia,
+    onClick: handleFixImportedDia
+  }, fixingDia ? fixDiaProgress || "정리 중..." : "🔧 가져온 기록 DIA 표기 정리 (21비번→21~, 1→1d)"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...modal.countText,
+      marginBottom: "14px"
+    }
+  }, "바꾸기 전에 몇 건이 어떻게 바뀌는지 먼저 보여줘요. 한 번만 하면 돼요."), /*#__PURE__*/React.createElement("button", {
     style: modal.closeBtn,
     onClick: onClose
   }, "닫기")));
@@ -8634,7 +8736,7 @@ function ImportTestPanel({
       employeeId: matchedId || `departed-${r.name}`,
       isDeparted: !isCurrentLineEmployee(r.name),
       vacationType: r.type,
-      dia: r.dia,
+      dia: normalizeImportedDia_(r.dia, "경산"),
       status: r.cancelled ? "취소됨" : "정상",
       confirmedBy: r.confirmer || (autoConfirmed ? "확인" : null),
       priority: isCapacityType(r.type) ? r.seq || 0 : null,
