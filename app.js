@@ -143,6 +143,7 @@ function koreaCurrentHour() {
   return kst.getHours();
 }
 
+
 // 오늘이 "짝수달 1일"인지 확인 (경산 - 다음 두 달 휴가를 선착순으로 신청받는 날, 순번 조정 가능일)
 // ⚠️ TEST_MODE일 때는 실제 날짜와 무관하게 항상 "짝수달 1일"로 간주해서 순번 수정 기능을 바로 테스트할 수 있어요.
 // 실제 운영 전환 시 TEST_MODE를 false로 바꾸면 이 우회도 자동으로 꺼져요.
@@ -161,8 +162,7 @@ function isEvenMonthFirstDay() {
 function isPeakOpeningWindow() {
   if (TEST_MODE) return true;
   if (!isEvenMonthFirstDay()) return false;
-  const hour = koreaCurrentHour();
-  return hour === 9;
+  return koreaCurrentHour() === 9;
 }
 function parseLocalDate_(dateStr) {
   const [y, m, d] = String(dateStr).split("-").map(Number);
@@ -3290,18 +3290,36 @@ function MainScreen({
       console.error(err);
       if (err && err.message === "CAPACITY_FULL") {
         alert(`앗, 저장하는 순간 보장인원(${err.capacity}명)이 다 찼어요. 다른 날짜를 선택해주세요.`);
-        loadMonth(viewYear, viewMonth);
+        refreshDays([selectedDate, nextDateStr]);
         setShowRegisterForm(false);
         return;
       }
       if (err && err.message === "DUPLICATE_ENTRY") {
         alert("이미 이 날짜에 신청하신 기록이 있어요. 화면을 새로고침할게요.");
-        loadMonth(viewYear, viewMonth);
+        refreshDays([selectedDate, nextDateStr]);
         setShowRegisterForm(false);
         return;
       }
       alert("등록에 실패했어요: " + (err && err.message ? err.message : err));
     }).finally(() => setSaving(false));
+  };
+  // 오류(마감·중복 등) 뒤 화면 갱신용 - 달 전체(최대 31회 읽기) 대신 관련 날짜만 다시 읽어요.
+  // 실시간 구독 중(오픈 직후 9시대)엔 어차피 자동 반영되니 아예 읽지 않아요.
+  const refreshDays = dates => {
+    if (inPeakWindow) return;
+    const list = [...new Set((dates || []).filter(Boolean))];
+    if (!list.length) return;
+    waitForFirestore().then(() => Promise.all(list.map(d => VacFacade.getByDate(d, currentUser.branch).then(recs => [d, recs])))).then(pairs => {
+      setMonthMap(prev => {
+        const next = {
+          ...prev
+        };
+        pairs.forEach(([d, recs]) => {
+          next[d] = (recs || []).filter(v => v.branch === currentUser.branch).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+        });
+        return next;
+      });
+    }).catch(err => console.error("날짜 갱신 실패:", err));
   };
   // 비번 먼저 신청 → 전날 야간 + 오늘 비번(연차비 등)을 한 번에 저장해요. 두 날짜 정원을 모두 확인하고,
   // 비번 저장이 실패하면 방금 넣은 야간도 되돌려서 반쪽만 남지 않게 해요.
@@ -3316,7 +3334,7 @@ function MainScreen({
     const activeOf = list => (list || []).filter(v => v.branch === branch && v.status !== "취소됨");
     const fail = msg => {
       alert(msg);
-      loadMonth(viewYear, viewMonth);
+      refreshDays([nightDate, selectedDate]);
       setShowRegisterForm(false);
     };
     setSaving(true);
@@ -3418,7 +3436,7 @@ function MainScreen({
       if (alreadyMine) {
         setSaving(false);
         alert("이미 이 날짜에 신청하신 기록이 있어요. 화면을 새로고침할게요.");
-        loadMonth(viewYear, viewMonth);
+        refreshDays([selectedDate]);
         setShowRegisterForm(false);
         return;
       }
@@ -3427,7 +3445,7 @@ function MainScreen({
       if (freshCapacityCount >= capacity) {
         setSaving(false);
         alert(`앗, 방금 다른 분이 신청해서 이 날짜의 보장인원(${capacity}명)이 다 찼어요. 다른 날짜를 선택해주세요.`);
-        loadMonth(viewYear, viewMonth); // 화면도 최신 상태로 갱신
+        refreshDays([selectedDate]); // 화면도 최신 상태로 갱신
         setShowRegisterForm(false);
         return;
       }
@@ -3449,7 +3467,7 @@ function MainScreen({
           if (nextDayCapacityCount >= nextDayCapacity) {
             setSaving(false);
             alert(`앗, 다음날(${nextDateStr})이 이미 다 차서 야간 신청을 저장할 수 없어요. 다른 날짜를 선택해주세요.`);
-            loadMonth(viewYear, viewMonth);
+            refreshDays([selectedDate, nextDateStr]);
             setShowRegisterForm(false);
             return;
           }
@@ -3459,7 +3477,7 @@ function MainScreen({
         if (NIGHT_COMPANION_TYPE_MAP[formType] && !existingOffDuty && nextDayActive.some(v => v.employeeId === currentUser.id)) {
           setSaving(false);
           alert(`다음날(${nextDateStr})에 이미 본인 기록이 있는데, 이 야간의 비번(DIA가 ~로 끝나는 같은 종류 휴가)이 아니라서 연결할 수 없어요. 다음날 기록을 먼저 확인해주세요.`);
-          loadMonth(viewYear, viewMonth);
+          refreshDays([selectedDate, nextDateStr]);
           setShowRegisterForm(false);
           return;
         }
