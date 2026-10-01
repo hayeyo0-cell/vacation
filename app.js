@@ -1675,10 +1675,14 @@ function isCapacityType(type) {
 // (여러 화면에서 같이 쓰는 공용 함수라 모듈 레벨에 둠 - MainScreen, MyVacationsPanel 등)
 function renumberDayPriorities_(dateStr, branch, onDone) {
   VacFacade.getByDate(dateStr, branch).then(records => {
-    // 취소된 기록도 그 번호를 계속 차지해요 (취소됐다고 뒷사람이 번호를 당겨쓰지 않아요) -
-    // 그래서 취소 여부와 상관없이, 그날 전체 기록을 입력 시각 순서로 쭉 번호 매겨요.
+    // 취소된 기록도 그 번호를 계속 차지해요 (취소됐다고 뒷사람이 번호를 당겨쓰지 않아요).
+    // 기준은 "지금 순번 순서" 그대로예요 - 짝수달 1일에 손으로 고친 순번이 재정렬로 날아가지 않게,
+    // 순서는 유지하고 빈 번호만 메워요. 순번이 없는 기록(비번 짝 등)은 입력 시각 순으로 맨 뒤에 붙어요.
     const capacityAll = (records || []).filter(v => v.branch === branch && isCapacityType(v.vacationType)).sort((a, b) => {
-      // 입력 날짜/시간(createdAt) 순서가 기준이에요. 없는 기록(옛날 가져오기 등)은 맨 뒤로.
+      const pa = a.priority != null && a.priority !== "" ? Number(a.priority) : Infinity;
+      const pb = b.priority != null && b.priority !== "" ? Number(b.priority) : Infinity;
+      if (pa !== pb) return pa - pb;
+      // 같은 순번이거나 둘 다 순번이 없으면 입력 날짜/시간(createdAt) 순서. 없는 기록(옛날 가져오기 등)은 맨 뒤로.
       const ta = timestampToMillis_(a.createdAt);
       const tb = timestampToMillis_(b.createdAt);
       if (ta == null && tb == null) return (a.name || "").localeCompare(b.name || "");
@@ -1701,6 +1705,45 @@ function renumberDayPriorities_(dateStr, branch, onDone) {
     // 그날이 속한 달의 달력 캐시를 지워둬요 - 순번이 바뀐 채로 캐시가 오래 남지 않게
     if (freshRecords && onDone) onDone(freshRecords);
   }).catch(err => console.error("순번 재정렬 실패:", err));
+}
+
+// 순번 끼워넣기 - 한 사람의 순번을 newPos로 옮기면 사이에 있던 사람들이 한 칸씩 당겨지거나 밀려요.
+// 예) 1→4: 기존 2·3·4번이 1·2·3번이 되고 본인이 4번 / 4→1: 기존 1·2·3번이 2·3·4번이 되고 본인이 1번
+// 전체 인원보다 큰 번호는 맨 끝 번호로 맞춰요. 최신 데이터를 다시 읽어서 계산하고, 바뀐 사람만 저장해요.
+function reorderDayPriority_(record, newPos, onDone) {
+  const branch = record.branch;
+  const dateStr = record.date;
+  return VacFacade.getByDate(dateStr, branch).then(records => {
+    const capacityAll = (records || []).filter(v => v.branch === branch && isCapacityType(v.vacationType)).sort((a, b) => {
+      const pa = a.priority != null && a.priority !== "" ? Number(a.priority) : Infinity;
+      const pb = b.priority != null && b.priority !== "" ? Number(b.priority) : Infinity;
+      if (pa !== pb) return pa - pb;
+      const ta = timestampToMillis_(a.createdAt);
+      const tb = timestampToMillis_(b.createdAt);
+      if (ta == null && tb == null) return (a.name || "").localeCompare(b.name || "");
+      if (ta == null) return 1;
+      if (tb == null) return -1;
+      if (ta !== tb) return ta - tb;
+      return (a.name || "").localeCompare(b.name || "");
+    });
+    const idx = capacityAll.findIndex(v => v.id === record.id);
+    if (idx === -1) throw new Error("기록을 찾지 못했어요. 새로고침 후 다시 시도해주세요.");
+    const [moving] = capacityAll.splice(idx, 1);
+    const pos = Math.min(Math.max(1, newPos), capacityAll.length + 1);
+    capacityAll.splice(pos - 1, 0, moving);
+    const updates = [];
+    capacityAll.forEach((v, i) => {
+      if (v.priority !== i + 1) {
+        updates.push(VacFacade.update(v.branch, v.date, v.id, {
+          priority: i + 1
+        }));
+      }
+    });
+    return Promise.all(updates).then(() => VacFacade.getByDate(dateStr, branch)).then(fresh => {
+      if (fresh && onDone) onDone(fresh, pos);
+      return pos;
+    });
+  });
 }
 
 // 보장휴가(연차·분지 등)를 순번(priority) 순서로 먼저, 미보장(청휴·병가·노조 등)은 그 아래로 정렬 - 여러 곳에서 재사용
@@ -2920,9 +2963,7 @@ function MainScreen({
         } = editingPriorityRef.current;
         const num = parseInt(input, 10);
         if (!Number.isNaN(num) && num >= 1 && num !== record.priority) {
-          VacFacade.update(record.branch, record.date, record.id, {
-            priority: num
-          }).catch(err => console.error("순번 자동저장 실패:", err));
+          reorderDayPriority_(record, num).catch(err => console.error("순번 자동저장 실패:", err));
         }
         editingPriorityRef.current = null;
       }
@@ -3101,19 +3142,13 @@ function MainScreen({
       alert("1 이상의 숫자를 입력해주세요");
       return;
     }
-    VacFacade.update(record.branch, record.date, record.id, {
-      priority: num
+    reorderDayPriority_(record, num, (fresh, pos) => {
+      setMonthMap(prev => ({
+        ...prev,
+        [record.date]: fresh
+      }));
+      if (pos !== num) alert(`전체 ${pos}명이라 ${pos}번(맨 끝)으로 맞췄어요.`);
     }).then(() => {
-      setMonthMap(prev => {
-        const next = {
-          ...prev
-        };
-        next[selectedDate] = (next[selectedDate] || []).map(v => v.id === record.id ? {
-          ...v,
-          priority: num
-        } : v);
-        return next;
-      });
       setEditingPriorityId(null);
     }).catch(err => alert("수정 실패: " + (err && err.message ? err.message : err)));
   };
