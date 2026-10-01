@@ -1474,6 +1474,15 @@ function formatEntryDateOnly(ts) {
 
 // 경산 팀 자체 규정 - 짝수달 1~5일 사이 신청한 휴가, 휴가일 7일 전부터는 본인 취소 불가 (여러 화면에서 공용으로 사용)
 // 단, 짝수달 1일에 신청한 휴가는 1일 당일에 한해 취소 가능
+// 취소 불가일 때 보여줄 안내 (규정 이유 + 특수 사유는 운용 문의)
+function cancelBlockedMessage_(reason) {
+  return "⚠️ " + reason + "\n\n교육, 병가 등 부득이한 특수 사유가 있으면 운용에 문의해 주세요.";
+}
+// 취소 버튼 모양 - 취소 가능하면 빨간 "취소", 규정상 불가면 회색 "취소불가"
+const CANCEL_BLOCKED_STYLE_ = {
+  color: "#aaa",
+  textDecoration: "none"
+};
 function checkSelfCancelAllowed(branch, record) {
   if (branch !== "경산") return {
     ok: true
@@ -3075,7 +3084,7 @@ function MainScreen({
   const handleSelfCancelClick = record => {
     const check = checkSelfCancelAllowed(currentUser.branch, record);
     if (!check.ok) {
-      alert("⚠️ " + check.reason);
+      alert(cancelBlockedMessage_(check.reason));
       return;
     }
     handleCancel(record);
@@ -4934,13 +4943,17 @@ function MainScreen({
         }
       }, "대기중")), /*#__PURE__*/React.createElement("td", {
         style: tbl.td
-      }, !cancelled && v.employeeId === currentUser.id && !v.confirmedBy && !v.recordedBy && /*#__PURE__*/React.createElement("button", {
-        style: {
-          ...modal.smallCancelBtn,
-          margin: 0
-        },
-        onClick: () => handleSelfCancelClick(v)
-      }, "취소"), !cancelled && isMidManager && v.employeeId !== currentUser.id && isCapacityType(v.vacationType) && /*#__PURE__*/React.createElement("button", {
+      }, !cancelled && v.employeeId === currentUser.id && !v.confirmedBy && !v.recordedBy && (() => {
+        const cancelOk = checkSelfCancelAllowed(currentUser.branch, v).ok;
+        return /*#__PURE__*/React.createElement("button", {
+          style: {
+            ...modal.smallCancelBtn,
+            margin: 0,
+            ...(cancelOk ? {} : CANCEL_BLOCKED_STYLE_)
+          },
+          onClick: () => handleSelfCancelClick(v)
+        }, cancelOk ? "취소" : "취소불가");
+      })(), !cancelled && isMidManager && v.employeeId !== currentUser.id && isCapacityType(v.vacationType) && /*#__PURE__*/React.createElement("button", {
         style: {
           ...modal.smallCancelBtn,
           margin: 0
@@ -5794,7 +5807,7 @@ function MyVacationsPanel({
   const handleCancelMine = record => {
     const check = checkSelfCancelAllowed(currentUser.branch, record);
     if (!check.ok) {
-      alert("⚠️ " + check.reason);
+      alert(cancelBlockedMessage_(check.reason));
       return;
     }
     if (!confirm(`${record.date} ${record.vacationType} 기록을 취소할까요?`)) return;
@@ -6055,10 +6068,16 @@ function MyVacationsPanel({
         color: "#1b3a5c"
       },
       onClick: () => handleStartEdit(v)
-    }, "수정"), /*#__PURE__*/React.createElement("button", {
-      style: modal.smallCancelBtn,
-      onClick: () => handleCancelMine(v)
-    }, "취소")))), editingId === v.id ? /*#__PURE__*/React.createElement("div", {
+    }, "수정"), (() => {
+      const cancelOk = checkSelfCancelAllowed(currentUser.branch, v).ok;
+      return /*#__PURE__*/React.createElement("button", {
+        style: {
+          ...modal.smallCancelBtn,
+          ...(cancelOk ? {} : CANCEL_BLOCKED_STYLE_)
+        },
+        onClick: () => handleCancelMine(v)
+      }, cancelOk ? "취소" : "취소불가");
+    })()))), editingId === v.id ? /*#__PURE__*/React.createElement("div", {
       style: {
         display: "flex",
         flexDirection: "column",
