@@ -1685,22 +1685,28 @@ function isCapacityType(type) {
 function renumberDayPriorities_(dateStr, branch, onDone) {
   VacFacade.getByDate(dateStr, branch).then(records => {
     // 취소된 기록도 그 번호를 계속 차지해요 (취소됐다고 뒷사람이 번호를 당겨쓰지 않아요).
-    // 기준은 "지금 순번 순서" 그대로예요 - 짝수달 1일에 손으로 고친 순번이 재정렬로 날아가지 않게,
-    // 순서는 유지하고 빈 번호만 메워요. 순번이 없는 기록(비번 짝 등)은 입력 시각 순으로 맨 뒤에 붙어요.
-    const capacityAll = (records || []).filter(v => v.branch === branch && isCapacityType(v.vacationType)).sort((a, b) => {
-      const pa = a.priority != null && a.priority !== "" ? Number(a.priority) : Infinity;
-      const pb = b.priority != null && b.priority !== "" ? Number(b.priority) : Infinity;
-      if (pa !== pb) return pa - pb;
-      // 같은 순번이거나 둘 다 순번이 없으면 입력 날짜/시간(createdAt) 순서. 없는 기록(옛날 가져오기 등)은 맨 뒤로.
-      const ta = timestampToMillis_(a.createdAt);
-      const tb = timestampToMillis_(b.createdAt);
-      if (ta == null && tb == null) return (a.name || "").localeCompare(b.name || "");
-      if (ta == null) return 1;
-      if (tb == null) return -1;
-      if (ta !== tb) return ta - tb;
-      return (a.name || "").localeCompare(b.name || "");
+    // 짝수달 1일에 손으로 고친 순번이 재정렬로 날아가지 않게, 순번 있는 기록의 순서는 유지하고 빈 번호만 메워요.
+    // 순번이 있는 기록은 지금 순번 순서 그대로 두고, 순번이 없는 기록(예전에 자동으로 들어간 비번 짝 등)은
+    // 입력 시각 기준으로 제자리에 끼워 넣어요. 예) 9/1에 입력된 비번은 10/1 이후 신청자들보다 앞 번호.
+    const all = (records || []).filter(v => v.branch === branch && isCapacityType(v.vacationType));
+    const hasP = v => v.priority != null && v.priority !== "";
+    const timeOf = v => {
+      const t = timestampToMillis_(v.createdAt);
+      return t == null ? Infinity : t;
+    };
+    const capacityAll = all.filter(hasP).sort((a, b) => Number(a.priority) - Number(b.priority) || timeOf(a) - timeOf(b) || (a.name || "").localeCompare(b.name || ""));
+    all.filter(v => !hasP(v)).sort((a, b) => timeOf(a) - timeOf(b)).forEach(v => {
+      const t = timeOf(v);
+      const pos = capacityAll.findIndex(o => hasP(o) && timeOf(o) > t);
+      if (pos === -1) capacityAll.push(v);else capacityAll.splice(pos, 0, v);
     });
     const updates = [];
+    // 보장인원 미포함으로 바뀐 기록에 남은 순번은 지워요 (그 번호가 비어 보이는 원인이 돼요)
+    (records || []).filter(v => v.branch === branch && !isCapacityType(v.vacationType) && v.priority != null && v.priority !== "").forEach(v => {
+      updates.push(VacFacade.update(v.branch, v.date, v.id, {
+        priority: null
+      }));
+    });
     capacityAll.forEach((v, idx) => {
       const newPriority = idx + 1;
       if (v.priority !== newPriority) {
@@ -1714,6 +1720,12 @@ function renumberDayPriorities_(dateStr, branch, onDone) {
     // 그날이 속한 달의 달력 캐시를 지워둬요 - 순번이 바뀐 채로 캐시가 오래 남지 않게
     if (freshRecords && onDone) onDone(freshRecords);
   }).catch(err => console.error("순번 재정렬 실패:", err));
+}
+
+// 새 기록에 붙일 다음 순번 - 기록 수와 가장 큰 번호 중 큰 쪽 + 1 (빈 번호·중복이 있어도 겹치지 않게)
+function nextPriorityFor_(records, branch) {
+  const caps = (records || []).filter(v => v.branch === branch && isCapacityType(v.vacationType));
+  return Math.max(caps.length, caps.reduce((m, v) => Math.max(m, Number(v.priority) || 0), 0)) + 1;
 }
 
 // 순번 끼워넣기 - 한 사람의 순번을 newPos로 옮기면 사이에 있던 사람들이 한 칸씩 당겨지거나 밀려요.
@@ -3040,6 +3052,19 @@ function MainScreen({
     };
   }, [selectedDate, isMidManager, isWideScreen, monthMap, currentUser.branch]);
   const dayRecords = selectedDate ? (monthMap[selectedDate] || []).filter(v => v.branch === currentUser.branch) : [];
+  // 날짜를 열었을 때 순번이 꼬여 있으면(순번 없는 비번 짝, 빈 번호, 같은 번호 2개) 한 번 정리해요.
+  // 지금 순서는 그대로 두고 1번부터 다시 매기며, 순번 없는 기록은 맨 뒤 번호를 받아요. 정리되면 다시 실행되지 않아요.
+  const missingPriorityKey = selectedDate && (() => {
+    const caps = dayRecords.filter(v => isCapacityType(v.vacationType));
+    if (caps.some(v => v.priority == null || v.priority === "")) return true;
+    const nums = caps.map(v => Number(v.priority)).sort((a, b) => a - b);
+    // 1번부터 빠짐없이·겹치지 않게 이어져야 정상 (취소 기록도 번호를 가지고 있어요)
+    return nums.some((n, i) => n !== i + 1);
+  })() ? selectedDate : null;
+  useEffect(() => {
+    if (!missingPriorityKey) return;
+    renumberDayPriorities(missingPriorityKey, currentUser.branch);
+  }, [missingPriorityKey]);
   const sortedDayRecords = sortRecordsForDisplay(dayRecords);
   const activeRecordsForCapacity = dayRecords.filter(v => v.status !== "취소됨");
   const activeCount = activeRecordsForCapacity.length;
@@ -3255,6 +3280,8 @@ function MainScreen({
         date: nextDateStr
       }).then(() => {
         companionSaved = true;
+        // 자동으로 들어간 비번도 보장인원 자리를 차지하니 순번을 붙여요 (맨 뒤 번호)
+        renumberDayPriorities(nextDateStr, currentUser.branch);
       }).catch(err => {
         console.error("비번 자동 등록 실패:", err);
         alert("휴가는 저장됐지만, 다음날 비번 자동 등록에 실패했어요. 다음날에 직접 비번을 추가로 입력해주세요.");
@@ -3385,7 +3412,7 @@ function MainScreen({
       };
       nightGuard(nightRecs); // 미리 확인 (실패하면 아래 catch로)
       offGuard(dayRecs);
-      const nightPriority = branch === "경산" && capType ? (nightRecs || []).filter(v => v.branch === branch && isCapacityType(v.vacationType)).length + 1 : null;
+      const nightPriority = branch === "경산" && capType ? nextPriorityFor_(nightRecs, branch) : null;
       const base = {
         name: currentUser.name,
         branch,
@@ -3427,6 +3454,7 @@ function MainScreen({
             status: "정상"
           }]
         }));
+        renumberDayPriorities(selectedDate, branch); // 비번에도 순번을 붙여요
         alert(`전날(${nightDate}) 야간 ${nightDia}와 오늘 비번 ${offDia}가 같이 신청됐어요.`);
       });
     }).catch(err => {
@@ -3498,7 +3526,10 @@ function MainScreen({
       }
 
       // 순번(짝수달 1일 선착순 신청용) - 그 날짜 보장휴가 기록 수(취소 포함) 다음 번호로 자동 부여
-      const priorityBase = (freshDayRecords || []).filter(v => v.branch === currentUser.branch && isCapacityType(v.vacationType)).length;
+      const capRecs = (freshDayRecords || []).filter(v => v.branch === currentUser.branch && isCapacityType(v.vacationType));
+      const maxPriority = capRecs.reduce((m, v) => Math.max(m, Number(v.priority) || 0), 0);
+      // 기록 수와 가장 큰 번호 중 큰 쪽 다음 번호 - 순번에 빈칸·중복이 있어도 겹치지 않게
+      const priorityBase = Math.max(capRecs.length, maxPriority);
       const nextPriority = currentUser.branch === "경산" && isCapacityType(formType) ? priorityBase + 1 : null;
       // 트랜잭션 안에서 한 번 더 정원을 확인하는 검사 함수 - 위의 확인과 저장 사이에
       // 다른 사람이 끼어들어도 여기서 막혀요
@@ -3640,7 +3671,7 @@ function MainScreen({
           alert(`${target.name}님은 전날(${nightDate})에 이미 기록이 있어서 야간을 자동으로 넣을 수 없어요. 전날 기록을 먼저 확인해주세요.`);
           return;
         }
-        const nightPriority = isCapacityType(finalVacationType) ? (nightRecs || []).filter(v => v.branch === branch && isCapacityType(v.vacationType)).length + 1 : null;
+        const nightPriority = isCapacityType(finalVacationType) ? nextPriorityFor_(nightRecs, branch) : null;
         const common = {
           name: target.name,
           branch,
@@ -3685,6 +3716,7 @@ function MainScreen({
               status: "정상"
             }]
           }));
+          if (isCapacityType(companionTypeOff)) renumberDayPriorities(selectedDate, branch);
           alert(`${target.name}님 전날(${nightDate}) 야간 ${nightDia}와 비번 ${finalDia}를 같이 기록했어요.`);
         }));
       }).catch(err => {
@@ -3772,7 +3804,10 @@ function MainScreen({
             companionRecord: null
           };
         }
-        return VacFacade.add(currentUser.branch, nextDateStr, companionRecord).then(id => ({
+        return VacFacade.add(currentUser.branch, nextDateStr, companionRecord).then(id => {
+          if (isCapacityType(companionType)) renumberDayPriorities(nextDateStr, currentUser.branch);
+          return id;
+        }).then(id => ({
           savedRecord,
           companionRecord: {
             id,
@@ -4105,7 +4140,7 @@ function MainScreen({
           ...tbl.td,
           padding: "6px 3px"
         }
-      }, v.priority != null ? v.priority : idx + 1), /*#__PURE__*/React.createElement("td", {
+      }, isCapacityType(v.vacationType) && v.priority != null && v.priority !== "" ? v.priority : idx + 1), /*#__PURE__*/React.createElement("td", {
         style: {
           ...tbl.td,
           textAlign: "left",
@@ -4810,7 +4845,7 @@ function MainScreen({
           color: "#1b3a5c"
         },
         onClick: () => handleStartPriorityEdit(v)
-      }, v.priority != null ? v.priority : idx + 1, "✏️") : v.priority != null ? v.priority : idx + 1), /*#__PURE__*/React.createElement("td", {
+      }, isCapacityType(v.vacationType) && v.priority != null && v.priority !== "" ? v.priority : idx + 1, "✏️") : isCapacityType(v.vacationType) && v.priority != null && v.priority !== "" ? v.priority : idx + 1), /*#__PURE__*/React.createElement("td", {
         style: {
           ...tbl.td,
           textAlign: "left"
@@ -5902,10 +5937,23 @@ function MyVacationsPanel({
       }
       return Promise.all(checks).then(() => pairRecord);
     };
+    // 보장인원 포함 ↔ 미포함이 바뀌면 그날 순번을 다시 정리해요.
+    // (미포함으로 바뀐 기록은 순번을 비워서, 순번이 1번부터 빠짐없이 이어지게)
+    const capChanged = isCapacityType(record.vacationType) !== isCapacityType(editType);
     findNightPair(record).then(checkCapacity).then(pairRecord => VacFacade.update(record.branch, record.date, record.id, {
       vacationType: editType,
-      dia: trimmedDia
-    }).then(() => pairRecord)).then(pairRecord => {
+      dia: trimmedDia,
+      ...(capChanged && !isCapacityType(editType) ? {
+        priority: null
+      } : {})
+    }).then(() => {
+      if (capChanged) renumberDayPriorities_(record.date, record.branch);
+      if (pairRecord && isCapacityType(pairRecord.vacationType) !== isCapacityType(NIGHT_COMPANION_TYPE_MAP[editType] || "")) {
+        // 짝 비번의 종류도 바뀌니 다음날도 정리 (짝 갱신이 끝난 뒤 실행되도록 살짝 늦춰요)
+        setTimeout(() => renumberDayPriorities_(pairRecord.date, pairRecord.branch), 1500);
+      }
+      return pairRecord;
+    })).then(pairRecord => {
       setList(prev => prev.map(v => v.id === record.id ? {
         ...v,
         vacationType: editType,
