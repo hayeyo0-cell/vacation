@@ -3658,7 +3658,8 @@ function MainScreen({
     const finalDia = managerFormUnassigned ? "미지정" : normalizeSInput_(currentUser.branch, selectedDate, managerFormDia, holidaySet);
 
     // 비번(~)으로 입력하면 전날 야간도 같이 기록해요 (본인 신청과 같은 규칙, 운용은 정원 확인 없음)
-    const offNightDia = !managerFormUnassigned && NIGHT_COMPANION_TYPE_MAP[finalVacationType] && prevDateStr ? offDutyDiaToNightDia_(finalDia, currentUser.branch) : null;
+    // 병가·청휴 같은 보장인원 미포함 종류는 운용이 확인 후 야간·비번을 각각 직접 입력해요 (자동 짝 입력 안 함)
+    const offNightDia = !managerFormUnassigned && isCapacityType(finalVacationType) && NIGHT_COMPANION_TYPE_MAP[finalVacationType] && prevDateStr ? offDutyDiaToNightDia_(finalDia, currentUser.branch) : null;
     if (offNightDia) {
       const branch = currentUser.branch;
       const nightDate = prevDateStr;
@@ -3740,7 +3741,8 @@ function MainScreen({
     // 야간 근무면 다음날 "비번" 기록도 자동으로 같이 등록해요 (본인 신청과 동일한 규칙).
     // 대상자 미정인 경우엔 실제 DIA가 없어서 야간 판단 자체가 불가능하니 건너뛰어요.
     const companionType = NIGHT_COMPANION_TYPE_MAP[finalVacationType];
-    const shouldAddCompanion = !managerFormUnassigned && companionType && nextDateStr && isNightShiftCode(finalDia, currentUser.branch);
+    // 병가·청휴(보장인원 미포함)는 다음날 병가비·청휴비를 자동으로 넣지 않아요 - 운용이 따로 입력
+    const shouldAddCompanion = !managerFormUnassigned && isCapacityType(finalVacationType) && companionType && nextDateStr && isNightShiftCode(finalDia, currentUser.branch);
     assignPriority().then(priority => {
       const newRecord = {
         name: finalName,
