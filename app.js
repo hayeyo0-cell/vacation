@@ -1474,6 +1474,23 @@ function formatEntryDateOnly(ts) {
 
 // 경산 팀 자체 규정 - 짝수달 1~5일 사이 신청한 휴가, 휴가일 7일 전부터는 본인 취소 불가 (여러 화면에서 공용으로 사용)
 // 단, 짝수달 1일에 신청한 휴가는 1일 당일에 한해 취소 가능
+// 휴충당 신청 제한 (기관사 본인 신청만, 운용 지정은 해당 없음) - 2026-11-01부터 적용
+// 휴충당 날짜 기준 7일 전부터는 신청할 수 없어요 (휴가 취소 7일 규정과 같은 기준)
+const HYUCHUNGDANG_LIMIT_START = "2026-11-01";
+function checkHyuchungdangApplyAllowed(dateStr) {
+  const today = koreaTodayStr();
+  if (today < HYUCHUNGDANG_LIMIT_START) return {
+    ok: true
+  };
+  if (diffDays_(today, dateStr) <= 7) return {
+    ok: false,
+    reason: "휴충당은 해당 날짜 기준 7일 전부터는 신청할 수 없어요 (경산 팀 규정)"
+  };
+  return {
+    ok: true
+  };
+}
+
 // 취소 불가일 때 보여줄 안내 (규정 이유 + 특수 사유는 운용 문의)
 function cancelBlockedMessage_(reason) {
   return "⚠️ " + reason + "\n\n교육, 병가 등 부득이한 특수 사유가 있으면 운용에 문의해 주세요.";
@@ -2698,6 +2715,12 @@ function MainScreen({
   }, [selectedDate]);
   const myHyuchungdangRequest = hyuchungdangByDate.find(r => r.employeeId === currentUser.id);
   const handleApplyHyuchungdang = () => {
+    // 누르는 순간 한 번 더 확인 (화면을 자정 넘어 켜둔 경우 대비)
+    const hyuCheck = checkHyuchungdangApplyAllowed(selectedDate);
+    if (!hyuCheck.ok) {
+      alert("⚠️ " + hyuCheck.reason);
+      return;
+    }
     if (!confirm(`${selectedDate}에 휴충당을 신청할까요?`)) return;
     const id = `${currentUser.id}_${selectedDate}`;
     const originalDia = codeForDate(selectedDate);
@@ -5117,14 +5140,21 @@ function MainScreen({
         fontWeight: 400
       },
       onClick: () => handleCancelHyuchungdang(myHyuchungdangRequest.id)
-    }, "신청취소")) : /*#__PURE__*/React.createElement("button", {
+    }, "신청취소")) : checkHyuchungdangApplyAllowed(selectedDate).ok ? /*#__PURE__*/React.createElement("button", {
       style: {
         ...modal.addBtn,
         background: "#e08a20",
         marginTop: "6px"
       },
       onClick: handleApplyHyuchungdang
-    }, "🔁 휴충당 신청")), /*#__PURE__*/React.createElement("button", {
+    }, "🔁 휴충당 신청") : /*#__PURE__*/React.createElement("button", {
+      style: {
+        ...modal.addBtn,
+        background: "#bbb",
+        marginTop: "6px"
+      },
+      onClick: handleApplyHyuchungdang
+    }, "🔁 휴충당 신청불가 (7일 이내)")), /*#__PURE__*/React.createElement("button", {
       style: modal.closeBtn,
       onClick: closeModal
     }, "닫기"))))), isMidManager && isWideScreen && nextDateStr && renderCompactDayColumn(nextDateStr, adjacentRecords.next, "다음날"))), isMidManager && isWideScreen && /*#__PURE__*/React.createElement("div", {
@@ -5683,7 +5713,7 @@ const GUIDE_ITEMS = [{
   a: ["**관리자에게 바꾸는 날짜와 상대방을 알려주세요.** 관리자가 앱에 미리 등록해 두면, 그 날짜부터는 앱이 자동으로 새 교번 기준으로 DIA를 채우고 계산해요. 그 전 날짜는 원래 교번 그대로예요.", "짝수달 1일 신청 전에 미리 알려주시면 가장 좋아요.", "등록 전에 이미 신청한 휴가는 DIA가 옛 교번으로 남아 있으니 **내 휴가현황 → 수정**에서 DIA를 고쳐주세요."]
 }, {
   q: "휴충당은 어떻게 신청해요?",
-  a: ["내 교번이 휴무인 날짜를 누르면 **🔁 휴충당 신청** 버튼이 보여요.", "확정되면 앱을 열 때 알림이 떠요."]
+  a: ["내 교번이 휴무인 날짜를 누르면 **🔁 휴충당 신청** 버튼이 보여요.", "휴충당 날짜 기준 **7일 전부터는 신청할 수 없어요.** (2026년 11월 1일부터 적용)", "확정되면 앱을 열 때 알림이 떠요."]
 }, {
   q: "명절 연휴 휴가는 어떻게 신청해요?",
   a: ["명절 응모 기간에 **🎋 명절 응모**에서 신청하면 추첨으로 정해져요.", "결과는 앱을 열 때 알림으로 알려드려요."]
