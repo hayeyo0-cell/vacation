@@ -155,6 +155,27 @@ function isEvenMonthFirstDay() {
   return day === 1 && month % 2 === 0;
 }
 
+// 순번 수정 가능 기간 - 짝수달 1일 ~ 5일 (오늘이 그 기간인지)
+// ⚠️ TEST_MODE에서는 항상 true로 간주해요.
+const PRIORITY_EDIT_LAST_DAY = 5;
+function isEvenMonthPriorityWindow() {
+  if (TEST_MODE) return true;
+  const today = koreaTodayStr();
+  const month = parseInt(today.slice(5, 7), 10);
+  const day = parseInt(today.slice(8, 10), 10);
+  return month % 2 === 0 && day >= 1 && day <= PRIORITY_EDIT_LAST_DAY;
+}
+// 이 기록이 "이번 짝수달 1~5일"에 신청한 기록인지 - 그 기록만 5일까지 순번을 고칠 수 있어요
+function isCreatedInPriorityWindow_(createdAt) {
+  const created = formatEntryDateOnly(createdAt);
+  if (!created) return false;
+  if (TEST_MODE) return created === koreaTodayStr();
+  const today = koreaTodayStr();
+  if (created.slice(0, 7) !== today.slice(0, 7)) return false;
+  const day = parseInt(created.slice(8, 10), 10);
+  return day >= 1 && day <= PRIORITY_EDIT_LAST_DAY;
+}
+
 // 짝수달 1일 오전 9시~10시(오픈 직후 - 사람이 몰리고 신청/취소가 폭주하는 딱 그 시간대)인지 확인.
 // 이 좁은 창 안에서만 실시간 구독을 잠깐 켜서, 평소엔 안전한 1회 조회 방식을 그대로 유지하면서도
 // 정작 실시간 정확도가 제일 중요한 순간엔 자동 반영이 되도록 해요.
@@ -1511,7 +1532,7 @@ function checkSelfCancelAllowed(branch, record) {
       const day = d.getDate();
       const month = d.getMonth() + 1;
       // 예외: 짝수달 1일 당일에 신청한 휴가는 그날 하루만 취소 가능 (순번이 안 되는데 먼저 신청해버린 경우
-      // 원래 순번인 사람에게 자리를 돌려줄 수 있게) - 순번 조정이 1일에만 되는 것과 같은 기준이에요
+      // 원래 순번인 사람에게 자리를 돌려줄 수 있게)
       if (day === 1 && month % 2 === 0 && isEvenMonthFirstDay() && createdDateStr === koreaTodayStr()) {
         // 1~5일 규정만 건너뛰고, 아래 7일 전 규정은 그대로 확인해요
       } else if (day >= 1 && day <= 5 && month % 2 === 0) {
@@ -3210,7 +3231,7 @@ function MainScreen({
     });
   };
 
-  // 짝수달 1일 선착순 신청 순번 수정 (본인이 그날 신청한 기록만, 그날 하루만 가능)
+  // 짝수달 선착순 신청 순번 수정 (본인이 1~5일에 신청한 기록만, 5일까지 가능)
   const handleStartPriorityEdit = record => {
     setEditingPriorityId(record.id);
     setPriorityInput(String(record.priority != null ? record.priority : ""));
@@ -4898,7 +4919,7 @@ function MainScreen({
       const cap = isCapacityType(v.vacationType);
       const prevCap = idx > 0 ? isCapacityType(sortedDayRecords[idx - 1].vacationType) : null;
       const showGroupHeader = idx === 0 || cap !== prevCap;
-      const canEditPriority = currentUser.branch === "경산" && !cancelled && v.employeeId === currentUser.id && isCapacityType(v.vacationType) && v.createdAt && formatEntryDateOnly(v.createdAt) === koreaTodayStr() && isEvenMonthFirstDay();
+      const canEditPriority = currentUser.branch === "경산" && !cancelled && v.employeeId === currentUser.id && isCapacityType(v.vacationType) && v.createdAt && isEvenMonthPriorityWindow() && isCreatedInPriorityWindow_(v.createdAt);
       return /*#__PURE__*/React.createElement(React.Fragment, {
         key: v.id
       }, showGroupHeader && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
@@ -5784,8 +5805,8 @@ const GUIDE_ITEMS = [{
   q: "짝수달 1일 신청은 어떻게 돼요?",
   a: ["짝수달 1일 **오전 9시**부터 다음 두 달 휴가를 신청할 수 있어요.", "신청한 순서대로 순번이 붙어요. **밴드 순서를 확인하고 그 순번에 맞게** 신청해 주세요."]
 }, {
-  q: "짝수달 1일에 순번은 어떻게 고쳐요?",
-  a: ["날짜를 눌러 목록에서 본인 순번(밑줄과 ✏️ 표시)을 누르고 숫자를 바꾼 뒤 **✓**를 누르면 돼요.", "다른 사람 순번은 자동으로 당겨지거나 밀려요. 예) 1번을 4로 고치면 기존 2·3·4번이 1·2·3번이 되고 본인이 4번이 돼요.", "**1일 당일에 신청한 본인 기록만, 1일 하루 동안** 고칠 수 있어요."]
+  q: "짝수달 신청 순번은 어떻게 고쳐요?",
+  a: ["날짜를 눌러 목록에서 본인 순번(밑줄과 ✏️ 표시)을 누르고 숫자를 바꾼 뒤 **✓**를 누르면 돼요.", "다른 사람 순번은 자동으로 당겨지거나 밀려요. 예) 1번을 4로 고치면 기존 2·3·4번이 1·2·3번이 되고 본인이 4번이 돼요.", "**짝수달 1일 ~ 5일에 신청한 본인 기록만, 5일까지** 고칠 수 있어요."]
 }, {
   q: "해외여행을 가는데 휴가를 미리 예약할 수 있나요?",
   a: ["**밴드에 비행기표를 인증한 뒤** 휴가를 미리 선예약할 수 있어요.", "• **연 1회** 제한 (매년 1월 1일 ~ 12월 31일 기준)", "아래 기간은 사전 예약이 **불가**해요.", "• 명절 연휴 (설날 및 추석 연휴 기간 전체)", "• 어린이날 (5/5)", "• 크리스마스 (12/24 ~ 25)", "• 연말 (12/31 ~ 1/1)"]
