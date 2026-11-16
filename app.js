@@ -7443,6 +7443,9 @@ function HyuchungdangAdminPanel({
   const templateCodes = order.filter(c => branchEmployees.some(e => e.code === c));
   const otherCodes = [...new Set(branchEmployees.map(e => e.code))].filter(c => !templateCodes.includes(c));
   const branchCodes = [...templateCodes, ...otherCodes];
+  // 휴충당 충당교번 드롭다운용 - 일반 교번 뒤에 임시열차(임시1~4)도 고를 수 있어요
+  const HYU_TEMP_CODES = ["임시1", "임시2", "임시3", "임시4"];
+  const substituteCodes = [...branchCodes, ...HYU_TEMP_CODES.filter(c => !branchCodes.includes(c))];
 
   // 확인자 드롭다운용 - 그 소속 운용 명단 (이름순)
   const branchManagerNames = (managers || []).filter(m => m.branch === branch).map(m => m.name).sort((a, b) => a.localeCompare(b, "ko"));
@@ -7952,7 +7955,7 @@ function HyuchungdangAdminPanel({
       }
     }, /*#__PURE__*/React.createElement("option", {
       value: ""
-    }, "선택"), branchCodes.map(c => /*#__PURE__*/React.createElement("option", {
+    }, "선택"), substituteCodes.map(c => /*#__PURE__*/React.createElement("option", {
       key: c,
       value: c
     }, c)))), /*#__PURE__*/React.createElement("td", {
@@ -8071,7 +8074,7 @@ function HyuchungdangAdminPanel({
       onChange: e => setAssignSubstituteDia(e.target.value)
     }, /*#__PURE__*/React.createElement("option", {
       value: ""
-    }, "교번을 선택해주세요"), branchCodes.map(c => /*#__PURE__*/React.createElement("option", {
+    }, "교번을 선택해주세요"), substituteCodes.map(c => /*#__PURE__*/React.createElement("option", {
       key: c,
       value: c
     }, c)))), /*#__PURE__*/React.createElement("button", {
