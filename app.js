@@ -242,6 +242,181 @@ function setRosterChanges_(items) {
   } catch (_) {}
   window.dispatchEvent(new Event("roster-changes-updated"));
 }
+// ── 자리 바꾼 사람의 직원번호 정리 ──
+// 휴가앱은 사람을 직원번호로 구분해요(승인기록·폰 로그인·휴가 기록). 자리를 바꾸면 번호는 자리를 따라가니,
+// 적용일이 되면 그 사람 기록도 새 자리 번호로 옮겨야 해요. 옮긴 예약에는 migratedAt을 찍어둬요.
+// 예약 한 묶음(groupId)에서 "누가 어느 번호에서 어느 번호로" 옮기는지
+function rosterGroupMoves_(group) {
+  return (group || []).map(c => {
+    const src = group.find(x => x.oldName === c.newName);
+    return src && src.slotId !== c.slotId ? {
+      name: c.newName,
+      branch: c.branch,
+      date: c.date,
+      from: src.slotId,
+      to: c.slotId
+    } : null;
+  }).filter(Boolean);
+}
+function rosterGroups_(list) {
+  const groups = {};
+  (list || []).forEach(c => {
+    (groups[c.groupId] = groups[c.groupId] || []).push(c);
+  });
+  return Object.values(groups);
+}
+// 정리가 끝난 예약들의 이동 목록 (날짜순)
+function migratedMoves_() {
+  return rosterGroups_(ROSTER_CHANGES).filter(g => g.every(c => c.migratedAt)).flatMap(rosterGroupMoves_).sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+}
+// 폰에 저장된 내 번호를, 정리된 자리 변경에 맞춰 지금 번호로
+function currentIdAfterMoves_(name, branch, id) {
+  let cur = id;
+  migratedMoves_().forEach(m => {
+    if (m.branch === branch && m.name === name && m.from === cur) cur = m.to;
+  });
+  return cur;
+}
+// 내가 예전에 쓰던 번호들 (내 휴가현황에서 자리 바꾸기 전 기록도 보여주려고)
+function previousIdsOf_(name, branch, id) {
+  const ids = [];
+  let cur = id;
+  migratedMoves_().reverse().forEach(m => {
+    if (m.branch === branch && m.name === name && m.to === cur) {
+      ids.push(m.from);
+      cur = m.from;
+    }
+  });
+  return ids;
+}
+// 예약 한 묶음을 실제로 옮겨요 - 승인기록, 휴가 기록·휴충당·명절 응모(적용일 이후 날짜만)
+// 이름까지 맞는 기록만 옮겨서, 두 번 실행돼도 안전해요.
+async function migrateRosterGroup_(group) {
+  const moves = rosterGroupMoves_(group);
+  if (!moves.length) return [];
+  const branch = group[0].branch;
+  const D = group[0].date;
+  const owns = (m, r) => r && r.employeeId === m.from && r.name === m.name;
+
+  // 1) 먼저 전부 읽어요 (서로 맞바꾸는 경우라 쓰기 전에 읽어둬야 해요)
+  const ids = [...new Set(moves.flatMap(m => [m.from, m.to]))];
+  const appr = {};
+  await Promise.all(ids.map(id => window.ApprovalAPI.getStatus(id).then(d => {
+    appr[id] = d;
+  })));
+  const vac = await window.VacationDayAPI.getByRange(D, "9999-12-31", branch);
+  const hyu = window.HyuchungdangAPI && window.HyuchungdangAPI.getByRange ? await window.HyuchungdangAPI.getByRange(D, "9999-12-31", branch) : [];
+  const lot = [];
+  if (window.LotteryAPI && window.LotteryAPI.listMyEntries) {
+    for (const m of moves) {
+      const list = await window.LotteryAPI.listMyEntries(m.from);
+      (list || []).forEach(e => {
+        if (owns(m, e) && e.date >= D) lot.push({
+          id: e.id,
+          to: m.to
+        });
+      });
+    }
+  }
+
+  // 2) 승인기록 - 지울 번호 먼저 지우고, 새 번호로 다시 써요 (PIN은 다음 로그인 때 자동으로 다시 채워져요)
+  const writes = moves.filter(m => appr[m.from] && appr[m.from].name === m.name && !(appr[m.to] && appr[m.to].name === m.name));
+  const targets = new Set(writes.map(m => m.to));
+  const toDelete = new Set(targets);
+  moves.forEach(m => {
+    if (appr[m.from] && appr[m.from].name === m.name && !targets.has(m.from)) toDelete.add(m.from);
+  });
+  for (const id of toDelete) await window.ApprovalAPI.reset(id);
+  for (const m of writes) {
+    const d = appr[m.from];
+    await window.ApprovalAPI.request({
+      id: m.to,
+      name: m.name,
+      branch: d.branch || branch
+    });
+    if (d.status && d.status !== "pending") await window.ApprovalAPI.setStatus(m.to, d.status);
+  }
+
+  // 3) 휴가 기록 - 바뀌는 날짜만 그날 문서를 통째로 다시 써요 (기록 번호도 새 번호로)
+  const byDate = {};
+  vac.forEach(r => {
+    (byDate[r.date] = byDate[r.date] || []).push(r);
+  });
+  const rewrite = {};
+  Object.entries(byDate).forEach(([date, list]) => {
+    if (!list.some(r => moves.some(m => owns(m, r)))) return;
+    const entries = {};
+    const keep = [];
+    const moved = [];
+    list.forEach(r => (moves.some(m => owns(m, r)) ? moved : keep).push(r));
+    keep.forEach(r => {
+      const {
+        id,
+        ...rest
+      } = r;
+      entries[id] = rest;
+    });
+    moved.forEach(r => {
+      const m = moves.find(x => owns(x, r));
+      const {
+        id,
+        ...rest
+      } = r;
+      const newKey = id === `${m.from}_${date}` ? `${m.to}_${date}` : id;
+      entries[entries[newKey] ? id : newKey] = {
+        ...rest,
+        employeeId: m.to
+      };
+    });
+    rewrite[date] = entries;
+  });
+  if (Object.keys(rewrite).length) await window.VacationDayAPI.bulkSetDays(branch, rewrite);
+
+  // 4) 휴충당·명절 응모 - 번호만 바꿔요
+  for (const r of hyu || []) {
+    const m = moves.find(x => owns(x, r));
+    if (m) await window.HyuchungdangAPI.update(r.id, {
+      employeeId: m.to
+    });
+  }
+  for (const e of lot) await window.LotteryAPI.updateEntry(e.id, {
+    employeeId: e.to
+  });
+  return moves;
+}
+// 적용일이 지났는데 아직 안 옮긴 예약을 전부 옮겨요 (관리자·운용이 앱을 켤 때 자동 실행)
+let ROSTER_MIGRATING_ = false;
+async function migrateDueRosterChanges_(branch) {
+  if (ROSTER_MIGRATING_ || !window.SystemAPI || !window.SystemAPI.getRosterChanges) return [];
+  ROSTER_MIGRATING_ = true;
+  try {
+    const today = koreaTodayStr();
+    const latest = (await window.SystemAPI.getRosterChanges()) || [];
+    const due = rosterGroups_(latest).filter(g => g[0].branch === branch && g[0].date <= today && !g.every(c => c.migratedAt));
+    if (!due.length) {
+      setRosterChanges_(latest);
+      return [];
+    }
+    const done = [];
+    for (const g of due) {
+      const moves = await migrateRosterGroup_(g);
+      done.push(...moves);
+    }
+    const dueIds = new Set(due.map(g => g[0].groupId));
+    // 다른 기기가 그 사이 예약을 바꿨을 수 있어서, 최신본을 다시 받아 표시만 찍어요
+    const fresh = (await window.SystemAPI.getRosterChanges()) || [];
+    const next = fresh.map(c => dueIds.has(c.groupId) && !c.migratedAt ? {
+      ...c,
+      migratedAt: Date.now()
+    } : c);
+    await window.SystemAPI.saveRosterChanges(next);
+    setRosterChanges_(next);
+    return done;
+  } finally {
+    ROSTER_MIGRATING_ = false;
+  }
+}
+
 // 특정 자리(slotId)의 그 날짜 주인 이름 - 예약이 없으면 시트 이름 그대로
 function slotOwnerOnDate_(slotId, branch, sheetName, dateStr) {
   const list = ROSTER_CHANGES.filter(c => c.slotId === slotId && c.branch === branch).sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
@@ -769,6 +944,32 @@ function App() {
     }).catch(err => console.error("교번 변경 예약 불러오기 실패:", err));
     return () => window.removeEventListener("roster-changes-updated", onChanged);
   }, []);
+  // 🆕 자리 변경 정리가 끝났으면, 이 폰에 저장된 번호도 지금 자리 번호로 바꿔둬요
+  useEffect(() => {
+    if (!ROSTER_CHANGES.length) return;
+    const list = loadLocalAuth();
+    let changed = false;
+    const updated = list.map(a => {
+      const id = currentIdAfterMoves_(a.name, a.branch, a.id);
+      if (id === a.id) return a;
+      changed = true;
+      return {
+        ...a,
+        id
+      };
+    });
+    if (!changed) return;
+    saveLocalAuth(updated);
+    setLocalAuth(updated);
+    setLoginTarget(prev => {
+      if (!prev) return prev;
+      const id = currentIdAfterMoves_(prev.name, prev.branch, prev.id);
+      return id === prev.id ? prev : {
+        ...prev,
+        id
+      };
+    });
+  }, [rosterVersion]);
   const [managers, setManagers] = useState([]); // 운용(중간관리자) 명단 - Firestore
   const [localAuth, setLocalAuth] = useState([]);
   const [branch, setBranch] = useState(null);
@@ -939,13 +1140,11 @@ function App() {
       return;
     }
     waitForFirestore().then(() => window.ApprovalAPI.getStatus(emp.id)).then(data => {
-      // 🆕 자리를 바꾸면 ID는 그대로 두고 이름만 바꾸니, 이 ID에 남은 승인 기록이 "예전 주인"의 것일 수 있어요.
-      // 기록에 적힌 이름이 지금 이름과 다르면 다른 사람 기록이니 지우고, 처음 등록처럼 진행해요.
+      // 🆕 자리를 바꾼 직후, 이 자리 번호에 아직 예전 주인의 승인기록이 남아 있으면(정리 전) 등록을 잠시 막아요.
+      // 적용일 이후 관리자·운용이 앱을 한 번 켜면 자동으로 정리돼요.
       if (data && data.name && data.name !== emp.name) {
-        return window.ApprovalAPI.reset(emp.id).then(() => {
-          setSelectedEmp(emp);
-          setStep("setPin");
-        });
+        alert("자리 변경 후 기록 정리가 아직 안 됐어요.\n관리자(운용)에게 앱을 한 번 열어달라고 한 뒤 다시 시도해주세요.");
+        return;
       }
       if (data && data.status === "approved") {
         // 🆕 무조건 막지 않고, 이 계정 PIN을 알고 있으면 이 자리에서 바로 로그인할 수 있게 해요.
@@ -1031,7 +1230,47 @@ function App() {
       setStep("main");
       return;
     }
+    // 🆕 자리를 바꿔 번호가 바뀐 경우 - 폰에 저장된 번호 대신 지금 자리 번호로 확인해요
+    let lt = loginTarget;
+    const fixLocalId_ = newId => {
+      const updated = loadLocalAuth().map(a => a.id === loginTarget.id && a.name === loginTarget.name ? {
+        ...a,
+        id: newId
+      } : a);
+      saveLocalAuth(updated);
+      setLocalAuth(updated);
+      const nt = {
+        ...loginTarget,
+        id: newId
+      };
+      setLoginTarget(nt);
+      lt = nt;
+      hashPin(newId, pin).then(pinHash => window.AuthAPI.setPinHash(newId, pinHash)).catch(() => {});
+      return nt;
+    };
     waitForFirestore().then(() => window.ApprovalAPI.getStatus(loginTarget.id)).then(data => {
+      if (data && data.name === loginTarget.name) return data;
+      const seat = (employees || []).find(e => e.name === loginTarget.name && e.branch === loginTarget.branch);
+      if (!seat || seat.id === loginTarget.id) return data;
+      return window.ApprovalAPI.getStatus(seat.id).then(d2 => {
+        if (d2 && d2.name === loginTarget.name) {
+          fixLocalId_(seat.id);
+          return d2;
+        }
+        // 예전 번호에도 지금 번호에도 내 기록이 없으면(기록삭제 등) 지금 자리 번호로 새로 신청하게 해요
+        if (!data && !d2) {
+          fixLocalId_(seat.id);
+          return null;
+        }
+        // 아직 정리 전이면 예전 번호 기록 그대로 (다른 사람 기록이면 기다리게)
+        return data && data.name && data.name !== loginTarget.name || !data && d2 ? "__WAIT__" : data;
+      });
+    }).then(data => {
+      if (data === "__WAIT__") {
+        alert("자리 변경 후 기록 정리가 아직 안 됐어요.\n관리자(운용)가 앱을 한 번 연 뒤 다시 로그인해주세요.");
+        setStep("loginName");
+        return;
+      }
       // 명단(직원목록)에 아직 이 사람 이름이 있는지 확인 - ID가 아니라 이름 기준이에요.
       // (자리 바꿀 때 ID는 고정, 이름을 서로 바꾸는 방식으로 운영하고 계셔서, 그 사람이
       // "진짜로 없어졌는지"는 이름으로 찾아야 정확해요)
@@ -1043,9 +1282,9 @@ function App() {
           return null;
         }
         return window.ApprovalAPI.request({
-          id: loginTarget.id,
-          name: loginTarget.name,
-          branch: loginTarget.branch
+          id: lt.id,
+          name: lt.name,
+          branch: lt.branch
         }).then(() => setStep("pendingApproval"));
       }
       if (data.status === "pending") {
@@ -2131,7 +2370,12 @@ const VacFacade = {
     return USE_DAY_DOCS ? window.VacationDayAPI.subscribeRange(startStr, endStr, branch, callback) : window.VacationAPI.subscribeRange(startStr, endStr, branch, callback);
   },
   // 본인 기록만 날짜 범위로 - 새 구조는 소속이 있어야 서버에서 걸러지니 branch가 항상 필요해요
-  getMineByRange(employeeId, branch, fromDate, toDate) {
+  getMineByRange(employeeId, branch, fromDate, toDate, name) {
+    // 자리를 바꿔 번호가 바뀐 사람은, 예전 번호로 남은 기록(이름까지 같은 것)도 같이 보여줘요
+    const prevIds = name ? previousIdsOf_(name, branch, employeeId) : [];
+    if (USE_DAY_DOCS && prevIds.length) {
+      return window.VacationDayAPI.getByRange(fromDate, toDate, branch).then(records => records.filter(r => r.employeeId === employeeId || prevIds.includes(r.employeeId) && r.name === name));
+    }
     return USE_DAY_DOCS ? window.VacationDayAPI.getMineByRange(employeeId, branch, fromDate, toDate) : window.VacationAPI.getMineByRange(employeeId, fromDate, toDate);
   },
   // 본인 신청 전용 - employeeId당 하루 1건 중복 방지가 자동으로 보장돼요
@@ -2447,6 +2691,18 @@ function MainScreen({
   const currentUser = realCurrentUser;
   const isAdmin = isAdminUser(currentUser);
   const isMidManager = isMidManagerUser(currentUser, managers) || isSuperAdmin && actingAsManager;
+  // 🆕 자리 변경 적용일이 지났으면, 관리자·운용이 앱을 켤 때 그 사람들 기록을 새 자리 번호로 자동 정리해요
+  useEffect(() => {
+    if (!(isAdmin || isSuperAdmin || isMidManagerUser(currentUser, managers))) return;
+    const branch = currentUser && currentUser.branch;
+    if (!branch) return;
+    waitForFirestore().then(() => migrateDueRosterChanges_(branch)).then(done => {
+      if (done && done.length) {
+        const names = [...new Set(done.map(m => m.name))].join(", ");
+        alert(`자리 변경 적용일이 지나서 기록을 새 자리 번호로 정리했어요.\n(${names})`);
+      }
+    }).catch(err => console.error("자리 변경 기록 정리 실패:", err));
+  }, [currentUser && currentUser.id, managers.length]);
   const [showAdmin, setShowAdmin] = useState(false);
   const [showManagerAdmin, setShowManagerAdmin] = useState(false);
   const [showImportTest, setShowImportTest] = useState(false);
@@ -5972,7 +6228,7 @@ function MyVacationsPanel({
     const fromDate = `${currentYear}-01-01`;
     const toDate = `${parseInt(currentYear, 10) + 1}-12-31`;
     const dayBeforeThisYear = `${parseInt(currentYear, 10) - 1}-12-31`;
-    waitForFirestore().then(() => Promise.all([VacFacade.getMineByRange(currentUser.id, currentUser.branch, fromDate, toDate), currentUser.branch === "경산" ? window.HyuchungdangAPI.listMineFrom(currentUser.id, dayBeforeThisYear) : Promise.resolve([])])).then(([records, hyuchungdangRecords]) => {
+    waitForFirestore().then(() => Promise.all([VacFacade.getMineByRange(currentUser.id, currentUser.branch, fromDate, toDate, currentUser.name), currentUser.branch === "경산" ? window.HyuchungdangAPI.listMineFrom(currentUser.id, dayBeforeThisYear) : Promise.resolve([])])).then(([records, hyuchungdangRecords]) => {
       const upcoming = records.filter(v => v.date >= today && isCapacityType(v.vacationType)).sort((a, b) => a.date.localeCompare(b.date));
       setList(upcoming);
 
@@ -8308,7 +8564,7 @@ function RosterChangePanel({
       (list || []).forEach(c => {
         (groups[c.groupId] = groups[c.groupId] || []).push(c);
       });
-      const staleIds = Object.keys(groups).filter(g => groups[g][0].date < cutoff && groupReflected(groups[g]));
+      const staleIds = Object.keys(groups).filter(g => groups[g][0].date < cutoff && groupReflected(groups[g]) && groups[g].every(c => c.migratedAt));
       if (staleIds.length) {
         const next = list.filter(c => !staleIds.includes(c.groupId));
         return saveAll(next);
