@@ -305,7 +305,8 @@ async function migrateRosterGroup_(group) {
     appr[id] = d;
   })));
   const vac = await window.VacationDayAPI.getByRange(D, "9999-12-31", branch);
-  const hyu = window.HyuchungdangAPI && window.HyuchungdangAPI.getByRange ? await window.HyuchungdangAPI.getByRange(D, "9999-12-31", branch) : [];
+  // (소속+날짜 범위 조회는 색인이 필요해서, 소속 전체를 읽고 날짜는 여기서 걸러요)
+  const hyu = window.HyuchungdangAPI && window.HyuchungdangAPI.listAllForBranch ? ((await window.HyuchungdangAPI.listAllForBranch(branch)) || []).filter(r => (r.date || "") >= D) : [];
   const lot = [];
   if (window.LotteryAPI && window.LotteryAPI.listMyEntries) {
     for (const m of moves) {
