@@ -386,18 +386,78 @@ async function migrateRosterGroup_(group) {
 }
 // 적용일이 지났는데 아직 안 옮긴 예약을 전부 옮겨요 (관리자·운용이 앱을 켤 때 자동 실행)
 let ROSTER_MIGRATING_ = false;
-async function migrateDueRosterChanges_(branch) {
+// 🆕 예약이 지워진 옛날 자리 변경 - 지금 명단(시트)과 승인기록을 비교해서, 두 사람이 서로 자리를 맞바꿨는데
+// 승인기록이 예전 번호에 남아 있는 경우를 찾아요. (적용일을 모르니 오늘 이후 기록만 옮기고,
+// 지난 기록은 내 휴가현황에서 이름으로 같이 보여줘요) 표시용 이름 계산에는 쓰지 않도록 idOnly로 남겨요.
+async function findSheetSwapGroups_(branch, employees) {
+  if (!employees || !employees.length) return [];
+  const [approved, pending] = await Promise.all([window.ApprovalAPI.listApproved(), window.ApprovalAPI.listPending()]);
+  const docs = [...(approved || []), ...(pending || [])].filter(d => d.branch === branch && d.name);
+  const today = koreaTodayStr();
+  const handled = new Set();
+  const groups = [];
+  docs.forEach(d => {
+    if (handled.has(d.id)) return;
+    const seat = employees.find(e => e.name === d.name && e.branch === branch);
+    if (!seat || seat.id === d.id) return;
+    const occ = employees.find(e => e.id === d.id && e.branch === branch);
+    if (!occ || occ.name === d.name) return;
+    const occDoc = docs.find(x => x.name === occ.name);
+    if (occDoc && occDoc.id !== seat.id) return; // 서로 맞바꾼 게 아니면(3명 이상 등) 건너뛰어요
+    handled.add(d.id);
+    if (occDoc) handled.add(occDoc.id);
+    const gid = `rc_auto_${Date.now()}_${groups.length}`;
+    const base = {
+      groupId: gid,
+      branch,
+      date: today,
+      idOnly: true,
+      createdBy: "자동 정리",
+      createdAt: Date.now()
+    };
+    groups.push([{
+      ...base,
+      id: gid + "_a",
+      slotId: seat.id,
+      oldName: occ.name,
+      newName: d.name
+    }, {
+      ...base,
+      id: gid + "_b",
+      slotId: d.id,
+      oldName: d.name,
+      newName: occ.name
+    }]);
+  });
+  return groups;
+}
+async function migrateDueRosterChanges_(branch, employees) {
   if (ROSTER_MIGRATING_ || !window.SystemAPI || !window.SystemAPI.getRosterChanges) return [];
   ROSTER_MIGRATING_ = true;
   try {
     const today = koreaTodayStr();
     const latest = (await window.SystemAPI.getRosterChanges()) || [];
     const due = rosterGroups_(latest).filter(g => g[0].branch === branch && g[0].date <= today && !g.every(c => c.migratedAt));
+    const done = [];
+    // 예약이 남아 있는 건 예약대로 먼저 정리하고, 그다음 예약 없이 남은 어긋난 번호를 시트 기준으로 찾아요
+    const finish = async () => {
+      const sheetGroups = await findSheetSwapGroups_(branch, employees);
+      if (!sheetGroups.length) return;
+      for (const g of sheetGroups) done.push(...(await migrateRosterGroup_(g)));
+      const now = Date.now();
+      const fresh2 = (await window.SystemAPI.getRosterChanges()) || [];
+      const next2 = [...fresh2, ...sheetGroups.flat().map(c => ({
+        ...c,
+        migratedAt: now
+      }))];
+      await window.SystemAPI.saveRosterChanges(next2);
+      setRosterChanges_(next2);
+    };
     if (!due.length) {
       setRosterChanges_(latest);
-      return [];
+      await finish();
+      return done;
     }
-    const done = [];
     for (const g of due) {
       const moves = await migrateRosterGroup_(g);
       done.push(...moves);
@@ -411,6 +471,7 @@ async function migrateDueRosterChanges_(branch) {
     } : c);
     await window.SystemAPI.saveRosterChanges(next);
     setRosterChanges_(next);
+    await finish();
     return done;
   } finally {
     ROSTER_MIGRATING_ = false;
@@ -419,7 +480,7 @@ async function migrateDueRosterChanges_(branch) {
 
 // 특정 자리(slotId)의 그 날짜 주인 이름 - 예약이 없으면 시트 이름 그대로
 function slotOwnerOnDate_(slotId, branch, sheetName, dateStr) {
-  const list = ROSTER_CHANGES.filter(c => c.slotId === slotId && c.branch === branch).sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+  const list = ROSTER_CHANGES.filter(c => c.slotId === slotId && c.branch === branch && !c.idOnly).sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
   if (!list.length) return sheetName;
   let owner = list[0].oldName;
   for (const c of list) {
@@ -2372,9 +2433,10 @@ const VacFacade = {
   // 본인 기록만 날짜 범위로 - 새 구조는 소속이 있어야 서버에서 걸러지니 branch가 항상 필요해요
   getMineByRange(employeeId, branch, fromDate, toDate, name) {
     // 자리를 바꿔 번호가 바뀐 사람은, 예전 번호로 남은 기록(이름까지 같은 것)도 같이 보여줘요
+    // 같은 번호라도 자리를 바꾸기 전 주인의 기록일 수 있어서, 이름까지 같은 것만 내 기록으로 봐요
     const prevIds = name ? previousIdsOf_(name, branch, employeeId) : [];
-    if (USE_DAY_DOCS && prevIds.length) {
-      return window.VacationDayAPI.getByRange(fromDate, toDate, branch).then(records => records.filter(r => r.employeeId === employeeId || prevIds.includes(r.employeeId) && r.name === name));
+    if (USE_DAY_DOCS && name) {
+      return window.VacationDayAPI.getByRange(fromDate, toDate, branch).then(records => records.filter(r => r.employeeId === employeeId && (!r.name || r.name === name) || prevIds.includes(r.employeeId) && r.name === name));
     }
     return USE_DAY_DOCS ? window.VacationDayAPI.getMineByRange(employeeId, branch, fromDate, toDate) : window.VacationAPI.getMineByRange(employeeId, fromDate, toDate);
   },
@@ -2696,13 +2758,17 @@ function MainScreen({
     if (!(isAdmin || isSuperAdmin || isMidManagerUser(currentUser, managers))) return;
     const branch = currentUser && currentUser.branch;
     if (!branch) return;
-    waitForFirestore().then(() => migrateDueRosterChanges_(branch)).then(done => {
+    if (!employees || !employees.length) return;
+    waitForFirestore().then(() => migrateDueRosterChanges_(branch, employees)).then(done => {
       if (done && done.length) {
         const names = [...new Set(done.map(m => m.name))].join(", ");
         alert(`자리 변경 적용일이 지나서 기록을 새 자리 번호로 정리했어요.\n(${names})`);
       }
-    }).catch(err => console.error("자리 변경 기록 정리 실패:", err));
-  }, [currentUser && currentUser.id, managers.length]);
+    }).catch(err => {
+      console.error("자리 변경 기록 정리 실패:", err);
+      alert("자리 변경 후 직원번호 자동 정리에 실패했어요.\n관리자 메뉴 → 교번 변경 예약에서 '지금 정리'를 눌러주세요.\n\n" + (err && err.message ? err.message : err));
+    });
+  }, [currentUser && currentUser.id, managers.length, (employees || []).length]);
   const [showAdmin, setShowAdmin] = useState(false);
   const [showManagerAdmin, setShowManagerAdmin] = useState(false);
   const [showImportTest, setShowImportTest] = useState(false);
@@ -8557,18 +8623,8 @@ function RosterChangePanel({
       return;
     }
     waitForFirestore().then(() => window.SystemAPI.getRosterChanges()).then(list => {
-      // 시트에도 반영되고 적용일이 31일 넘게 지난 예약은 더 이상 필요 없어서 자동 정리해요
-      // (지난 날짜 대신기록·교번 표시를 위해 한 달은 남겨둬요)
-      const cutoff = shiftDateStr_(today, -31);
-      const groups = {};
-      (list || []).forEach(c => {
-        (groups[c.groupId] = groups[c.groupId] || []).push(c);
-      });
-      const staleIds = Object.keys(groups).filter(g => groups[g][0].date < cutoff && groupReflected(groups[g]) && groups[g].every(c => c.migratedAt));
-      if (staleIds.length) {
-        const next = list.filter(c => !staleIds.includes(c.groupId));
-        return saveAll(next);
-      }
+      // 🆕 지난 예약은 지우지 않고 남겨둬요 - 직원번호가 언제 어디서 어디로 바뀌었는지 기억해야
+      // 예전 번호 기록(내 휴가현황)과 폰 로그인 번호를 맞출 수 있어요. 목록에서는 31일 지나면 숨겨요.
       setRosterChanges_(list || []);
       setItems(list || []);
     }).catch(err => alert("불러오기 실패: " + (err && err.message ? err.message : err))).finally(() => setLoading(false));
@@ -8630,10 +8686,11 @@ function RosterChangePanel({
     waitForFirestore().then(() => window.SystemAPI.getRosterChanges()).then(latest => saveAll((latest || []).filter(c => c.groupId !== groupId))).catch(err => alert("취소 실패: " + (err && err.message ? err.message : err))).finally(() => setSaving(false));
   };
   const groups = {};
-  items.filter(c => c.branch === viewBranch).forEach(c => {
+  items.filter(c => c.branch === viewBranch && !c.idOnly).forEach(c => {
     (groups[c.groupId] = groups[c.groupId] || []).push(c);
   });
-  const groupList = Object.values(groups).sort((a, b) => a[0].date < b[0].date ? 1 : -1);
+  const hideBefore = shiftDateStr_(today, -31);
+  const groupList = Object.values(groups).filter(g => !(g[0].date < hideBefore && groupReflected(g) && g.every(c => c.migratedAt))).sort((a, b) => a[0].date < b[0].date ? 1 : -1);
   // 적용 전·시트 미반영은 기본으로 보이고, 시트 반영까지 끝난 건 "지난 내역"으로 접어둬요
   const stageOf = group => group[0].date > today ? "pending" : groupReflected(group) ? "done" : "needSheet";
   const tabGroups = {
@@ -8658,6 +8715,18 @@ function RosterChangePanel({
       help: "시트까지 반영된 예약이에요. 적용일 31일 뒤 자동으로 정리돼요."
     }
   };
+  // 적용일 지난 예약의 직원번호 정리를 지금 바로 실행 (보통은 관리자가 앱을 켤 때 자동으로 돼요)
+  const handleMigrateNow = () => {
+    setSaving(true);
+    waitForFirestore().then(() => migrateDueRosterChanges_(viewBranch, employees)).then(done => {
+      setItems(ROSTER_CHANGES);
+      const names = [...new Set((done || []).map(m => m.name))].join(", ");
+      alert(done && done.length ? `직원번호를 정리했어요.\n(${names})` : "정리할 예약이 없어요.");
+    }).catch(err => {
+      console.error(err);
+      alert("정리 실패: " + (err && err.message ? err.message : err));
+    }).finally(() => setSaving(false));
+  };
   const renderGroup = group => {
     const a = group.find(c => c.id.endsWith("_a")) || group[0];
     const sa = group.find(c => c.id.endsWith("_a"));
@@ -8674,11 +8743,30 @@ function RosterChangePanel({
         ...modal.typeRow,
         color: "#e08a20"
       }
-    }, "시트: ", sa.slotId, " → ", sa.newName, ", ", sb.slotId, " → ", sb.newName)), /*#__PURE__*/React.createElement("button", {
+    }, "시트: ", sa.slotId, " → ", sa.newName, ", ", sb.slotId, " → ", sb.newName), a.date <= today && /*#__PURE__*/React.createElement("div", {
+      style: {
+        ...modal.typeRow,
+        fontWeight: 700,
+        color: group.every(c => c.migratedAt) ? "#0F6E56" : "#c2410c"
+      }
+    }, group.every(c => c.migratedAt) ? "✅ 직원번호 정리 완료" : "⏳ 직원번호 정리 전")), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        flexDirection: "column",
+        gap: "6px"
+      }
+    }, a.date <= today && !group.every(c => c.migratedAt) && /*#__PURE__*/React.createElement("button", {
+      style: {
+        ...adminStyles.rejectBtn,
+        background: "#185FA5"
+      },
+      disabled: saving,
+      onClick: handleMigrateNow
+    }, "지금 정리"), /*#__PURE__*/React.createElement("button", {
       style: adminStyles.rejectBtn,
       disabled: saving,
       onClick: () => handleCancel(a.groupId)
-    }, "취소"));
+    }, "취소")));
   };
   const selectStyle = {
     ...styles.select,
