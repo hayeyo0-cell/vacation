@@ -939,6 +939,14 @@ function App() {
       return;
     }
     waitForFirestore().then(() => window.ApprovalAPI.getStatus(emp.id)).then(data => {
+      // 🆕 자리를 바꾸면 ID는 그대로 두고 이름만 바꾸니, 이 ID에 남은 승인 기록이 "예전 주인"의 것일 수 있어요.
+      // 기록에 적힌 이름이 지금 이름과 다르면 다른 사람 기록이니 지우고, 처음 등록처럼 진행해요.
+      if (data && data.name && data.name !== emp.name) {
+        return window.ApprovalAPI.reset(emp.id).then(() => {
+          setSelectedEmp(emp);
+          setStep("setPin");
+        });
+      }
       if (data && data.status === "approved") {
         // 🆕 무조건 막지 않고, 이 계정 PIN을 알고 있으면 이 자리에서 바로 로그인할 수 있게 해요.
         setSelectedEmp(emp);
@@ -8131,6 +8139,10 @@ function AdminPanel({
     if (!confirm(`${p.name} (${p.branch})님의 승인 기록을 삭제할까요?\n삭제 후 다시 등록하면 재승인을 받아야 해요.`)) return;
     window.ApprovalAPI.reset(p.id).then(() => {
       setApproved(prev => prev.filter(a => a.id !== p.id));
+      alert(`${p.name}님의 승인 기록을 삭제했어요.`);
+    }).catch(err => {
+      console.error(err);
+      alert("기록삭제 실패: " + (err && err.message ? err.message : err));
     });
   };
   const handleDeleteAll = () => {
