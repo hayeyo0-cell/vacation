@@ -2843,6 +2843,17 @@ function MainScreen({
   const [showLotteryApply, setShowLotteryApply] = useState(false); // 명절 추첨 응모 (기관사)
   const [lotteryOpenNow, setLotteryOpenNow] = useState(false); // 지금 명절 응모 기간인지
   const [lotteryBanner, setLotteryBanner] = useState(null); // 달력 위 명절 응모 배너 { kind: "open"|"applied"|"result", event }
+  // 🆕 명절 추첨 날짜 (내 소속, 아직 안 끝난 명절) - 일반 신청의 야간·비번 자동 짝이 명절 날짜로 넘어가지 않게 막을 때 써요
+  const [lotteryDates, setLotteryDates] = useState(() => new Set());
+  useEffect(() => {
+    if (!currentUser || !currentUser.branch) return;
+    waitForFirestore().then(() => loadCachedList(LOTTERY_EVENTS_CACHE_KEY, LOTTERY_EVENTS_CACHE_TTL_MS, () => window.LotteryAPI.listEvents())).then(events => {
+      const today = koreaTodayStr();
+      const set = new Set();
+      (events || []).filter(e => e.branch === currentUser.branch && lotteryEventLastDate_(e) >= today).forEach(e => (e.dates || []).forEach(d => d && d.date && set.add(d.date)));
+      setLotteryDates(set);
+    }).catch(err => console.error("명절 날짜 조회 실패:", err));
+  }, [currentUser && currentUser.branch]);
   const [showHyuchungdangAdmin, setShowHyuchungdangAdmin] = useState(false); // 휴충당 관리 (관리자, 경산 전용)
   const [showAdminMenu, setShowAdminMenu] = useState(false); // 관리자 메뉴 모음
   const [showRosterChange, setShowRosterChange] = useState(false); // 교번 변경 예약 (관리자)
@@ -3697,7 +3708,13 @@ function MainScreen({
   const submitVacationRecord = (priority, capacityGuard, existingOffDuty) => {
     const docId = `${currentUser.id}_${selectedDate}`; // 직원ID_날짜 고정 ID - 중복 신청 원천 차단
     const companionType = NIGHT_COMPANION_TYPE_MAP[formType];
-    const shouldAddCompanion = isNightFormEntry && companionType && nextDateStr;
+    // 🆕 다음날이 명절 추첨 날짜면 비번을 자동으로 넣지 않아요 (명절 첫날 비번 선점 방지)
+    const nextIsLottery = !!(nextDateStr && lotteryDates.has(nextDateStr));
+    if (isNightFormEntry && companionType && nextIsLottery && !confirm(`다음날(${nextDateStr})은 명절 추첨 날짜라 비번(${companionType})은 자동으로 등록되지 않아요.\n명절 첫날 비번은 추첨으로도 응모할 수 없어요.\n\n야간만 신청할까요?`)) {
+      setSaving(false);
+      return;
+    }
+    const shouldAddCompanion = isNightFormEntry && companionType && nextDateStr && !nextIsLottery;
     const companionDocId = shouldAddCompanion ? existingOffDuty ? existingOffDuty.id : `${currentUser.id}_${nextDateStr}` : null;
     const savedDia = normalizeSInput_(currentUser.branch, selectedDate, formDia, holidaySet);
     let companionSaved = false;
@@ -3824,6 +3841,11 @@ function MainScreen({
     const branch = currentUser.branch;
     const nightDate = prevDateStr;
     const nightPrevDate = shiftDateStr_(nightDate, -1);
+    // 🆕 전날 야간이 명절 추첨 날짜면 일반 신청으로 같이 넣지 않아요 - 명절 야간은 추첨으로만
+    if (lotteryDates.has(nightDate)) {
+      alert(`전날(${nightDate})은 명절 추첨 날짜라 야간을 일반 신청으로 같이 등록할 수 없어요.\n명절 야간은 명절 추첨 응모로 신청해주세요.`);
+      return;
+    }
     const companionType = NIGHT_COMPANION_TYPE_MAP[formType];
     const capType = isCapacityType(formType);
     const nightDia = normalizeSInput_(branch, nightDate, offDutyNightDia, holidaySet);
@@ -3950,7 +3972,8 @@ function MainScreen({
 
       // 야간 근무면 다음날 상황도 최신 데이터로 재확인해요
       let existingOffDuty = null; // 비번을 먼저 신청해둔 기록 (있으면 새로 만들지 않고 짝으로 연결)
-      if (isNightFormEntry && nextDateStr) {
+      // (다음날이 명절 추첨 날짜면 비번을 넣지 않으니 다음날 확인도 건너뛰어요)
+      if (isNightFormEntry && nextDateStr && !lotteryDates.has(nextDateStr)) {
         const nextDayActive = (nextDayRecords || []).filter(v => v.branch === currentUser.branch && v.status !== "취소됨");
         existingOffDuty = findCompatibleOffDutyRecord_(nextDayActive, currentUser.id, formType);
         // 보장인원 포함 종류(연차/분지/장재)만 다음날 자리(정원) 확인이 필요해요.
@@ -6229,7 +6252,7 @@ const GUIDE_ITEMS = [{
   a: ["내 교번이 휴무인 날짜를 누르면 **🔁 휴충당 신청** 버튼이 보여요.", "휴충당 날짜 기준 **7일 전부터는 신청할 수 없어요.** (2026년 11월 1일부터 적용)", "확정되면 앱을 열 때 알림이 떠요."]
 }, {
   q: "명절 연휴 휴가는 어떻게 신청해요?",
-  a: ["명절 응모 기간에는 달력 위에 **🎋 응모 배너**가 나타나요. 배너의 **응모하기**를 눌러 신청하면 추첨으로 정해져요.", "응모한 뒤에는 명절이 끝날 때까지 배너에서 응모 내역과 결과를 확인할 수 있어요.", "결과는 앱을 열 때 알림으로도 알려드려요."]
+  a: ["명절 응모 기간에는 달력 위에 **🎋 응모 배너**가 나타나요. 배너의 **응모하기**를 눌러 신청하면 추첨으로 정해져요.", "응모한 뒤에는 명절이 끝날 때까지 배너에서 응모 내역과 결과를 확인할 수 있어요.", "**야간**은 다음날(비번)과 묶어서 **🌙 연계 응모**로만 신청할 수 있어요. 이틀 모두 당첨돼야 확정되고, 하루만 당첨되는 일은 없어요.", "**명절 첫날 비번**과 **명절 마지막 날 야간**은 응모할 수 없어요. (명절 밖의 날짜를 먼저 잡게 되는 경우라서요)", "결과는 앱을 열 때 알림으로도 알려드려요."]
 }, {
   q: "다른 폰에서도 쓸 수 있어요?",
   a: ["한 사람은 **한 기기에서만** 쓸 수 있어요.", "새 폰에서 이름을 고르고 원래 PIN을 넣으면, **\"다른 기기에서 로그인되어 있어요\"** 안내가 떠요. 확인을 누르면 새 폰으로 넘어오고 예전 폰은 로그아웃돼요.", "카카오톡·밴드에서 링크를 누르면 다른 기기로 인식될 수 있어요. 휴가앱은 **홈 화면 아이콘**으로 열어주세요."]
@@ -6947,6 +6970,36 @@ function LotteryApplyPanel({
       alert("DIA를 입력해주세요");
       return;
     }
+    // 🆕 야간은 따로 당첨되면 쓸 수 없어서, 다음날이 같은 명절 기간이면 연계 응모만 받아요
+    const dates_ = (event.dates || []).map(d => d.date);
+    const idx_ = dates_.indexOf(date);
+    const nextInEvent = idx_ >= 0 && idx_ < dates_.length - 1 ? dates_[idx_ + 1] : null;
+    const prevInEvent = idx_ > 0 ? dates_[idx_ - 1] : null;
+    if (nextInEvent && isNightShiftCode(dia, currentUser.branch)) {
+      setFormState(prev => ({
+        ...prev,
+        [date]: {
+          ...prev[date],
+          linkNext: true
+        }
+      }));
+      alert(`${dia}는 야간이라 다음날(${nextInEvent})과 연계해서만 응모할 수 있어요.\n따로 당첨되면 휴가를 쓸 수 없어서예요.\n\n아래 2일차 내용을 확인하고 "2일 연계 응모"를 눌러주세요.`);
+      return;
+    }
+    // 🆕 명절 마지막 날 야간도 응모 불가 - 당첨되면 명절 다음날 비번을 선점하게 돼요
+    if (idx_ >= 0 && !nextInEvent && isNightShiftCode(dia, currentUser.branch)) {
+      alert(`명절 마지막 날(${date}) 야간(${dia})은 응모할 수 없어요.\n당첨되면 명절 다음날 비번까지 먼저 잡게 되어, 다른 사람과 공평하지 않아서예요.`);
+      return;
+    }
+    // 🆕 명절 첫날 비번은 응모 불가 - 전날 야간을 일반 휴가로 먼저 잡아둬야만 생기는 경우라 공정하지 않아요
+    if (idx_ === 0 && String(dia).trim().endsWith("~")) {
+      alert(`명절 첫날(${date}) 비번(${dia})은 응모할 수 없어요.\n전날 야간 휴가를 먼저 잡아야만 생기는 경우라, 다른 사람과 공평하지 않아서예요.`);
+      return;
+    }
+    if (prevInEvent && String(dia).trim().endsWith("~")) {
+      alert(`${dia}는 비번이라 전날(${prevInEvent}) 야간과 연계해서만 응모할 수 있어요.\n전날 칸에서 야간 교번을 고르고 "🌙 다음날과 연계된 야간 신청"으로 응모해주세요.`);
+      return;
+    }
     const entryId = `${event.id}_${currentUser.id}_${date}`;
     setSaving(true);
     window.LotteryAPI.apply(entryId, {
@@ -6980,6 +7033,11 @@ function LotteryApplyPanel({
     const nextDia = normalizeSInput_(currentUser.branch, nextDate, state.nextDia && state.nextDia.trim() || codeForDate(nextDate), holidaySet);
     if (!nextDia) {
       alert("2일차 DIA를 입력해주세요");
+      return;
+    }
+    const firstDate_ = ((event.dates || [])[0] || {}).date;
+    if (date === firstDate_ && String(dia).trim().endsWith("~")) {
+      alert(`명절 첫날(${date}) 비번(${dia})은 응모할 수 없어요.\n전날 야간 휴가를 먼저 잡아야만 생기는 경우라, 다른 사람과 공평하지 않아서예요.`);
       return;
     }
     const linkId = `${event.id}_${currentUser.id}_night_${date}`;
@@ -7498,6 +7556,25 @@ function LotteryAdminPanel({
           });
           seenLinkIds.add(en.linkId);
         }
+      });
+      // 🆕 예전에 연계 체크 없이 따로 응모한 야간+다음날 비번도 연계 응모로 보고 같이 묶어요
+      // (같은 사람, 1일차 야간 → 2일차가 그 야간의 비번 교번)
+      const pairedIds = new Set(pairs.flatMap(p => [p.a.id, p.b.id]));
+      const eventDates = (event.dates || []).map(d => d.date);
+      entries.forEach(en => {
+        if (en.linkId || pairedIds.has(en.id) || !isNightShiftCode(en.dia, event.branch)) return;
+        const i = eventDates.indexOf(en.date);
+        if (i < 0 || i >= eventDates.length - 1) return;
+        const nextDate = eventDates[i + 1];
+        const off = nightDiaToOffDutyDia(en.dia);
+        const partner = entries.find(e2 => !e2.linkId && !pairedIds.has(e2.id) && e2.employeeId === en.employeeId && e2.date === nextDate && String(e2.dia || "").trim() === off);
+        if (!partner) return;
+        pairs.push({
+          a: en,
+          b: partner
+        });
+        pairedIds.add(en.id);
+        pairedIds.add(partner.id);
       });
       let changed = true;
       while (changed) {
