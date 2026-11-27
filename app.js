@@ -7138,6 +7138,8 @@ function LotteryApplyPanel({
     const entry = entryFor(event.id, date);
     const nextDateInfo = (event.dates || []).find(d => diffDays_(date, d.date) === 1);
     const canLinkNight = !entry && !!nextDateInfo && !entryFor(event.id, nextDateInfo.date);
+    // 따로 응모했지만 추첨 때 연계로 묶이는 내 응모 (야간 + 다음날 그 비번)
+    const myImplicitIds = new Set(implicitLotteryPairs_(event, myEntries.filter(en => en.eventId === event.id && en.result === "대기중")).flatMap(p => [p.a.id, p.b.id]));
     const st = formState[date] || {};
     return /*#__PURE__*/React.createElement("div", {
       key: date,
@@ -7161,12 +7163,18 @@ function LotteryApplyPanel({
       style: {
         fontSize: "13px"
       }
-    }, entry.vacationType, " · ", entry.dia, entry.linkId && /*#__PURE__*/React.createElement("span", {
+    }, entry.vacationType, " · ", entry.dia, (entry.linkId || myImplicitIds.has(entry.id)) && /*#__PURE__*/React.createElement("span", {
       style: {
         color: "#7a4fd1",
         fontWeight: 700
       }
-    }, " · 🌙연계(2일)"), entry.result === "대기중" && /*#__PURE__*/React.createElement("span", {
+    }, entry.linkId ? " · 🌙연계(2일)" : " · 🌙연계(자동)"), !entry.linkId && myImplicitIds.has(entry.id) && /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: "11px",
+        color: "#7a4fd1",
+        marginTop: "2px"
+      }
+    }, "야간과 다음날 비번이라 연계로 추첨돼요 · 이틀 모두 당첨돼야 확정"), entry.result === "대기중" && /*#__PURE__*/React.createElement("span", {
       style: {
         color: "#e08a20"
       }
