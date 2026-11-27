@@ -599,6 +599,39 @@ function fetchEmployeesWithRetry(retries = 3, delayMs = 700) {
 /* 로컬 저장소 헬퍼 (PIN은 기기에만 저장)                                */
 /* ------------------------------------------------------------------ */
 const STORAGE_KEY = "vacation_auth" + (window.APP_STORAGE_SUFFIX || "");
+
+// 🆕 한 사람 한 기기 (기관사만) - 이 브라우저의 고유 번호. 로그인할 때 서버 승인기록에 "지금 쓰는 기기"로 적어두고,
+// 다른 기기 번호가 적혀 있으면 "다른 기기에서 사용 중" 안내 후 이 기기로 넘겨받을지 물어봐요.
+const DEVICE_ID_KEY = "vacation_device_id" + (window.APP_STORAGE_SUFFIX || "");
+function getDeviceId_() {
+  try {
+    let v = localStorage.getItem(DEVICE_ID_KEY);
+    if (!v) {
+      v = "d_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+      localStorage.setItem(DEVICE_ID_KEY, v);
+    }
+    return v;
+  } catch (e) {
+    return "";
+  }
+}
+// 운용·관리자는 공용 PC·개인 폰을 같이 쓰니 여러 기기 허용, 기관사만 한 기기
+function isSingleDeviceUser_(user, managers) {
+  return !!user && !(isAdminUser(user) || isSuperAdminUser(user) || isMidManagerUser(user, managers));
+}
+// 이 기기를 "지금 쓰는 기기"로 정해요. 다른 기기에서 쓰고 있으면 물어보고, 취소하면 false
+function claimDevice_(user, approvalData, managers) {
+  if (TEST_MODE || !isSingleDeviceUser_(user, managers)) return Promise.resolve(true);
+  const me = getDeviceId_();
+  if (!me || !window.AuthAPI || !window.AuthAPI.setActiveDevice) return Promise.resolve(true);
+  const current = approvalData && approvalData.activeDevice;
+  if (current === me) return Promise.resolve(true);
+  if (current && !confirm(`${user.name}님은 다른 기기에서 로그인되어 있어요.\n이 기기에서 계속 사용할까요?\n\n확인을 누르면 다른 기기는 로그아웃돼요.\n(한 사람은 한 기기에서만 사용할 수 있어요)`)) return Promise.resolve(false);
+  return waitForFirestore().then(() => window.AuthAPI.setActiveDevice(user.id, me)).then(() => true).catch(err => {
+    console.error("기기 등록 실패:", err);
+    return true;
+  });
+}
 function saveLocalAuth(list) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
 }
@@ -1272,6 +1305,24 @@ function App() {
     });
   };
 
+  // 🆕 PIN만 바꾸기 - 지금 PIN을 확인하고 새 PIN으로 바꿔요 (승인은 그대로, 다시 등록할 필요 없어요)
+  const handleChangePin = (oldPin, newPin) => {
+    if (!loginTarget) return Promise.reject(new Error("로그인 정보를 찾지 못했어요."));
+    if (loginTarget.pin !== oldPin) return Promise.reject(new Error("지금 PIN이 맞지 않아요."));
+    return hashPin(loginTarget.id, newPin).then(pinHash => waitForFirestore().then(() => window.AuthAPI.setPinHash(loginTarget.id, pinHash))).then(() => {
+      const updated = loadLocalAuth().map(a => a.id === loginTarget.id && a.name === loginTarget.name ? {
+        ...a,
+        pin: newPin
+      } : a);
+      saveLocalAuth(updated);
+      setLocalAuth(updated);
+      setLoginTarget({
+        ...loginTarget,
+        pin: newPin
+      });
+    });
+  };
+
   /* ---- 재로그인 흐름 ---- */
   const handleLoginNameSelect = auth => {
     setLoginTarget(auth);
@@ -1358,7 +1409,10 @@ function App() {
         // 때마다 명단에 아직 있는지 슬쩍 확인해요 - 인사이동으로 명단에서만 빠진 경우를 잡아내요.
         setStep("notInRoster");
       } else {
-        setStep("main");
+        // 🆕 한 사람 한 기기 - 다른 기기에서 쓰고 있으면 넘겨받을지 물어봐요
+        return claimDevice_(lt, data, managers).then(ok => {
+          if (ok) setStep("main");else setPinError("다른 기기에서 사용 중이에요.");
+        });
       }
     }).catch(err => {
       console.error(err);
@@ -1388,16 +1442,22 @@ function App() {
         setStep("notInRoster");
         return;
       }
-      const updated = [...localAuth, {
-        id: selectedEmp.id,
-        name: selectedEmp.name,
-        branch: selectedEmp.branch,
-        pin
-      }];
-      saveLocalAuth(updated);
-      setLocalAuth(updated);
-      setPinError("");
-      setStep("main");
+      return claimDevice_(selectedEmp, approvalData, managers).then(ok => {
+        if (!ok) {
+          setPinError("다른 기기에서 사용 중이에요.");
+          return;
+        }
+        const updated = [...localAuth, {
+          id: selectedEmp.id,
+          name: selectedEmp.name,
+          branch: selectedEmp.branch,
+          pin
+        }];
+        saveLocalAuth(updated);
+        setLocalAuth(updated);
+        setPinError("");
+        setStep("main");
+      });
     })).catch(err => {
       console.error(err);
       setPinError("확인 중 오류가 발생했어요");
@@ -1608,7 +1668,9 @@ function App() {
         if (!id) return;
         window.ApprovalAPI.getStatus(id).then(data => {
           if (data && data.status === "approved") {
-            setStep("main");
+            claimDevice_(target, data, managers).then(ok => {
+              if (ok) setStep("main");
+            });
           } else if (data && data.status === "rejected") {
             setStep("rejected");
           } else if (!data) {
@@ -1725,7 +1787,8 @@ function App() {
       },
       employees: employees,
       managers: managers,
-      onSwitchUser: () => setStep("loginName")
+      onSwitchUser: () => setStep("loginName"),
+      onChangePin: handleChangePin
     });
   }
   return null;
@@ -2743,7 +2806,8 @@ function MainScreen({
   currentUser: realCurrentUser,
   employees,
   managers,
-  onSwitchUser
+  onSwitchUser,
+  onChangePin
 }) {
   const isSuperAdmin = isSuperAdminUser(realCurrentUser);
   // 소속 전환(문양 보기) 기능은 경산 전용 앱이 되면서 없앴어요 - 아래 조건문들 호환용으로 항상 false
@@ -5728,6 +5792,7 @@ function MainScreen({
     onClose: closeModal
   }, /*#__PURE__*/React.createElement(MyVacationsPanel, {
     currentUser: currentUser,
+    onChangePin: ghosting ? null : onChangePin,
     onClose: closeModal,
     employees: employees,
     holidaySet: holidaySet
@@ -6166,6 +6231,12 @@ const GUIDE_ITEMS = [{
   q: "명절 연휴 휴가는 어떻게 신청해요?",
   a: ["명절 응모 기간에는 달력 위에 **🎋 응모 배너**가 나타나요. 배너의 **응모하기**를 눌러 신청하면 추첨으로 정해져요.", "응모한 뒤에는 명절이 끝날 때까지 배너에서 응모 내역과 결과를 확인할 수 있어요.", "결과는 앱을 열 때 알림으로도 알려드려요."]
 }, {
+  q: "다른 폰에서도 쓸 수 있어요?",
+  a: ["한 사람은 **한 기기에서만** 쓸 수 있어요.", "새 폰에서 이름을 고르고 원래 PIN을 넣으면, **\"다른 기기에서 로그인되어 있어요\"** 안내가 떠요. 확인을 누르면 새 폰으로 넘어오고 예전 폰은 로그아웃돼요.", "카카오톡·밴드에서 링크를 누르면 다른 기기로 인식될 수 있어요. 휴가앱은 **홈 화면 아이콘**으로 열어주세요."]
+}, {
+  q: "PIN을 바꾸고 싶어요.",
+  a: ["**내 휴가현황** 맨 아래 **🔒 PIN 변경**에서 지금 PIN과 새 PIN을 넣으면 바로 바뀌어요.", "승인은 그대로라 다시 등록하거나 승인을 받을 필요가 없어요."]
+}, {
   q: "PIN을 잊었어요.",
   a: ["로그인 화면의 **PIN을 잊으셨나요? 다시 등록하기**를 누르고 처음부터 다시 등록하면 돼요.", "다시 등록하면 관리자 승인을 다시 받아야 해요."]
 }];
@@ -6263,8 +6334,115 @@ function GuidePanel({
   }, "닫기")));
 }
 
+// 🆕 PIN 변경 - 지금 PIN, 새 PIN, 새 PIN 확인 (숫자 4자리)
+function PinChangeBox({
+  onChangePin
+}) {
+  const [open, setOpen] = useState(false);
+  const [oldPin, setOldPin] = useState("");
+  const [newPin, setNewPin] = useState("");
+  const [newPin2, setNewPin2] = useState("");
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+  const only4 = v => String(v || "").replace(/\D/g, "").slice(0, 4);
+  const submit = () => {
+    if (oldPin.length !== 4 || newPin.length !== 4) return setMsg("PIN은 숫자 4자리로 입력해주세요.");
+    if (newPin !== newPin2) return setMsg("새 PIN이 서로 달라요. 다시 확인해주세요.");
+    if (newPin === oldPin) return setMsg("지금 PIN과 다른 번호로 정해주세요.");
+    setBusy(true);
+    setMsg("");
+    onChangePin(oldPin, newPin).then(() => {
+      alert("PIN을 바꿨어요. 다음 로그인부터 새 PIN을 써주세요.");
+      setOpen(false);
+      setOldPin("");
+      setNewPin("");
+      setNewPin2("");
+    }).catch(err => setMsg(err && err.message ? err.message : "PIN을 바꾸지 못했어요.")).finally(() => setBusy(false));
+  };
+  const inputStyle = {
+    width: "100%",
+    height: "44px",
+    border: "1px solid #ddd",
+    borderRadius: "10px",
+    padding: "0 12px",
+    fontSize: "18px",
+    letterSpacing: "6px",
+    marginBottom: "8px",
+    boxSizing: "border-box"
+  };
+  const field = (label, value, set) => /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: "13px",
+      color: "#555",
+      marginBottom: "4px"
+    }
+  }, label), /*#__PURE__*/React.createElement("input", {
+    type: "password",
+    inputMode: "numeric",
+    autoComplete: "off",
+    maxLength: 4,
+    value: value,
+    onChange: e => set(only4(e.target.value)),
+    style: inputStyle
+  }));
+  if (!open) return /*#__PURE__*/React.createElement("button", {
+    style: {
+      ...modal.closeBtn,
+      marginBottom: "8px",
+      background: "#f1f5f9",
+      color: "#1b3a5c"
+    },
+    onClick: () => setOpen(true)
+  }, "🔒 PIN 변경");
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: "#f8f9fb",
+      border: "1px solid #e5e7eb",
+      borderRadius: "12px",
+      padding: "12px",
+      marginBottom: "10px"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontWeight: 700,
+      marginBottom: "8px"
+    }
+  }, "🔒 PIN 변경"), field("지금 PIN", oldPin, setOldPin), field("새 PIN (숫자 4자리)", newPin, setNewPin), field("새 PIN 한 번 더", newPin2, setNewPin2), msg && /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#dc2626",
+      fontSize: "13px",
+      marginBottom: "8px"
+    }
+  }, msg), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: "8px"
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    style: {
+      ...modal.closeBtn,
+      flex: 1,
+      marginTop: 0
+    },
+    onClick: () => {
+      setOpen(false);
+      setMsg("");
+    }
+  }, "취소"), /*#__PURE__*/React.createElement("button", {
+    style: {
+      ...modal.closeBtn,
+      flex: 1,
+      marginTop: 0,
+      background: "#1b3a5c",
+      color: "#fff"
+    },
+    disabled: busy,
+    onClick: submit
+  }, busy ? "바꾸는 중..." : "PIN 바꾸기")));
+}
 function MyVacationsPanel({
   currentUser,
+  onChangePin,
   onClose,
   employees,
   holidaySet
@@ -6688,6 +6866,8 @@ function MyVacationsPanel({
         marginTop: "4px"
       }
     }, "확인완료 · 취소는 관리자에게 문의해주세요"));
+  }), onChangePin && /*#__PURE__*/React.createElement(PinChangeBox, {
+    onChangePin: onChangePin
   }), /*#__PURE__*/React.createElement("button", {
     style: modal.closeBtn,
     onClick: onClose
