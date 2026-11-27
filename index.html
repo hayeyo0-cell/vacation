@@ -704,6 +704,14 @@
         { merge: true }
       );
     },
+    // 🆕 한 사람 한 기기(기관사) - 지금 로그인해서 쓰는 기기 번호를 승인 기록에 적어둬요
+    async setActiveDevice(id, deviceId) {
+      await setDoc(
+        doc(db, APPROVAL_COLLECTION, id),
+        { activeDevice: deviceId, activeDeviceAt: serverTimestamp() },
+        { merge: true }
+      );
+    },
     async getPinHash(id) {
       const snap = await getDoc(doc(db, APPROVAL_COLLECTION, id));
       return snap.exists() ? snap.data().pinHash || null : null;
@@ -714,7 +722,7 @@
   window.dispatchEvent(new Event("firestore-ready"));
 </script>
 
-<script src="app.js?v=20261129c"></script>
+<script src="app.js?v=20261127d1"></script>
 
 <script>
   if ("serviceWorker" in navigator) {
