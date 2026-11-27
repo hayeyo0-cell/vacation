@@ -7339,6 +7339,29 @@ function LotteryApplyPanel({
 
 /* ------------------------------------------------------------------ */
 /* 명절 연휴 추첨 - 관리자 패널 (경산 전용)                              */
+/* 🆕 연계 체크 없이 따로 응모한 "야간 + 다음날 그 야간의 비번"을 찾아서 연계로 묶어줘요.          */
+/*    같은 사람(번호 또는 이름), 1일차 야간 → 2일차 비번(~)이면 연계로 봐요. 추첨과 화면 표시에 같이 써요. */
+function implicitLotteryPairs_(event, entries) {
+  const pairs = [];
+  const used = new Set((entries || []).filter(en => en.linkId).map(en => en.id));
+  const eventDates = ((event && event.dates) || []).map(d => d.date);
+  (entries || []).forEach(en => {
+    if (en.linkId || used.has(en.id) || !isNightShiftCode(en.dia, event.branch)) return;
+    const i = eventDates.indexOf(en.date);
+    if (i < 0 || i >= eventDates.length - 1) return;
+    const nextDate = eventDates[i + 1];
+    const off = nightDiaToOffDutyDia(en.dia);
+    const partner = entries.find(e2 => !e2.linkId && !used.has(e2.id) && e2.id !== en.id && (e2.employeeId === en.employeeId || e2.name && e2.name === en.name) && e2.date === nextDate && String(e2.dia || "").trim() === off);
+    if (!partner) return;
+    pairs.push({
+      a: en,
+      b: partner
+    });
+    used.add(en.id);
+    used.add(partner.id);
+  });
+  return pairs;
+}
 /* ------------------------------------------------------------------ */
 // 명절 추첨 이벤트의 마지막 대상 날짜 (지난 추첨 판단·1년 뒤 자동 정리 기준)
 // 상단 밴드 바로가기 아이콘 (이미지 파일을 따로 올리지 않아도 되게 코드 안에 넣어뒀어요)
@@ -7558,24 +7581,7 @@ function LotteryAdminPanel({
         }
       });
       // 🆕 예전에 연계 체크 없이 따로 응모한 야간+다음날 비번도 연계 응모로 보고 같이 묶어요
-      // (같은 사람, 1일차 야간 → 2일차가 그 야간의 비번 교번)
-      const pairedIds = new Set(pairs.flatMap(p => [p.a.id, p.b.id]));
-      const eventDates = (event.dates || []).map(d => d.date);
-      entries.forEach(en => {
-        if (en.linkId || pairedIds.has(en.id) || !isNightShiftCode(en.dia, event.branch)) return;
-        const i = eventDates.indexOf(en.date);
-        if (i < 0 || i >= eventDates.length - 1) return;
-        const nextDate = eventDates[i + 1];
-        const off = nightDiaToOffDutyDia(en.dia);
-        const partner = entries.find(e2 => !e2.linkId && !pairedIds.has(e2.id) && e2.employeeId === en.employeeId && e2.date === nextDate && String(e2.dia || "").trim() === off);
-        if (!partner) return;
-        pairs.push({
-          a: en,
-          b: partner
-        });
-        pairedIds.add(en.id);
-        pairedIds.add(partner.id);
-      });
+      implicitLotteryPairs_(event, entries).forEach(p => pairs.push(p));
       let changed = true;
       while (changed) {
         changed = false;
@@ -7847,6 +7853,8 @@ function LotteryAdminPanel({
       }, "명절 날짜가 지난 추첨이에요. 마지막 날짜로부터 1년이 지나면 자동으로 정리돼요."));
     }
     const entries = entriesByEvent[event.id] || [];
+    // 따로 응모했지만 추첨 때 연계로 묶이는 응모 (화면에 "🌙연계(자동)"으로 보여줘요)
+    const implicitIds = new Set(implicitLotteryPairs_(event, entries.filter(en => en.result === "대기중")).flatMap(p => [p.a.id, p.b.id]));
     const byDate = {};
     entries.forEach(en => {
       if (!byDate[en.date]) byDate[en.date] = [];
@@ -7916,12 +7924,12 @@ function LotteryAdminPanel({
           fontSize: "11px",
           color: "#888"
         }
-      }, "· ", en.name, " (", en.vacationType, "·", en.dia, ")", en.linkId && /*#__PURE__*/React.createElement("span", {
+      }, "· ", en.name, " (", en.vacationType, "·", en.dia, ")", (en.linkId || implicitIds.has(en.id)) && /*#__PURE__*/React.createElement("span", {
         style: {
           color: "#7a4fd1",
           fontWeight: 700
         }
-      }, " 🌙연계"), en.result === "당첨" && /*#__PURE__*/React.createElement("span", {
+      }, en.linkId ? " 🌙연계" : " 🌙연계(자동)"), en.result === "당첨" && /*#__PURE__*/React.createElement("span", {
         style: {
           color: "#1caa5c",
           fontWeight: 700
