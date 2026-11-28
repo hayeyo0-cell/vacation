@@ -2344,6 +2344,18 @@ function getNightShiftCodeSet(branch) {
   });
   return nightSet;
 }
+// 휴휴 교번 - 오늘도 "휴", 다음날도 "휴"인 교번 (야간 휴충당을 해도 다음날 비번이 휴무에 겹쳐 가능해요)
+// 번호를 고정하지 않고 교번틀(GYOBUN_ORDER)에서 바로 다음 칸이 "휴"인 "휴" 교번을 자동으로 찾아요.
+function getHyuHyuCodeSet(branch) {
+  const teamKey = REVERSE_TEAM_MAP[branch];
+  const order = (GYOBUN_ORDER[teamKey] || []).map(c => String(c).trim());
+  const set = new Set();
+  order.forEach((code, i) => {
+    const next = order[(i + 1) % order.length];
+    if (code.startsWith("휴") && String(next || "").startsWith("휴")) set.add(code);
+  });
+  return set;
+}
 function isNightShiftCode(dia, branch) {
   const trimmed = String(dia || "").trim();
   if (!trimmed) return false;
@@ -8050,6 +8062,8 @@ function HyuchungdangAdminPanel({
   // 휴충당 충당교번 드롭다운용 - 일반 교번 뒤에 임시열차(임시1~4)도 고를 수 있어요
   const HYU_TEMP_CODES = ["임시1", "임시2", "임시3", "임시4"];
   const substituteCodes = [...branchCodes, ...HYU_TEMP_CODES.filter(c => !branchCodes.includes(c))];
+  // 휴휴 교번(빨간 표시·⭐) - 교번틀에서 자동으로 찾아요
+  const hyuHyuSet = getHyuHyuCodeSet(branch);
 
   // 확인자 드롭다운용 - 그 소속 운용 명단 (이름순)
   const branchManagerNames = (managers || []).filter(m => m.branch === branch).map(m => m.name).sort((a, b) => a.localeCompare(b, "ko"));
@@ -8543,7 +8557,7 @@ function HyuchungdangAdminPanel({
       style: {
         ...tbl.td,
         fontWeight: 700,
-        color: ["휴1", "휴5", "휴10", "휴13"].includes(r.originalDia) ? "#e02020" : "#1b3a5c"
+        color: hyuHyuSet.has(String(r.originalDia || "").trim()) ? "#e02020" : "#1b3a5c"
       }
     }, r.originalDia || "-"), /*#__PURE__*/React.createElement("td", {
       style: tbl.td
@@ -8657,7 +8671,7 @@ function HyuchungdangAdminPanel({
       const nb = parseInt(String(b.restCode).replace(/[^0-9]/g, ""), 10) || 0;
       return na - nb;
     }).map(e => {
-      const isNightEligible = ["휴1", "휴5", "휴10", "휴13"].includes(e.restCode);
+      const isNightEligible = hyuHyuSet.has(String(e.restCode || "").trim());
       return /*#__PURE__*/React.createElement("option", {
         key: e.id,
         value: e.id
@@ -8668,7 +8682,7 @@ function HyuchungdangAdminPanel({
         color: "#888",
         marginTop: "4px"
       }
-    }, "그날 교번이 \"휴\"인 사람만 목록에 나와요 · ⭐ 표시는 야간 근무 휴충당이 가능한 휴1·5·10·13이에요")), /*#__PURE__*/React.createElement("div", {
+    }, "그날 교번이 \"휴\"인 사람만 목록에 나와요 · ⭐ 표시는 다음날도 휴무라 야간 근무 휴충당이 가능한 교번이에요")), /*#__PURE__*/React.createElement("div", {
       style: modal.formRow
     }, /*#__PURE__*/React.createElement("label", {
       style: modal.label
